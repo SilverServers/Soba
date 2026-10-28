@@ -1,0 +1,279 @@
+/* Theme tokens — BASE layer.
+   ════════════════════════════════════════════════════════════════════════════
+   LOAD ORDER (all three are render-blocking, and the order matters):
+
+     fonts.css                    ← @font-face first, so faces exist before use
+     reset.css
+     tokens-base.css              ← THIS FILE: theme-agnostic tokens + the bare
+                                     :root default-paint alias (the default
+                                     theme's values). ALWAYS loads before the
+                                     family files.
+     tokens/signature-styles.css  ← Signature themes
+     tokens/legacy-styles.css     ← Legacy themes
+     core.css                     ← the component vocabulary
+
+   The family files define ONLY `:root[data-theme="<key>"]` selectors (disjoint
+   by key), so their relative order does not matter. tokens-base must load first
+   so the shared tokens and the default-paint alias exist before any override.
+
+   The bare :root below carries (a) the shared theme-agnostic tokens and (b) a
+   copy of the DEFAULT theme's colour tokens, so first paint is never untokenized
+   — even before the resolver has stamped data-theme on <html>, and regardless of
+   which family file loads next. The keyed `:root[data-theme="tuxedo"]` block
+   itself lives in signature-styles.css; the values here MUST stay in sync with
+   it (they are the same palette).
+
+   ADDING A THEME:
+     1) Register it in themes_definitions() (php/lib/themes.php) with a `family`
+        of 'signature' or 'legacy', plus `bg` and `chrome` — these feed the
+        first-paint skeleton, so set them to the colours the CSS block resolves to.
+     2) Add a :root[data-theme="<key>"] block to the matching family file,
+        mirroring the FULL variable set. A theme that omits a token inherits the
+        default theme's value for it, which is how a "mostly right" theme ships
+        with one wrong colour nobody can find.
+     3) Do not introduce a new token here without defining it in EVERY theme.
+     4) The colour vocabulary is CLOSED — see the note at the bottom of this
+        file before you invent a token name.                                   */
+
+:root {
+  /* ── Default-paint palette: a copy of the DEFAULT theme's colour tokens, so
+        the bare :root is fully tokenized on first paint. Keep in sync with
+        :root[data-theme="tuxedo"] in tokens/signature-styles.css. ──────────── */
+  --bg:        #edf1f5;   /* light page */
+  --surface:   #fafcfd;   /* near-white card */
+  --surface-2: #e1e6eb;   /* nested / inset / code / count badges */
+
+  --ink:          #0c1219;   /* primary text */
+  --ink-2:        #4a5360;   /* secondary text */
+  /* --ink-3 WAS #6f7d8c AND FAILED AA: 3.71:1 against --surface-2 and 4.21:1
+     against --surface, for text the theme uses on form hints, tab labels, table
+     column heads, field names and every meta line in the admin. Not a
+     subtlety: text painted in this token was barely readable.
+
+     #57636f is 4.89:1 on --surface-2, 5.97:1 on --surface and 5.41:1 on --bg,
+     so the quiet register clears AA on all three, and it is still clearly
+     quieter than --ink-2 (6.20:1 on the same surface). The dark theme's #7a8593
+     was 4.12:1 on its own --surface-2 and moved to #8b95a3 (5.09:1).
+
+     MEASURE AGAINST THE REAL TOKEN, NOT A REMEMBERED ONE. A contrast check run
+     against #eef1f4 — a value --surface-2 has never held — passes #5f6c7a,
+     which is 4.27:1 against the actual #e1e6eb, still under AA. The numbers
+     above are measured against the --bg, --surface and --surface-2 values at
+     the top of this block.
+
+     ANY new value here gets measured against --surface AND --surface-2 before
+     it lands. A tertiary tone is not licence to go under 4.5:1 — tertiary is
+     about hierarchy, not about being hard to read. */
+  --ink-3:        #57636f;   /* tertiary / meta */
+  --ink-disabled: #bcc3cc;
+
+  --border:        #d6dbe1;  /* the 1px hairline that does all the separating */
+  --border-strong: #bcc4cc;  /* hover / emphasis hairline, control borders */
+
+  --accent:        #1b944b;
+  --accent-strong: #167a3e;
+  --accent-soft:   rgba(27, 148, 75, 0.10);
+
+  --hover:  rgba(0, 0, 0, 0.04);
+  --active: rgba(0, 0, 0, 0.07);
+  --focus:  rgba(27, 148, 75, 0.45);
+
+  --danger:       #b73d3d;
+  --danger-soft:  rgba(183, 61, 61, 0.10);
+  --warning:      #a17a30;
+  --warning-soft: rgba(161, 122, 48, 0.10);
+
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+
+  --color-scheme:  light;
+  --picker-invert: 0;   /* native date/time picker glyph inversion, 0..1 */
+
+  /* Hero / inset — the inverted-band widget pattern. --surface-hero is an
+     always-DARK panel (even on light themes); --surface-inset is an always-LIGHT
+     block that nests inside it. Both are per-theme so the pairing stays legible. */
+  --surface-hero:  #0d1218;
+  --ink-hero:      #f5f5f6;
+  --surface-inset: #fafcfd;
+  --ink-inset:     #0c1219;
+
+  /* ══ Theme-agnostic tokens (identical under every theme) ══════════════════ */
+
+  /* Typography — both families are SELF-HOSTED (fonts/, @font-face in fonts.css).
+     The system stacks remain only as the swap-period fallback. NEVER re-add a
+     font CDN: a third-party stylesheet is a render-blocking request on someone
+     else's network, and losing that race is a full-page FOUC. */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Fira Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --fs-xs:  12px;
+  --fs-sm:  13px;
+  --fs:     14px;
+  --fs-md:  15px;
+  --fs-lg:  16px;
+  --fs-xl:  18px;
+  --fs-2xl: 26px;   /* page H1 (.page__title) */
+  --fs-3xl: 32px;   /* welcome-style heading */
+  --fs-4xl: 40px;   /* hero heading */
+
+  --lh-tight: 1.25;
+  --lh:       1.45;
+
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semi:    600;
+
+  /* Spacing scale. A gap that is not one of these is an accident — usually two
+     margins summing. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* ── RADIUS: role tiers × a user preference ──────────────────────────────────
+     Radius is decided by an element's ROLE, never by taste:
+
+       --r-none  the page's main SUBSTANCE — tables, list rows, board rows,
+                 kanban columns, and the FORM a /new or /edit page exists to show
+       --r-sm    tiny chips, tags, status pills
+       --r       controls — buttons, inputs, selects, badges
+       --r-lg    genuine FLOATERS — modals, popovers, menus, filterbars,
+                 composers, toasts, the chat window
+       --r-xl    hero panels
+       --r-full  things that are circles BY SHAPE — avatars, pips, dots, count
+                 bubbles. NOT a taste tier. Never scaled by the preference below.
+
+     The test: is this element the primary substance of the page, or a widget
+     floating on top of it?
+
+     ── The user preference ──────────────────────────────────────────────────
+     `data-radius` on <html>, orthogonal to `data-theme` — mix and match freely.
+     It scales the TIERS; it does not abolish the roles.
+
+       classic   every tier flat. Straight-edged utility look.
+       modern    chips/controls/floaters round; SUBSTANCE STAYS 0.
+
+     --r-none is 0 under BOTH settings. That is the invariant: a data table with
+     rounded corners is the single most common way an interface stops looking
+     like a tool and starts looking like a landing page. The preference decides
+     how round a button and a modal are, not whether the page's content rounds.
+
+     WHY THIS IS SAFE: a stylesheet names a radius by its TOKEN, never as a raw
+     px value, and the large ones (--r-lg, --r-xl) are kept for floaters. So the
+     preference retunes every corner without touching a single rule: that is why
+     it is a token axis and not a CSS rewrite.
+
+     `classic` IS THE DEFAULT (Ui\Theme::DEFAULT_RADIUS, and the column default
+     in migration 038 — both, or the constant is a lie the stored value
+     overrides): inputs and buttons stay square, floaters included.
+
+     A third tier — `balanced`: sharp chips and controls, rounded floaters — is
+     one block away if a middle position is ever wanted:
+        :root[data-radius="balanced"] { --r-sm:0; --r:0; --r-lg:12px; --r-xl:18px; }
+     plus registering it in Theme::RADII and the picker. Two options are easier
+     to explain than three.  */
+  --r-none: 0;
+  --r-sm:   4px;
+  --r:      6px;
+  --r-lg:   12px;
+  --r-xl:   18px;
+  --r-full: 999px;   /* circles by shape — never scaled */
+
+  /* Text colour for anything sitting on a SATURATED brand background
+     (.btn--primary, accent/warning/danger fills, accent badges). White reads on
+     every brand colour we use, under every theme. NEVER use var(--ink) there:
+     on a light theme --ink is dark, and dark text on dark red is unreadable. */
+  --ink-on-strong: #ffffff;
+
+  /* Motion */
+  --t-fast: 120ms ease;
+  --t:      180ms ease;
+  --t-mid:  240ms ease;
+  --t-slow: 400ms ease;
+
+  /* ── THE CONTROL SCALE ──────────────────────────────────────────────────────
+     24 compact / 28 dense row / 32 default / 40 large input / 44 touch. These
+     two are the tiers anything in a form actually lands on, and they are tokens
+     rather than two files agreeing on the number 32 — which is how they stopped
+     agreeing: `.btn` pinned `min-height: 32px` while `.input` had no floor at
+     all and computed to 37 out of `padding: 8px` plus a 13px line box, a
+     height declared nowhere.
+
+     A height derived from padding is the recurring failure: a number arrived
+     at somewhere other than where it is defined. Declare the height, let the
+     padding be whatever centres inside it. */
+  --control-h:    32px;
+  --control-h-sm: 24px;
+
+  /* Layout */
+  --nav-h:       56px;
+  --rail-w:      240px;
+  /* THE COLLAPSED RAIL. Its CONTENT box is 48px — exactly twice the 24px the
+     glyph sits at in both states — so the icon is dead-centre on the rail and
+     at the identical x when expanded. The +1px is `.sb`'s own border-right,
+     which is chrome rather than content and must not push the glyph off centre.
+     It was a flat 52px, which made the content 51 and left every glyph 1.5px
+     left of centre. */
+  --rail-w-min:  calc(var(--sp-4) * 3 + 1px);
+  --content-max: 2560px;
+}
+
+/* ── Radius preference: CLASSIC ─────────────────────────────────────────────
+   Straight-edged throughout. --r-full is untouched: an avatar is a circle
+   because it is a portrait, not because of a taste setting. */
+:root[data-radius="classic"] {
+  --r-none: 0;
+  --r-sm:   0;
+  --r:      0;
+  --r-lg:   0;
+  --r-xl:   0;
+}
+
+/* ── Radius preference: MODERN ──────────────────────────────────────────────
+   Rounded controls and floaters. Substance stays flat — see the invariant above. */
+:root[data-radius="modern"] {
+  --r-none: 0;
+  --r-sm:   4px;
+  --r:      6px;
+  --r-lg:   12px;
+  --r-xl:   18px;
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────────
+   Zero the transition tokens rather than blanket `* { transition: none }` — the
+   blanket rule also kills transitions the components rely on to not flash. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t:      0ms;
+    --t-mid:  0ms;
+    --t-slow: 0ms;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   THE COLOUR VOCABULARY IS CLOSED.
+
+   These sheets are the ONE place a colour is defined per theme, and the one
+   place raw hex legitimately lives. That makes them where a fixed foreign hue
+   dressed up as a theme token would hide: a hardcoded blue status token, say,
+   painting calendar glyphs the same off-theme colour under every theme.
+
+   So every solid-colour custom property in these files takes a name from the
+   sanctioned list:
+
+     accent accent-strong accent-soft
+     ink ink-2 ink-3 ink-disabled ink-on-strong ink-hero ink-inset
+     bg surface surface-2 surface-hero surface-inset
+     border border-strong hover active focus
+     warning warning-soft danger danger-soft
+
+   A new name is a parallel palette until a human says otherwise.
+
+   If you need a new per-theme colour, first ask: does it resolve to
+   var(--accent) or a neutral? If it is a fixed hue, it is a violation unless it
+   is a sanctioned semantic WITH an accent fallback, consumed as
+   `var(--my-semantic, var(--accent))`.
+   ════════════════════════════════════════════════════════════════════════════ */

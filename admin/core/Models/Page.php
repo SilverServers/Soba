@@ -1,0 +1,313 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Cms\Models;
+
+use Cms\Database\Database;
+// ── CONTENT IS SANITISED HERE, AT THE MODEL, AND NOT IN THE CONTROLLER ──────
+// `templates/page.php` emits content UNESCAPED — deliberately, because a body is
+// meant to contain markup — so whatever is in this column reaches every
+// visitor's browser verbatim.
+//
+// Several paths write it — the admin's own screens, the assistant's applier,
+// import. Sanitising in the controllers would mean the guarantee holds for the
+// paths somebody remembered, and a new writer added next year is a hole nobody
+// notices — this is "one path in" applied to safety rather than to management.
+//
+// `Sanitizer::clean()` is idempotent, so cleaning content that is already
+// clean costs a parse and changes nothing.
+use Cms\Html\Sanitizer;
+use PDO;
+
+/**
+ * Page model — hierarchical static pages (About, Contact, Services, etc.)
+ * Separate from the posts/CPT system. No custom fields in v1.
+ */
+class Page
+{
+    /**
+     * Return all pages as a flat list ordered by menu_order, then title.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function all(): array
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->query(
+            "SELECT p.*, " . \Cms\Models\User::nameSql('u') . " AS author_name,
+                    parent.title AS parent_title
+             FROM pages p
+             JOIN users u ON u.id = p.author_id
+             LEFT JOIN pages parent ON parent.id = p.parent_id
+             WHERE p.status != 'trash'
+             ORDER BY p.menu_order ASC, p.title ASC"
+        );
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Return all trashed pages, newest first.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function allTrashed(): array
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->query(
+            "SELECT p.*, " . \Cms\Models\User::nameSql('u') . " AS author_name,
+                    parent.title AS parent_title
+             FROM pages p
+             JOIN users u ON u.id = p.author_id
+             LEFT JOIN pages parent ON parent.id = p.parent_id
+             WHERE p.status = 'trash'
+             ORDER BY p.created_at DESC"
+        );
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Count trashed pages.
+     */
+    public static function countTrashed(): int
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->query("SELECT COUNT(*) FROM pages WHERE status = 'trash'");
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Move a page to the trash (sets status = 'trash').
+     */
+    public static function trash(int $id): void
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare("UPDATE pages SET status = 'trash' WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+    }
+
+    /**
+     * Restore a page from the trash (sets status = 'private').
+     */
+    public static function restore(int $id): void
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare("UPDATE pages SET status = 'private' WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+    }
+
+    /**
+     * Find a page by ID. Returns null if not found.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function find(int $id): ?array
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'SELECT p.*, ' . \Cms\Models\User::nameSql('u') . ' AS author_name
+             FROM pages p
+             JOIN users u ON u.id = p.author_id
+             WHERE p.id = :id
+             LIMIT 1'
+        );
+        $stmt->execute([':id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? $row : null;
+    }
+
+    /**
+     * Find a live page by slug for the public frontend.
+     * Returns pages with status published, password, or private.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function findBySlug(string $slug): ?array
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare(
+            "SELECT p.*, " . \Cms\Models\User::nameSql('u') . " AS author_name
+             FROM pages p
+             JOIN users u ON u.id = p.author_id
+             WHERE p.slug = :slug AND p.status IN ('published', 'password', 'private')
+             LIMIT 1"
+        );
+        $stmt->execute([':slug' => $slug]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? $row : null;
+    }
+
+    /**
+     * Insert a new page. Returns the new page's ID.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function create(array $data): int
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'INSERT INTO pages
+                 (parent_id, title, slug, content, menu_order, status,
+                  password_hash, featured_image_id, seo_title, meta_description, author_id)
+             VALUES
+                 (:parent_id, :title, :slug, :content, :menu_order, :status,
+                  :password_hash, :featured_image_id, :seo_title, :meta_description, :author_id)'
+        );
+        $stmt->execute([
+            ':parent_id'         => $data['parent_id']         ?? null,
+            ':title'             => $data['title'],
+            ':slug'              => $data['slug'],
+            ':content'           => Sanitizer::clean((string) ($data['content'] ?? '')),
+            ':menu_order'        => $data['menu_order']        ?? 0,
+            ':status'            => $data['status']            ?? 'private',
+            ':password_hash'     => $data['password_hash']     ?? null,
+            ':featured_image_id' => !empty($data['featured_image_id']) ? (int) $data['featured_image_id'] : null,
+            ':seo_title'         => trim($data['seo_title']    ?? '') ?: null,
+            ':meta_description'  => trim($data['meta_description'] ?? '') ?: null,
+            ':author_id'         => $data['author_id'],
+        ]);
+        $id = (int) $pdo->lastInsertId();
+
+        // ── AUTO ADD PAGES, AND IT HANGS OFF THE INSERT, NOT OFF A SCREEN ───
+        // A menu with `auto_add_pages` set collects every new top-level page.
+        // Hung here rather than in `PageController::handleCreate()` because this
+        // method is the ONE PATH IN — the admin, the importer and the assistant's
+        // applier all reach a page through it, and a hook on one screen would
+        // mean an imported page quietly skipped the menu that had asked for
+        // every page.
+        //
+        // TOP-LEVEL ONLY. A child page joining the navigation at the top level is
+        // not what "add new pages to this menu" means to anybody, and nesting it
+        // under its parent assumes the parent is in that menu at all.
+        if (empty($data['parent_id'])) {
+            MenuItem::autoAddPage($id, (string) $data['title']);
+        }
+
+        return $id;
+    }
+
+    /**
+     * Update an existing page.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function update(int $id, array $data): void
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'UPDATE pages
+             SET parent_id         = :parent_id,
+                 title             = :title,
+                 slug              = :slug,
+                 content           = :content,
+                 menu_order        = :menu_order,
+                 status            = :status,
+                 password_hash     = :password_hash,
+                 featured_image_id = :featured_image_id,
+                 seo_title         = :seo_title,
+                 meta_description  = :meta_description
+             WHERE id = :id'
+        );
+        $stmt->execute([
+            ':parent_id'         => $data['parent_id']         ?? null,
+            ':title'             => $data['title'],
+            ':slug'              => $data['slug'],
+            ':content'           => Sanitizer::clean((string) ($data['content'] ?? '')),
+            ':menu_order'        => $data['menu_order']        ?? 0,
+            ':status'            => $data['status']            ?? 'private',
+            ':password_hash'     => $data['password_hash']     ?? null,
+            ':featured_image_id' => !empty($data['featured_image_id']) ? (int) $data['featured_image_id'] : null,
+            ':seo_title'         => trim($data['seo_title']    ?? '') ?: null,
+            ':meta_description'  => trim($data['meta_description'] ?? '') ?: null,
+            ':id'                => $id,
+        ]);
+    }
+
+    /**
+     * Check whether a slug is already taken in the pages table.
+     * Pass $excludeId when editing an existing page (exclude self).
+     */
+    public static function slugExists(string $slug, ?int $excludeId = null): bool
+    {
+        $pdo = Database::getInstance();
+        if ($excludeId !== null) {
+            $stmt = $pdo->prepare('SELECT id FROM pages WHERE slug = :slug AND id != :id LIMIT 1');
+            $stmt->execute([':slug' => $slug, ':id' => $excludeId]);
+        } else {
+            $stmt = $pdo->prepare('SELECT id FROM pages WHERE slug = :slug LIMIT 1');
+            $stmt->execute([':slug' => $slug]);
+        }
+        return $stmt->fetch() !== false;
+    }
+
+    /**
+     * Delete a page. Child pages will have their parent_id set to NULL (FK: ON DELETE SET NULL).
+     */
+    public static function delete(int $id): void
+    {
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare('DELETE FROM pages WHERE id = :id');
+        $stmt->execute([':id' => $id]);
+    }
+
+    /**
+     * Generate a URL-safe slug from a title, guaranteed unique in the pages table.
+     */
+    public static function generateSlug(string $title, ?int $excludeId = null): string
+    {
+        $base = strtolower($title);
+        $base = preg_replace('/[^a-z0-9\s-]/', '', $base) ?? $base;
+        $base = preg_replace('/[\s-]+/', '-', trim($base)) ?? $base;
+        $base = trim($base, '-');
+
+        if ($base === '') {
+            $base = 'page';
+        }
+
+        $pdo       = Database::getInstance();
+        $candidate = $base;
+        $suffix    = 2;
+
+        while (true) {
+            if ($excludeId !== null) {
+                $stmt = $pdo->prepare(
+                    'SELECT id FROM pages WHERE slug = :slug AND id != :id LIMIT 1'
+                );
+                $stmt->execute([':slug' => $candidate, ':id' => $excludeId]);
+            } else {
+                $stmt = $pdo->prepare('SELECT id FROM pages WHERE slug = :slug LIMIT 1');
+                $stmt->execute([':slug' => $candidate]);
+            }
+
+            // A reserved address counts as taken: a page titled "Search" would
+            // otherwise be given `/search`, which a fixed route answers first.
+            if ($stmt->fetch() === false
+                && !in_array($candidate, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
+                return $candidate;
+            }
+
+            $candidate = $base . '-' . $suffix;
+            $suffix++;
+        }
+    }
+
+    /**
+     * Return all pages suitable as parent options for a dropdown.
+     * Excludes the page being edited (can't be its own parent).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function parentOptions(?int $excludeId = null): array
+    {
+        $pdo  = Database::getInstance();
+        if ($excludeId !== null) {
+            $stmt = $pdo->prepare(
+                "SELECT id, title FROM pages WHERE id != :id AND status != 'trash' ORDER BY menu_order ASC, title ASC"
+            );
+            $stmt->execute([':id' => $excludeId]);
+        } else {
+            $stmt = $pdo->query("SELECT id, title FROM pages WHERE status != 'trash' ORDER BY menu_order ASC, title ASC");
+        }
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}

@@ -1,0 +1,10 @@
+# www/admin/ exists only to hold the admin's static assets. Without this,
+# mod_dir sees the bare /admin route as a directory and 301s it to /admin/
+# before the front-controller rewrite in ../.htaccess can claim it, costing a
+# redirect hop on the admin's most-requested URL.
+#
+# Scoped to this directory on purpose: DirectorySlash stays ON everywhere else
+# (mod_autoindex is loaded server-wide, and turning it off site-wide can expose
+# directory listings).
+DirectorySlash Off
+Options -Indexes

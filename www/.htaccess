@@ -1,0 +1,19 @@
+# -----------------------------------------------
+# URL Rewriting (CMS front controller)
+#
+# There is deliberately no Basic Auth block in this file: access control,
+# when a site needs it, belongs in the server's own configuration.
+# -----------------------------------------------
+RewriteEngine On
+RewriteBase /
+
+# Admin routes: route through PHP, but serve real static files (css, js) directly.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^admin(/.*)?$ index.php [QSA,L]
+
+# Allow direct access to real static files (css, js, images, etc.)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Route everything else through index.php
+RewriteRule ^(.*)$ index.php [QSA,L]

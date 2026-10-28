@@ -1,0 +1,3 @@
+# Form attachments and private media. Never served directly: the CMS
+# streams them through /files/{id} after checking the viewer may see them.
+Require all denied

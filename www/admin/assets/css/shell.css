@@ -1,0 +1,850 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   APP SHELL — the grid, the PRIMARY sidebar, and the SECONDARY entity rail.
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Load AFTER core.css.
+
+   Three chrome columns at most:
+
+     ┌──────────────────────────────────────────────────┐
+     │ nav (top bar, 56px)                              │
+     ├──────────┬────────────┬──────────────────────────┤
+     │ sidebar  │ entity     │ main                     │
+     │ 240px    │ rail 184px │                          │
+     │ (→49px)  │ (→49px)    │                          │
+     └──────────┴────────────┴──────────────────────────┘
+
+   THE PRIMARY SIDEBAR is the app's one navigation column. It is rendered ONCE,
+   on every page, by one renderer. A panel DECLARES its sidebar as a typed spec
+   and never writes sidebar markup. There is deliberately NO raw-HTML escape
+   hatch — that absence is the whole design. With one, the same 240px column
+   grows competing markup idioms, and whole page-body filter bars get relocated
+   into it in costume.
+
+   THE ENTITY RAIL is the SECOND rail: a master-detail list of sibling
+   entities. It is deliberately QUIET and subordinate — no card box, no filter
+   chrome, dense name-only rows — and it NEVER touches the primary sidebar's
+   state. A page with an entity rail solves its OWN width; it never
+   force-collapses the main sidebar on load. The sidebar is the USER'S state,
+   nothing else's.
+
+   CONTENTS
+     1  The grid
+     2  Primary sidebar — shell
+     3  Primary sidebar — section shell
+     4  Primary sidebar — NAVIGATE surface
+     5  Primary sidebar — TUNE surface
+     6  Primary sidebar — collapse to icon rail
+     7  Mobile: relocate, never duplicate
+     8  Secondary entity rail
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ 1. THE GRID ═════════════════════════════════════════════════════════ */
+
+.app {
+  display: grid;
+  grid-template-rows: var(--nav-h) 1fr;
+  grid-template-columns: var(--rail-w) 1fr;
+  grid-template-areas:
+    "nav  nav"
+    "rail main";
+  min-height: 100vh;
+  /* A FLOOR. Everything in the shell may shrink (min-width: 0) so the layout
+     reflows instead of setting its own floor — but "shrinks" has to stop
+     somewhere. With no floor the columns keep collapsing past the point of
+     sense: at ~230–300px every band squeezes into a vertical sliver, one letter
+     per line, which is worse than the overflow it replaced. At or above the
+     floor the app reflows and fits; below it the page scrolls with the layout
+     intact. Getting there means chrome HIDES at the extremes rather than
+     shrinking to illegibility. */
+  min-width: 260px;
+}
+.nav-top { grid-area: nav; }
+.main    { grid-area: main; }
+
+.app--no-rail {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "nav"
+    "main";
+}
+
+/* A page with an ENTITY RAIL grows a THIRD chrome column between the sidebar and
+   the content — flush, full height, structural. Boxing the same list inside the
+   page reads as a floater. */
+.app--erail {
+  grid-template-columns: var(--rail-w) 184px 1fr;
+  grid-template-areas:
+    "nav  nav   nav"
+    "rail erail main";
+}
+/* Collapsed strip = --rail-w-min, the sidebar's own railed width, so twin
+   strips sit even. */
+.app--erail:has(> .entity-rail-col.is-collapsed) {
+  grid-template-columns: var(--rail-w) var(--rail-w-min) 1fr;
+}
+
+
+/* ═══ 2. PRIMARY SIDEBAR — SHELL ══════════════════════════════════════════ */
+
+/* Active state is a BACKGROUND SWAP, never a coloured edge on a rounded row.
+   (A coloured single edge on a rounded container is a locked violation.) */
+.sb {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  /* Pinned to the viewport: the column scrolls internally, so the collapse
+     toggle is always reachable and the sections never scroll off with the page. */
+  position: sticky;
+  top: var(--nav-h);
+  height: calc(100dvh - var(--nav-h));
+  /* A STACKING CONTEXT NEEDS A RANK. `position: sticky` creates one, and with
+     `z-index: auto` this column painted in the same layer as every positioned
+     element in the page body — `.list__row` is `position: relative` (for the
+     stretched row link) and comes LATER in the DOM, so it won every tie. The
+     railed flyout, however high its own z-index, is trapped inside this context
+     and was painted UNDER the content it overlaps. Above the page, below the
+     top bar (30) and the drawer (31). */
+  z-index: 20;
+}
+.sb__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* NO horizontal padding. It inset every row by 8px, so the hover target
+     stopped short of both edges — and because the column is 240px INCLUDING a
+     1px border-right, the content box is 239px and the two gutters measured 8
+     left / 9 right. A row now spans the full width and carries the inset
+     itself, which is both full-bleed and symmetrical by construction. */
+  padding: var(--sp-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+
+/* ═══ 3. PRIMARY SIDEBAR — SECTION SHELL ══════════════════════════════════ */
+
+/* Identical shell for both surfaces; only the surface class differs. */
+.sb__sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  border-radius: var(--r);
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.sb__sec-head:hover { color: var(--ink-2); background: var(--hover); }
+.sb__sec-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb__chev { flex: 0 0 auto; opacity: 0.65; transition: transform var(--t-fast); }
+.sb__sec.is-collapsed .sb__chev { transform: rotate(-90deg); }
+.sb__sec.is-collapsed .sb__sec-body { display: none; }
+
+/* COLLAPSE STATE IS SERVER-RENDERED, from a cookie. That is not an optimisation
+   — it is the whole reason the sidebar does not flash. A JS-restored collapse
+   state paints the section OPEN for one frame and then snaps it shut on every
+   navigation, which is the single most-noticed chrome jitter there is. The JS
+   only WRITES the cookie; the server decides what renders. */
+
+/* A "Pinned" bookmarks section sits LAST, in normal flow — not parked at the
+   bottom edge. The hairline sets it off from the tools above, but only when
+   something IS above it: on a page whose sidebar is just Pinned, the divider
+   would rule against nothing. */
+.sb__sec[data-sb-sec="pinned"]:not(:first-child) {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-1);
+}
+
+
+/* ═══ 4. PRIMARY SIDEBAR — NAVIGATE SURFACE ═══════════════════════════════ */
+
+/* TWO SURFACES, AND THEY MUST NOT LOOK ALIKE:
+     .sb__sec--nav   NAVIGATE — link rows. "Where am I / where can I go."
+     .sb__sec--tune  TUNE     — a recessed control panel. "What am I looking at."
+   A FILTER MUST NEVER READ AS A LINK. That is the contract; everything else in
+   here is in service of it. */
+.sb__list { display: flex; flex-direction: column; gap: 1px; }
+
+/* ONE ROW HEIGHT for the whole column, expanded and railed alike, so a glyph
+   sits at the same y in both. 28px is on the control scale (§7a) and gives a
+   larger touch target than the 26px the padding alone produced. */
+.sb { --sb-row-h: 28px; }
+.sb__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* A FIXED height, not a minimum. With `min-height` the expanded row grew to
+     whatever the LABEL's line box needed (~30px at --fs-sm) while the railed row
+     stayed at the icon's 26px — a 2px difference per row that accumulated down
+     the column, so the fifth glyph sat 6px off its own position in the other
+     state. The rows are single-line and ellipsised, so a fixed height is safe
+     and it is the only thing that makes the two states line up exactly. */
+  height: var(--sb-row-h);
+  /* --sp-4, not --sp-2: the 8px the scroll container gave up moves here, so the
+     glyph stays at exactly the same x it has always been (centre 24). */
+  padding: 0 var(--sp-4);
+  /* SQUARE. A full-bleed row cannot round — the corners would only ever show
+     against the column's own edges, which reads as a pill someone forgot to
+     finish. Rounding is for floaters; this is the column itself. */
+  border-radius: var(--r-none);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.sb__item:hover { background: var(--hover); color: var(--ink); }
+.sb__item.is-active { background: var(--surface-2); color: var(--ink); font-weight: var(--fw-medium); }
+
+/* EVERY SIDEBAR NAV ROW HAS AN ICON. NO EXCEPTIONS.
+   A TRANSPARENT spacer drawn when a row resolves no icon is a fine answer to
+   the wrong question: the row should not be iconless. In the expanded column
+   the spacer is merely invisible. On the RAIL, where the glyph IS the row, it
+   is a blank clickable box with no name and nothing to aim at —
+   indistinguishable from a rendering bug. An icon key derived from
+   `strtolower($label)` produces exactly that: "Staff schedules" asks the map
+   for `staff schedules` and gets nothing.
+
+   The fix is structural: the icon resolver CANNOT return null, and the renderer
+   has no iconless branch. No row may render without a glyph, or through the
+   generic fallback because its key was never registered. Never derive an icon
+   key from a label. */
+/* ONE GLYPH SIZE FOR THE WHOLE COLUMN. This was 14px here, 17px on the rail and
+   17px again in the flyout — so every collapse or expand made all eleven icons
+   jump, and 17 is not on the icon scale (10 / 12 / 14 / 16) at all. 16px is the
+   --lg tier: big enough to carry the collapsed rail where the glyph IS the row,
+   still right beside a label in the expanded column. The rail and flyout
+   overrides are gone rather than retuned — three declarations that had to agree
+   is how they stopped agreeing. */
+.sb__item-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  transition: fill var(--t-fast);
+}
+.sb__item:hover .sb__item-icon    { fill: var(--ink-2); }
+.sb__item.is-active .sb__item-icon { fill: var(--accent); }
+
+.sb__item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb__item-count {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A child row that belongs to the row above it (a sub-section under its parent).
+   It shows only the leaf label, so the INDENT is what says whose it is: one
+   icon-width plus the row gap, which lands its glyph where the parent's LABEL
+   starts. */
+.sb__item--child { padding-left: calc(var(--sp-4) * 2 + var(--sp-4)); }
+/* Railed, there is no parent label to sit under, so the indent would only push
+   the row out of alignment with the column of glyphs. */
+/* In the flyout the panel is the containment, so no extra step. */
+.sb.is-railed .sb__sec-body .sb__item--child { padding-left: calc(var(--sp-4) + var(--sp-3)); }
+
+.sb__hint { padding: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.5; }
+
+
+/* ═══ 4b. GROUP ROWS AND THE FLYOUT ═══════════════════════════════════════ */
+
+/* A GROUP is a top-level row that is itself a destination AND a heading, with a
+   submenu under it. It exists because a text-only heading is `display: none` on
+   the rail, so railed every group vanished and its children stood in one
+   undifferentiated stripe: `list · plus · list · plus` for two Content Types,
+   with the types' own registered glyphs nowhere on screen.
+
+   The row and the chevron are TWO controls. One element that both navigates and
+   toggles is two jobs fighting over one click, and it costs the row its
+   middle-click and the chevron its tab stop. */
+/* NO radius here. It had one while this element carried the "current" fill; the
+   fill moved onto the row itself (see ONE HIGHLIGHT below) and the radius was
+   left behind rounding nothing. */
+.sb__group { display: flex; align-items: center; }
+.sb__group > .sb__item--parent { flex: 1 1 auto; min-width: 0; }
+
+/* The header is a <button>, so it needs the control reset `.sb__item` never had
+   to carry when every row was an anchor. */
+.sb__item--parent {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* THE CARET HAS TO BE SEEN TO BE A STATE INDICATOR. It was 12px of --ink-3 at
+   0.65 opacity on the sidebar's dark chrome — in the DOM, invisible on screen —
+   so clicking a group looked like nothing happened. Full opacity, one size up,
+   and it takes the row's own colour, which brightens on hover and goes --ink on
+   the current group. */
+.sb__chev {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  transition: transform var(--t-fast);
+}
+/* §3 already rotates the chevron on a collapsed section; not repeated here. */
+
+/* ── ONE HIGHLIGHT, NOT TWO ───────────────────────────────────────────────
+   The parent used to take the same filled skin as its current child, so "News"
+   and "All News" both sat in a box and the column showed two selections for one
+   page. Only the row you are ACTUALLY on is filled.
+
+   The parent still has to say it contains that page — railed, its glyph is the
+   only thing on screen for the whole group — so it says so with the ACCENT on
+   its glyph and a weight change on its label. A cue, not a second selection. */
+.sb__item--parent.is-current { color: var(--ink); font-weight: var(--fw-medium); }
+.sb__item--parent.is-current .sb__item-icon { fill: var(--accent); }
+
+/* ── DEPTH, WITHOUT NARROWING THE ROW ─────────────────────────────────────
+   The indent used to be `margin-left` + `border-left` on the LIST, which pushed
+   the rows in and shrank every submenu hover target by 28px. The rows stay full
+   width; the indent is their own padding, and the tree rule is drawn by a
+   pseudo-element so it costs the row nothing.
+
+   The rule sits at 24px — dead through the parent glyph's centre, which is
+   where the eye already is. */
+.sb__sec-body > .sb__list { position: relative; }
+.sb__sec-body > .sb__list::before {
+  content: "";
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+.sb__sec-body .sb__item { padding-left: calc(var(--sp-4) * 2); }
+
+.sb__flyout-title { display: none; }
+
+/* ── RAILED: THE SUBMENU BECOMES A FLYOUT ─────────────────────────────────
+   `position: fixed` for one specific reason: `.sb__scroll` is `overflow-y:
+   auto`, which CLIPS an absolutely-positioned child. Fixed takes the panel out
+   of that clip entirely — and with `top: auto` it resolves to its own static
+   position, i.e. level with the row that owns it, so the common case needs no
+   JavaScript at all. `sidebar.js` only nudges it when it would run off the
+   bottom of the viewport.
+
+   Shown on :hover AND :focus-within — a flyout that only answers the mouse is
+   a submenu a keyboard cannot reach. */
+.sb.is-railed .sb__sec--group > .sb__sec-body {
+  position: fixed;
+  /* One border-width INSIDE the rail's outer edge, so the panel covers `.sb`'s
+     border-right rather than starting after it. That 1px is the difference
+     between the tile and the panel touching and merely being near each other. */
+  left: calc(var(--rail-w-min) - 1px);
+  z-index: 60;
+  min-width: 190px;
+  max-width: 260px;
+  /* NO padding on the panel. The title is a full-bleed header band, so the
+     inset moves to the list below it — a band with 8px of panel padding around
+     it is a grey rectangle floating inside a menu, not a header. */
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  /* SHARP, and this is a deliberate departure from "floaters round".
+     The rule is about a panel that sits ON TOP of the page — a modal, a
+     popover, a toast. This one is flush against the rail, on the rail's own
+     dark surface, and reads as the column continuing sideways rather than as
+     something floating over it. At --r-lg it looks like a widget borrowed
+     from another product parked next to the sidebar. */
+  border-radius: var(--r-none);
+  box-shadow: var(--shadow);
+
+  /* ALIGN WITH THE TRIGGER. `top: auto` on a fixed box resolves to its STATIC
+     position, which is directly BELOW the group row — every flyout opened 34px
+     low, uniformly, which reads as the panel belonging to the row underneath.
+     Cancelling exactly one row height puts its top edge level with the glyph
+     that opened it. This keeps the common case correct with NO JavaScript;
+     `sidebar.js` only intervenes when the panel would run off the bottom, and
+     zeroes this margin when it does so the two cannot both apply. */
+  margin-top: calc(var(--sb-row-h) * -1);
+  display: none;
+}
+/* ── WHICH GLYPH DOES THIS PANEL BELONG TO? ───────────────────────────────
+   Nothing said. The panel opened in the middle of a column of eleven identical
+   marks, separated from all of them by the rail's 8px padding, and the moment
+   the pointer moved into it the glyph's :hover was gone — so an open flyout
+   pointed at nothing at all.
+
+   Three things tie them together, and they only work together:
+     1. the glyph STAYS lit for as long as the panel is open — `.is-flyout-open`
+        outlives :hover, which is the whole reason it exists;
+     2. its tile takes the PANEL's surface, so the two are the same colour;
+     3. it stretches over the rail's right padding to touch the panel, and drops
+        the corners and the border on the edge where they meet — so they are one
+        continuous shape, not two things near each other.
+   It is the only part of the flyout that explains itself without a label. */
+.sb.is-railed .sb__sec--group.is-flyout-open > .sb__group > .sb__item--parent {
+  background: var(--surface);
+  color: var(--ink);
+  /* No margin trick any more: the row is already full-bleed, so it reaches the
+     column's edge on its own and meets the panel there. */
+}
+.sb.is-railed .sb__sec--group.is-flyout-open > .sb__group > .sb__item--parent .sb__item-icon {
+  fill: var(--accent);
+}
+/* The seam. Without this a 1px border-strong line runs down the join and the
+   two halves read as adjacent rather than joined. */
+.sb.is-railed .sb__sec--group.is-flyout-open > .sb__sec-body { border-left-color: transparent; }
+
+.sb.is-railed .sb__sec--group:hover > .sb__sec-body,
+.sb.is-railed .sb__sec--group:focus-within > .sb__sec-body,
+/* Touch has no hover, so a tap on the glyph sets this — see sidebar.js. */
+.sb.is-railed .sb__sec--group.is-flyout-open > .sb__sec-body { display: block; }
+
+/* The panel floats away from its row, so it has to say WHICH group it is. A
+   bare "All / Add new" beside a rail of glyphs names nothing. */
+/* THE PANEL'S HEADER, AND IT MUST NOT READ AS A ROW. As plain muted text at the
+   top of a list of links it was just a fourth item that happened not to
+   respond — same left edge, same background, same weight family. It now sits on
+   the inset tone with a hairline under it, which is the same recessed-surface
+   idiom `.sb__sec--tune` uses to say "this is not a link".
+
+   `user-select: none` and the default cursor are the other half: a text caret
+   and a blue selection drag over a label make it feel like CONTENT you are
+   meant to read and copy, rather than chrome naming the panel. */
+.sb.is-railed .sb__flyout-title {
+  display: block;
+  padding: 7px var(--sp-2);
+  /* --bg, NOT --surface-2. The panel sits on --surface, and in the sidebar's
+     dark-chrome scope --surface-2 is only about seven values LIGHTER than it —
+     invisible as a band, and lighter reads as raised anyway, which is the
+     opposite of a header. --bg is the recessed end of the ladder (§5): sixteen
+     values darker on dark chrome, and the familiar grey-on-white header band on
+     a light one. It is the same tone the column itself sits on, so the header
+     reads as the rail showing through the panel. */
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 10px;
+  font-weight: var(--fw-semi);
+  text-transform: uppercase;
+  /* Wider tracking is the other half of "this is a label, not a row": at this
+     size it stops reading as a word and starts reading as a heading. */
+  letter-spacing: 0.09em;
+  color: var(--ink-2);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+/* The inset the panel gave up, moved to the rows so the band can run edge to
+   edge above them. */
+/* Vertical inset only — horizontal would inset the rows again. */
+.sb.is-railed .sb__sec-body > .sb__list { padding: var(--sp-1) 0; }
+
+/* Inside the flyout the rows are ordinary labelled rows again — full width, left
+   aligned — not the 34px squares the rail itself uses. */
+/* A FLYOUT ROW IS THE COLUMN'S ROW, CONTINUED SIDEWAYS — same height token, same
+   padding, same glyph, so the row you leave and the row you arrive at are the
+   same object. `sidebar.js` does the vertical alignment; this makes the two ends
+   match once they meet. */
+.sb.is-railed .sb__sec-body .sb__item {
+  justify-content: flex-start;
+  width: auto;
+  /* 34px is NOT on the control scale, and it is deliberate: this row has to be
+     exactly as tall as the rail row it opens from, or the first item stops
+     lining up with its glyph and the whole point of the alignment is lost. The
+     rail's own square gets past check 15 via the `width: Npx; height: Npx`
+     one-line idiom, which does not apply here because the width is auto. This
+     is the sanctioned-one-off marker the check documents; no allowlist widened. */
+  height: var(--sb-row-h);
+  padding: 0 var(--sp-2);
+}
+/* No size override here either: the flyout row inherits the one column size,
+   so the glyph it opens from and the glyph it lands on are the same mark. */
+.sb.is-railed .sb__sec-body .sb__item-name { display: block; }
+/* The depth rule and the indent belong to the IN-FLOW submenu. Inside the
+   flyout the panel's own edge already contains the rows, so a rule hard against
+   it reads as a stray line and an indent leaves the first glyph floating. */
+.sb.is-railed .sb__sec-body > .sb__list::before { display: none; }
+.sb.is-railed .sb__sec-body .sb__item { padding-left: var(--sp-4); }
+/* A child row's indent is meaningful again here, because its parent's label is
+   directly above it in the same panel. */
+.sb.is-railed .sb__sec-body .sb__item--child { margin-left: calc(14px + var(--sp-2)); }
+
+
+/* ═══ 5. PRIMARY SIDEBAR — TUNE SURFACE ═══════════════════════════════════ */
+
+/* A RECESSED control panel. This is the whole point: it must not look like the
+   link rows above it. Recessed (--surface-2 + a border) is what makes a filter
+   read as a control rather than as a destination.
+
+   ONE BEHAVIOUR: every control applies IMMEDIATELY. No Apply buttons anywhere in
+   the sidebar. A control either filters already-loaded rows (client mode) or
+   auto-submits its GET form (server mode), and the user must never have to tell
+   the difference. If a control genuinely needs an Apply button, it does not
+   belong in the sidebar — it belongs in a .filterbar--apply in the page body. */
+.sb__sec--tune .sb__sec-body {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.sb__form  { display: flex; flex-direction: column; gap: var(--sp-2); }
+.sb__field { display: flex; flex-direction: column; gap: 3px; }
+.sb__label { font-size: var(--fs-xs); color: var(--ink-3); font-weight: var(--fw-medium); }
+.sb__control { width: 100%; min-width: 0; }
+.sb__reset { font-size: var(--fs-xs); color: var(--ink-3); align-self: flex-start; }
+.sb__reset:hover { color: var(--ink); text-decoration: underline; }
+
+
+/* ═══ 6. PRIMARY SIDEBAR — COLLAPSE TO ICON RAIL ══════════════════════════ */
+
+/* The controls sit on their OWN surface — a step up from the column's --bg — so
+   they read as controls, not as stray chevrons floating above the first section.
+   Both tokens are remapped inside any dark-chrome theme scope, so the band lifts
+   on every theme without a chrome-specific token.
+
+   THE BAND IS A CONTAINER, NOT A BUTTON. It was the rail toggle's own box until
+   the column grew a collapse-all beside it; making that a second full-width
+   button would have stacked two 34px strips and two hairlines above the first
+   section. The chrome (height, hairline, surface) lives here; the buttons inside
+   are transparent and hover one at a time. */
+.sb__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  /* The CHROME BAND height — a layout band, not a row control. The entity
+     rail's toggle matches it to the pixel so the two columns' header strips
+     register as one continuous band. */
+  height: 34px;   /* DESIGN-LINT: CTL-H-OK (chrome band) */
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+/* THE BUTTONS DIVIDE THE BAND. They do NOT shrink-wrap their glyph.
+   `padding: 0 var(--sp-2)` and nothing else made each of these a 30x34 box in a
+   240px strip — the rail toggle had been the WHOLE strip until it had company,
+   so adding a second control shrank the first one's target by 87%. That is a
+   regression dressed as a feature. A flex child with only padding shrink-wraps
+   its content; `flex` on both is what makes the whole band clickable.
+
+   THE SPLIT IS 8/2, NOT 50/50 — see the two rules below. */
+.sb__bar-btn {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  /* FULL BAND HEIGHT, so the hit area is the strip and not a 20px glyph
+     floating in the middle of it. Square corners for the same reason the rows
+     are square: this is chrome, and chrome does not float. */
+  height: 100%;
+  /* NO PADDING ON THE BUTTON — the inset lives on the glyph instead (below).
+     With `box-sizing: border-box` a flex-basis of 0 is CLAMPED UP to the box's
+     own padding+border, so padding here comes off the top before the ratio is
+     applied and the 8/2 split measured 198/41 instead of 192/48. The small
+     button is the one that pays for that, and it is the one that can least
+     afford to. Zero padding → basis really is 0 → the ratio is exact. */
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: var(--r-none);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.sb__bar-btn:hover { color: var(--ink); background: var(--surface-2); }
+
+/* 8/2. THE RAIL TOGGLE IS THE BAND'S PRIMARY CONTROL and it takes most of it —
+   192px of a 240px column — with its chevron hard against the left edge it pulls
+   the column in towards. Collapse-all is the subordinate one: a 48px tab at the
+   right end, still full band height, its glyph centred because at that width
+   there is no edge to align to that is not also the middle.
+   GROW, not a fixed basis: in the mobile drawer the rail toggle is hidden (there
+   is no column to narrow) and collapse-all must then take the whole band. A
+   `flex: 0 0 20%` would strand it as a 64px tab in a 320px sheet. */
+.sb__rail-toggle { flex: 8 1 0; justify-content: flex-start; }
+.sb__collapse-all { flex: 2 1 0; justify-content: center; }
+
+/* The left-hand glyph's inset, carried by the GLYPH so it stays out of the flex
+   basis (see .sb__bar-btn). --sp-4 matches .sb__item's padding, so the chevron
+   sits on the same x as the column of row glyphs below it. */
+.sb__rail-toggle .icon { margin-left: var(--sp-4); }
+
+/* ONE BUTTON, TWO DIRECTIONS. Both glyphs are in the DOM and CSS picks; the
+   alternative is JS rewriting innerHTML, which puts the icon markup in a PHP
+   renderer AND a JS string and lets the copy nobody reads go stale. */
+.sb__collapse-all .sb__ca-expand { display: none; }
+.sb__collapse-all.is-all-collapsed .sb__ca-collapse { display: none; }
+.sb__collapse-all.is-all-collapsed .sb__ca-expand { display: block; }
+
+/* Railed: a narrow column of glyphs. TUNE disappears entirely — a filter with no
+   label is not a filter — and the NAVIGATE rows become glyph-only. */
+/* The rail's width, named once — the flyout has to lap over its right border to
+   join the tile, and two copies of `52` that must agree is how a 1px seam ships
+   (it did: measured a 1px gap between the tile and the panel, which was this
+   border showing through the join). */
+.sb.is-railed { width: var(--rail-w-min); }
+/* NO COLLAPSE-ALL ON THE RAIL. Railed there are no sections to collapse — the
+   submenus are flyouts — so the button would toggle a state nobody can see, in
+   a 52px column that has room for exactly one control. The rail toggle then
+   takes the whole band back and centres, like it did before it had company. */
+.sb.is-railed .sb__collapse-all { display: none; }
+/* Alone in a 52px band, the toggle takes the whole thing and centres — the
+   52x34 target it had before it had company. The glyph's left inset goes with
+   the alignment: 16px of it inside a 48px box is not centred, it is nudged. */
+.sb.is-railed .sb__rail-toggle { justify-content: center; }
+.sb.is-railed .sb__rail-toggle .icon { margin-left: 0; }
+.sb.is-railed .sb__rail-toggle svg { transform: rotate(180deg); }
+/* NAMES GO, GLYPHS STAY — but ONLY for the rows that are actually on the rail.
+   A blanket `.sb.is-railed .sb__item-name { display: none }` also blanked every
+   row inside the FLYOUT, which is the one place railed labels must survive: a
+   pop-out panel of four unlabelled glyphs is worse than no pop-out. So this is
+   scoped to the lead rows and the group rows, and `.sb__sec-body` keeps its. */
+.sb.is-railed .sb__sec--lead .sb__item-name,
+.sb.is-railed .sb__group .sb__item-name,
+.sb.is-railed .sb__sec-head,
+.sb.is-railed .sb__item-count,
+.sb.is-railed .sb__hint,
+.sb.is-railed .sb__sec--tune { display: none; }
+/* NOTHING HERE MAY MOVE A GLYPH. The rail used to re-lay-out the row — its own
+   scroll padding, its own gap, `justify-content: center`, a 34px square instead
+   of a 28px row — so every icon shifted horizontally AND vertically on every
+   toggle. Fixing the icon SIZE alone did not fix that; the box around it was
+   still a different box.
+   The railed column is now the expanded column with the labels hidden and the
+   width dropped. Same scroll padding, same row padding, same gap, same height,
+   same left-aligned glyph. The only thing that changes is what is legible. */
+/* NO CARET ON THE RAIL. There is nothing to disclose in place — the flyout does
+   it — so a chevron here points at a state you cannot see, and eight of them
+   stack up a column of furniture in a 49px rail. In CSS and not in the template
+   because the column can be railed two ways: served that way, or toggled with
+   the button, and the toggle never re-renders the markup. */
+.sb.is-railed .sb__chev { display: none; }
+/* No `.sb__scroll` override and no `.sb__item` override: both states share one
+   layout. See the note above. */
+/* No size override — see .sb__item-icon. The rail used to bump this to 17px,
+   which is what made the icons jump on every toggle. */
+/* ONE divider, after the lead rows — not between every section. A rule plus
+   12px of padding plus a 12px gap between all nine groups turned eleven glyphs
+   into roughly 600px of column: three-quarters of it whitespace, and a stack of
+   lines that read as separators between things that need no separating. The one
+   that stays earns it: it marks where "everywhere" ends and the groups begin. */
+/* The lead divider is NOT redeclared for the rail. Its rule is not
+   railed-qualified, so one declaration serves both states — and two copies that
+   must agree is exactly what this layout avoids. */
+
+/* A tooltip is legal on the rows ONLY while railed — that is exactly when they
+   become glyph-only. The JS adds and removes data-tip on toggle. The collapse
+   TOGGLE itself never gets one: the chevron speaks for itself. */
+
+/* Railed → the grid column shrinks with it.
+   ── DESKTOP ONLY, AND THAT IS LOAD-BEARING. ────────────────────────────────
+   On mobile the sidebar is display:none (it relocates into the drawer). But an
+   un-media-queried version of this rule STILL sized the app's first column at
+   52px, and its specificity (0,3,0) beat the mobile `.app { grid-template-
+   columns: 1fr }` (0,1,0). With the sidebar gone, `main` was auto-placed into
+   that 52px column and THE ENTIRE PAGE RENDERED 52px WIDE — one letter per line,
+   dead space beside it.
+
+   It only bit users who had railed their sidebar, so it was invisible without
+   the cookie set: clean screenshots looked perfect. A railed COLUMN is a
+   desktop concept; on mobile there is no column at all.
+
+   The lesson generalises: ANY rule keyed on a persisted UI state (a cookie, an
+   .is-* class, a :has() on one) is invisible to default-state testing BY
+   CONSTRUCTION. Verify it in BOTH states, explicitly. */
+@media (min-width: 721px) {
+  .app:has(> .sb.is-railed) { grid-template-columns: var(--rail-w-min) 1fr; }
+  .app--erail:has(> .sb.is-railed) { grid-template-columns: var(--rail-w-min) 184px 1fr; }
+  .app--erail:has(> .sb.is-railed):has(> .entity-rail-col.is-collapsed) {
+    grid-template-columns: var(--rail-w-min) var(--rail-w-min) 1fr;
+  }
+}
+
+
+/* ═══ 7. MOBILE: RELOCATE, NEVER DUPLICATE ════════════════════════════════ */
+
+/* The mobile drawer MOVES this one node. It never renders a second copy.
+   A second copy leaves the text filter dead (the JS binds to the first match)
+   and duplicates every element id in it. */
+@media (max-width: 720px) {
+  /* COLLAPSE THE GRID, not just the sidebar. Two other comments rely on this
+     rule: §6 above (the specificity fight against "the mobile
+     `.app { grid-template-columns: 1fr }`") and nav.css §6 ("shell.css already
+     collapses the grid").
+
+     Without it `.app` keeps `var(--rail-w) 1fr` while its only occupant of the
+     first column is `display: none`, so at 480px the computed template is
+     `240px 240px` — HALF THE VIEWPORT IS A DEAD BAND and the content renders in
+     the remaining 240px. The `.app--erail` twin of this rule is in §8.
+
+     Measure the computed grid, do not just look: a screenshot shows a narrow
+     column of content, which reads like a design choice until you ask the box
+     where its columns are. */
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "nav"
+      "main";
+  }
+  .app > .sb { display: none; }
+  .nav-drawer__rail .sb { display: flex; width: auto; border-right: 0; }
+  /* NO RAIL TOGGLE IN THE DRAWER — there is no column to narrow. Collapse-all
+     STAYS: the drawer is where the whole nav is on screen at once, which is
+     exactly where folding it up is worth most. But a band with nothing left in
+     it is a 34px strip and a hairline over nothing, so the band goes with the
+     toggle on any column that never rendered one (fewer than two groups). */
+  .nav-drawer__rail .sb__rail-toggle { display: none; }
+  .nav-drawer__rail .sb__bar:not(:has(.sb__collapse-all)) { display: none; }
+}
+
+/* One consequence worth knowing: a click handler scoped to [data-sidebar] never
+   sees a RELOCATED section's toggles, because the drawer node is outside it. The
+   sidebar JS therefore carries a second, document-delegated handler for exactly
+   that case — and skips anything still inside [data-sidebar] so nothing
+   double-fires. Without it, sections could not be collapsed on a phone. */
+
+
+/* ═══ 8. SECONDARY ENTITY RAIL ════════════════════════════════════════════ */
+
+/* The second rail, as a system — for a facet that is a master-detail over
+   sibling entities (clients, sites, collections, channels).
+
+   It is QUIET: it sits on the page ground with no card box, rows are dense
+   name-only lines, and per-entity colour is a 3px LEFT EDGE that every row
+   reserves as a transparent slot, so names stay aligned whether or not an entity
+   is painted. An unpainted entity shows nothing — the absence is the default,
+   not a fallback colour.
+
+   NO FILTER BOX. Chrome is bloat on a rail, and a column of names is
+   scannable at this size. If the list is long enough to need a filter, it is
+   long enough to need a real index page.
+
+   Per-entity colour here is a SANCTIONED exception to the single-accent rule and
+   the ONLY one of its kind: it is scoped to this one surface. Do not colour
+   anything by entity anywhere else — rails, rosters and charts all stay on the
+   theme accent. */
+
+/* The shell's second chrome column — the main sidebar's own recipe: page ground,
+   right divider, pinned under the nav, scrolling internally. Flush and
+   structural; never a boxed card. */
+.entity-rail-col {
+  grid-area: erail;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* One step LIFTED from the sidebar. Painting it the sidebar's exact --bg made
+     one undifferentiated slab; taking --surface instead means strip → rail →
+     content reads as three levels with a visible seam. Measured, not guessed. */
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: var(--nav-h);
+  height: calc(100dvh - var(--nav-h));
+  overflow-y: auto;
+}
+
+.entity-rail { display: flex; flex-direction: column; }
+
+/* Dense 28px name lines, and nothing else. */
+.entity-rail__row {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  border-left: 3px solid transparent;   /* the reserved edge slot — keeps names aligned */
+  text-decoration: none;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+.entity-rail__row:hover { background: var(--hover); color: var(--ink); }
+.entity-rail__row.is-active { background: var(--surface-2); color: var(--ink); font-weight: var(--fw-semi); }
+.entity-rail__row.is-painted { border-left-color: var(--entity-accent); }
+.entity-rail__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The facet's own DASHBOARD row heads the rail — "why is there no top-level link
+   back to the hub?" is a real question a master-detail rail always raises. The
+   divider marks it off from the roster below. */
+.entity-rail__root { gap: var(--sp-2); border-bottom: 1px solid var(--border); }
+.entity-rail__root-icon { flex: 0 0 auto; }
+
+/* The collapse toggle — the main sidebar's recipe, sized to this rail's rhythm. */
+.entity-rail__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  /* 34px = .sb__rail-toggle's height EXACTLY, so the two columns' header strips
+     register as ONE continuous band across the seam. */
+  height: 34px;   /* DESIGN-LINT: CTL-H-OK (= .sb__rail-toggle) */
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  /* The INVERSE step from its column (a --bg strip on the lifted --surface rail;
+     the sidebar does the opposite), so adjacent header strips read as distinct
+     zones even when both columns are dark. Matched bands hid the seam entirely. */
+  background: var(--bg);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.entity-rail__toggle:hover { color: var(--ink); background: var(--surface-2); }
+
+/* COLLAPSED = STILL USABLE. The rows survive as two-letter marks, keeping the
+   colour edge and the full name as a right-side tooltip — still one click to the
+   entity. A collapsed rail that becomes an empty strip has not been collapsed,
+   it has been hidden, and the user has to expand it to do anything.
+
+   The mark is TEXT (first letters of the first two words: "Bob's Burgers" → BB),
+   not an invented glyph — the same idea as avatar initials. Inventing a metaphor
+   per entity is exactly what the icon rules forbid. */
+.entity-rail__abbr {
+  display: none;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.02em;
+}
+.entity-rail-col.is-collapsed .entity-rail__abbr { display: block; }
+.entity-rail-col.is-collapsed .entity-rail__name { display: none; }
+.entity-rail-col.is-collapsed .entity-rail__row  { justify-content: center; padding: 0; }
+.entity-rail-col.is-collapsed .entity-rail__root { justify-content: center; }
+.entity-rail-col.is-collapsed .entity-rail__toggle { justify-content: center; }
+.entity-rail-col.is-collapsed .entity-rail__toggle svg { transform: rotate(180deg); }
+
+/* Tooltips on the rows appear ONLY while collapsed — the same rule as the main
+   sidebar, and for the same reason: that is exactly when a row becomes
+   glyph-only, which is the one case the tooltip rule allows. */
+
+@media (max-width: 720px) {
+  /* On a phone there are no chrome columns. The rail either IS the page (on the
+     facet's index route) or it is not shown; it never squeezes beside content. */
+  .app--erail { grid-template-columns: 1fr; grid-template-areas: "nav" "main"; }
+  .app--erail > .entity-rail-col { display: none; }
+  .app--erail > .entity-rail-col.is-primary {
+    display: flex;
+    grid-area: main;
+    position: static;
+    height: auto;
+    border-right: 0;
+  }
+}

@@ -1,0 +1,5 @@
+# Uploads: files are served as-is, never executed.
+Options -Indexes
+<FilesMatch "\.(php|phtml|phar|pht|php[0-9]|cgi|pl|py|sh)$">
+    Require all denied
+</FilesMatch>

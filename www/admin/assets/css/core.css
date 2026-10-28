@@ -1,0 +1,2113 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   CORE COMPONENT VOCABULARY
+   ═══════════════════════════════════════════════════════════════════════════
+
+   This is the vocabulary. Build new surfaces by COMPOSING these — the single
+   most expensive recurring mistake is inventing a parallel component beside
+   one that already exists: a hundred-odd lines of a new list family where
+   seven classes in here cover every need, or a board of its own while
+   `.kanban` sits right here.
+
+   BEFORE you write a new class: grep this file for the closest existing one,
+   read it, and match it. A new MODIFIER (`.list__row.is-mine`) is fine. A new
+   sibling PRIMITIVE (`.archive-list` beside `.list`) is almost always wrong.
+   If a new index/list surface needs more than ~20 lines of new CSS, stop —
+   the answer is already in here.
+
+   Every value is a token. No raw hex, no raw px radius, no off-scale spacing.
+
+   CONTENTS
+     1  App shell + page chrome
+     2  Panels and sections
+     3  Buttons and links
+     4  Forms
+     5  Lists and tables
+     6  Cards and widgets
+     7  Board (kanban)
+     8  Status chips
+     9  Chips and tags
+    10  Alerts, flashes, toasts
+    11  Empty states
+    12  Filter bars
+    13  Tooltips
+    14  Hero / inset surfaces
+    15  Icons
+    16  Avatars
+    17  Progress
+    18  Modals
+    19  Rendered markdown
+    20  Key/value detail lists
+    21  Responsive breakpoint contract
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ 1. APP SHELL + PAGE CHROME ══════════════════════════════════════════ */
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* Generous OUTER whitespace, tight INNER density. That contrast is most of the
+   "professional utility" feel — an app that is uniformly loose reads as a
+   brochure, one that is uniformly tight reads as a spreadsheet. */
+/* PAGE PADDING. `--sp-5` is 24px: still outer whitespace, still on the scale,
+   and not a margin you notice. `--sp-7` (48px) on all four sides is simply
+   overpadded, eating width the content wants. */
+.main {
+  padding: var(--sp-5);
+  min-width: 0;
+}
+.main:focus { outline: none; }
+
+.page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+.page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.page__header-main {
+  display: flex;
+  align-items: center;
+  /* WRAP, so a full-width child can claim its own line. This row exists to sit
+     a chip or a count BESIDE the title and must stay a row for them — the
+     subtitle below opts out with `flex-basis: 100%` rather than the row
+     changing direction for everyone. Without this pair the Settings index
+     rendered its lede inline after the h1, reading as a very long title. */
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+.page__header-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.page__title {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semi);
+  letter-spacing: -0.02em;   /* letter-spacing tightens as size grows */
+  color: var(--ink);
+  margin: 0;
+}
+.page__welcome {
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-semi);
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  margin: 0;
+}
+.page__hero {
+  font-size: var(--fs-4xl);
+  font-weight: var(--fw-semi);
+  letter-spacing: -0.025em;
+  color: var(--ink-hero);
+  margin: 0;
+}
+
+/* A subtitle must beat what the surface below it already shows, or it does not
+   ship. One that describes the plumbing to the people who run it is on-screen
+   commentary; without a better line, the h1 stands alone. */
+.page__subtitle {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  margin-top: 2px;
+  /* ITS OWN LINE, UNDER THE TITLE. `.page__header-main` is a flex row (it has
+     to be — a status chip belongs beside the h1, not under it), so without this
+     the subtitle became the second item in that row and read as a run-on title.
+     Opting out here rather than restyling the row leaves every screen that puts
+     a chip or a count up there exactly as it was. */
+  flex-basis: 100%;
+}
+
+/* BACK LINK ABOVE A DETAIL PAGE'S TITLE, and it is a SIBLING of .page__header,
+   not a child of .page__header-main.
+
+   Inside .page__header-main, which is `display: flex`, the link renders BESIDE
+   the title (measured: back at y=86, title at y=80) and its `margin-bottom`
+   does nothing, because a flex item's bottom margin cannot push its own row
+   down.
+
+   Kept OUT of .page__header rather than made a column inside it, because that
+   header is `align-items: baseline` between the title and its action cluster.
+   Stacking back-over-title inside it would give the flex line the BACK LINK's
+   baseline, and the status chip beside the h1 would ride up to the breadcrumb.
+   Above the header, the two facts stay independent. */
+.page__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  margin-bottom: var(--sp-2);
+}
+.page__back:hover { color: var(--ink-2); }
+
+/* Skip-to-content — invisible until keyboard-focused. Lets keyboard users bypass
+   the nav and rail straight to <main>. WCAG 2.4.1 bypass-blocks. Every app needs
+   exactly one of these and almost no app has one. */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--accent);
+  color: var(--ink-on-strong);
+  font-weight: var(--fw-semi);
+  font-size: var(--fs-sm);
+  border-radius: var(--r);
+  text-decoration: none;
+  z-index: 99999;
+  transition: top var(--t-fast);
+}
+.skip-link:focus {
+  top: var(--sp-3);
+  outline: 2px solid var(--ink-on-strong);
+  outline-offset: 2px;
+}
+
+
+/* ═══ 2. PANELS AND SECTIONS ══════════════════════════════════════════════ */
+
+.panel__section + .panel__section,
+.panel__section + .panel__grid,
+.panel__grid + .panel__section,
+/* A .form-card is a section-level block too. Without this pair a page that
+   alternates the two butted the card against the section above it at a measured
+   0px, and drew its 1px border straight through the preceding action row. */
+.panel__section + .form-card,
+.form-card + .panel__section,
+/* And the same for a card grid, for the same reason and found the same way: a
+   dashboard that puts a `.card-grid` above a `.panel__section` butted the
+   section's heading straight onto the bottom edge of the cards at a measured
+   0px. Any block-level sibling of a section needs a pair here — the list is the
+   rule, so a block that is not in it has no spacing at all. */
+.card-grid + .panel__section,
+.panel__section + .card-grid { margin-top: var(--sp-5); }
+
+.panel__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.panel__heading > h3 {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+  margin: 0;
+}
+/* CAUTION: .panel__heading is space-between. A bare THIRD child strands itself
+   dead centre. Two children, or wrap the extras. */
+
+/* Main + aside detail layout.
+
+   THE GAP IS --sp-5, NOT --sp-6. At 32px the trench between the two columns was
+   wider than the padding inside either card, so the aside read as a separate
+   page parked next to this one rather than as the same form's second column.
+   24px matches `.main`'s own padding, so the rhythm across the screen is one
+   value rather than two competing ones. */
+.panel__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .panel__grid { grid-template-columns: 1fr; gap: var(--sp-4); }
+  /* The aside's tighter --form-pad is undone at this same width — the rule is
+     in §4 beside the declaration it overrides, because putting it HERE did not
+     work: `.form-aside { --form-pad: var(--sp-4) }` is later in the file at
+     equal specificity, and a media query adds none, so the override lost the
+     cascade silently and measured 16px at 1024 exactly as before. */
+}
+
+/* Em-dash / "no value" placeholder — wherever a cell has no data. */
+.placeholder        { color: var(--ink-3); }
+.placeholder--strong { color: var(--ink-disabled); }
+
+
+/* ═══ 3. BUTTONS AND LINKS ════════════════════════════════════════════════ */
+
+/* ONE CLASS, ONE HEIGHT. A 14px glyph made an iconed button 32px tall while its
+   text-only sibling next to it sat at 31px — "Pin" beside "Cancel" in the same
+   row. The min-height floor pins them. Off-by-one control heights are the
+   single most-noticed sloppiness in a dense UI; every control height is on the
+   scale (18/20/22/24/28/32/40/44/48). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: 8px 14px;
+  min-height: var(--control-h);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--surface-2); }
+.btn:disabled,
+.btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.btn[aria-disabled="true"]:hover { background: none; }
+
+/* SATURATED FILL MEANS "THIS ACTS". This skin — accent background plus
+   --ink-on-strong text — is reserved for elements that DO something: buttons,
+   link-buttons, active-toggle states, navigating count badges, dots/pips, and
+   progress fills. Anything that merely REPORTS state uses the TINT instead (see
+   §8 status chips). A static label wearing this reads as a button, and users
+   click it: "Published" or "Over" in the button skin, inches from a real
+   "Open portal" button, is indistinguishable from it. */
+.btn--primary {
+  background: var(--accent);
+  color: var(--ink-on-strong);
+  border-color: var(--accent);
+}
+.btn--primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--ink-on-strong);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-2);
+}
+.btn--ghost:hover { background: var(--hover); border-color: transparent; color: var(--ink); }
+
+/* .btn--danger is an OUTLINE, not a fill, and it is legal ONLY inside a
+   .form-card--danger-zone or a confirm dialog. A bare --danger button on an
+   ordinary page header is a violation — three were demoted in one pass. The
+   destructive TRIGGER does not need to shout; the confirm dialog it opens IS
+   the sanctioned alert surface. */
+.btn--danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn--danger:hover { background: var(--danger-soft); }
+
+/* Same one-class-one-height floor as .btn, one tier down. Reserve --sm for
+   genuinely dense inline contexts (management rows). NEVER on a page's primary
+   Save — a form footer gets the full-size button. */
+.btn--sm { padding: 5px 10px; min-height: var(--control-h-sm); font-size: var(--fs-xs); }
+
+/* An inline POST wrapped around a single row/toolbar button, so it sits inline
+   with its neighbours. Was `style="display:inline"` repeated ~20× across views. */
+.form-inline { display: inline; }
+
+/* Glyph-only square control (row actions, carets, close). One of the very few
+   places a tooltip is allowed — pair data-tip with aria-label. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--ink-3);
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.icon-btn:hover { background: var(--hover); color: var(--ink); }
+
+/* AN ICON BUTTON THAT HAS TO BE FOUND. The bare form is right where the row
+   already leads your eye to it; it is wrong for a destructive action sitting at
+   the far edge of a quiet row, which is a glyph you have to go looking for.
+   The outline gives it the same 1px box every other control on the screen
+   wears, so it reads as a thing you press without borrowing an alert colour
+   to do it (--danger belongs on the confirm dialog, never on the trigger). */
+.icon-btn--outline {
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.icon-btn--outline:hover { border-color: var(--border-strong); color: var(--ink); }
+
+/* Plain text-link affordance — no button chrome. Use for LOW-EMPHASIS actions
+   (delete a comment, undo inline, remove from a list) where a full button would
+   over-promote the action.
+
+   THERE IS NO --danger MODIFIER, deliberately. A red text link is alert colour
+   painted onto ordinary themed chrome, which the theme-adjacent rule forbids.
+   No danger or warning modifier belongs on .link, in markup or in JS. */
+.link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 2px;
+}
+.link:hover { color: var(--ink); }
+.link--xs { font-size: var(--fs-xs); }
+
+/* A glyph inside a text link. .link is deliberately NOT a flex box — it has to
+   nest inside running prose and keep the surrounding baseline — so it has no
+   `gap` to inherit the way .btn does, and an inline <svg> would otherwise sit ON
+   the baseline (visibly low) and pick up the link's underline. */
+.link > svg.icon {
+  vertical-align: -0.15em;
+  margin-right: var(--sp-1);
+  text-decoration: none;
+}
+
+
+/* ═══ 4. FORMS ════════════════════════════════════════════════════════════ */
+
+.input,
+.select,
+.textarea {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  /* --surface, and the SEPARATION COMES FROM WHAT IS BEHIND IT. This went to
+     `--bg` for a while, on the reasoning that a control is a well — correct when
+     every card on the screen was white, wrong now that the trim is the page's
+     own tone. A control sitting on grey trim has to be the lighter of the two or
+     it disappears into it.
+
+     The ladder is now: --bg is the page AND the trim; --surface is the content
+     sheet AND every control; --surface-2 is a block nested inside either. Three
+     tones, each doing one job. */
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+  /* Tells the browser which way to render native widgets (date pickers,
+     scrollbars, autofill). Set per theme; without it a dark theme gets white
+     native chrome punched into it. */
+  color-scheme: var(--color-scheme);
+}
+
+/* THE SAME FLOOR .btn HAS, and for the same reason — one class, one height.
+   A single-line input measured 37px against a 32px button beside it: 8px of
+   padding either side of a 13px line box, off the control scale entirely, and
+   37 is declared nowhere. The `Choose` button sits next to a text input in the
+   media picker; the taxonomy chip-picker puts one against its own input.
+
+   The vertical padding goes to zero and --control-h does the work: an <input>
+   and a <select> centre their single line of text inside their own box, so a
+   declared height is the whole specification. A textarea does not — it is a
+   block of lines — so it keeps the padding above and is excluded here. */
+.input,
+.select {
+  min-height: var(--control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.input::placeholder,
+.textarea::placeholder { color: var(--ink-3); }
+
+.input:hover,
+.select:hover,
+.textarea:hover { border-color: var(--ink-3); }
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus);
+  outline: none;
+}
+
+/* The chevron is a data: URI rather than a token because a background-image
+   cannot read a custom property. It is a NEUTRAL grey that reads on every
+   theme — not a brand colour, so it does not violate the single-accent rule. */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%237c8f99' stroke-width='1.5'><path d='M3 5l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: var(--lh);
+}
+
+/* THE BODY-COPY TEXTAREA — the one a page exists to fill in. It was `rows="18"`
+   in the template, which resolves to 560px: a half-screen of empty white under a
+   three-word post, and the single biggest reason the two columns had no shared
+   rhythm. `rows` is also the wrong instrument — it counts LINES at whatever the
+   font happens to be, so it drifts silently every time the type scale moves.
+   A height in the stylesheet, next to the other heights. */
+.textarea--tall {
+  /* THE BODY FIELD. Bigger and more comfortable to write in than a settings
+     control — but STILL VISIBLY A FIELD.
+
+     With `border: none` and no focus ring, on the reasoning that the card
+     around it is already an edge, it is a large empty white rectangle with no
+     affordance at all: nothing says it is a text field, and it reads as a
+     broken box.
+
+     It inherits `.textarea`'s border, background and focus ring — the same ones
+     every other control has, which is the whole point. This class only adds
+     room: more height, more padding, body-copy size and the reading
+     line-height. A plainly-bordered textarea with a label and a placeholder is
+     the right shape; do not take those away. */
+  min-height: 420px;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs);
+  line-height: var(--lh);
+}
+
+/* Native date/time picker glyph — invert proportionally to the theme so the
+   default-dark glyph stays readable on dark and steps out of the way on light. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(var(--picker-invert));
+  cursor: pointer;
+  opacity: 0.7;
+}
+input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+
+/* A FIELD LABEL IS THE QUIETEST THING IN A FORM, and it was the loudest.
+
+   It was 12px UPPERCASE with 0.04em tracking. Size is not the only axis a
+   heading is read on: caps and letter-spacing carry weight of their own, and at
+   12px caps out-shouted a 13px sentence-case section heading sitting directly
+   above it. On the entry form that produced "TITLE / URL SLUG / CONTENT" bawling
+   over "Visibility" and "Search engines" — the reason the screen had no
+   hierarchy: there was a cliff from the 26px h1 and then a flat plain, with
+   the labels the tallest thing on it.
+
+   Sentence case now, and it separates from the section heading above it on
+   THREE axes at once rather than one uncertain pixel: 12 vs 15, medium vs
+   semibold, --ink-2 vs --ink. Caps stay in the vocabulary for what they are
+   actually good at — the eyebrow above a stat, the sidebar's group headings —
+   where nothing else is competing for the same rung.
+
+   --ink-2 AND NOT --ink-3. The first pass dropped both the caps AND the tone in
+   one change, which is two steps down at once: --ink-3 is the TERTIARY/meta
+   tone, for a timestamp or a byline, and a field label is not meta — it is the
+   name of the control you are about to type into. At --ink-3 the labels went
+   from out-shouting the headings to disappearing under them. Sentence case was
+   the fix; the tone change was overshoot. */
+.label {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+  margin-bottom: var(--sp-1);
+}
+
+.field { display: flex; flex-direction: column; }
+.field--narrow { max-width: 320px; }
+/* THE GAP BETWEEN TWO FIELDS IS THE FORM'S RHYTHM. It was --sp-3 everywhere and
+   then --sp-2 in the aside, which stacked label/control/help/label/control into
+   an undifferentiated run. --sp-4 gives each field a band of its own. */
+.field + .field { margin-top: var(--sp-4); }
+/* A `.form-grid` is a field-level block too, and needs its pair (§2 has the
+   same rule for `.form-card` and `.card-grid`). Without it, a card that puts a
+   two-column grid above a plain `.field` butts the field's label straight onto
+   the bottom of the inputs above it at 0px.
+   Any block-level sibling of a field needs a pair here: the list IS the rule,
+   so a block that is not in it has no spacing at all. */
+.form-grid + .field,
+.field + .form-grid,
+.form-grid + .form-grid { margin-top: var(--sp-3); }
+/* Inside a grid the parent's `gap` already handles spacing in BOTH axes, so the
+   adjacent-sibling top-margin would offset every cell after the first downward
+   and break horizontal alignment across the row. */
+.form-grid > .field + .field,
+.card > .field + .field { margin-top: 0; }
+
+.form-help {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  /* THE HINT BELONGS TO ITS CONTROL, so it takes the SAME 4px the label above
+     the control takes. It was 8, on the reasoning that 4px "put the hint on the
+     control's bottom edge, reading as part of it rather than as a note about
+     it" — but part of it is exactly what a hint is, and 8 bought the opposite:
+     measured on the Search engines panel, label→control 4, control→hint 8,
+     hint→NEXT FIELD 16. The hint sat nearer the boundary than the binding, so a
+     field with a hint read as two loose things and a field without one read as
+     one tight thing, in the same column.
+     One value inside a field (4), one between fields (16). */
+  margin-top: var(--sp-1);
+}
+
+.form-grid {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: 1fr;
+}
+.form-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.field--span-2 { grid-column: span 2; }
+.field--span-3 { grid-column: span 3; }
+@media (max-width: 720px) {
+  .form-grid--2,
+  .form-grid--3 { grid-template-columns: 1fr; }
+  .field--span-2,
+  .field--span-3 { grid-column: auto; }
+}
+
+/* ── THE FORM'S TWO COLUMNS ───────────────────────────────────────────────
+   The entry form, the Content Type form and the Pages form are ONE layout, and
+   these two classes are where it is declared — not three copies in three
+   templates.
+
+   --form-pad IS DECLARED HERE AND NOWHERE ELSE. A card in the aside is ~348px
+   wide against ~768 in the main column, so a single padding value cannot be
+   right in both: at --sp-5 the aside held 258px of content inside 306px, nested
+   inside .main's own 24px — over-padded, padding within padding. The number
+   belongs to the COLUMN, so it is set on the column and read by every card,
+   section and footer inside it. Anything that needs to line up with a card's
+   inner edge reads var(--form-pad) rather than guessing --sp-5: a value
+   derived from geometry somewhere other than where the geometry is defined is
+   the failure mode. */
+/* TIGHT INNER DENSITY, which is this design language's own stated rule and which
+   the forms were breaking: "Generous OUTER whitespace, tight INNER density. That
+   contrast is most of the professional-utility feel — an app that is uniformly
+   loose reads as a brochure" (core.css §1). Inner density is specified there as
+   8/12px, and every card was padded at --sp-5, the same 24 as the page's OUTER
+   padding. So there was no contrast at all, in either direction, and the screen
+   read as overstuffed.
+
+   --sp-4 in the document column, --sp-3 in the narrower aside. The page keeps
+   --sp-5 around the outside, so the contrast the rule describes now exists. */
+/* TWO AXES, TUNED SEPARATELY, because they were wrong in OPPOSITE directions
+   and one value could not fix both: the horizontal box padding was overstuffed,
+   and the vertical rhythm jammed everything together.
+   Trimming a single `padding` shorthand made the second worse while fixing the
+   first. --form-pad is the HORIZONTAL inset; --form-gap is the vertical rhythm
+   between distinct pieces, and it is deliberately the larger of the two. */
+.form-main  { --form-pad: var(--sp-4); --form-gap: var(--sp-4); min-width: 0; }
+/* THE ASIDE IS 12, NOT 16, as the comment above says: "--sp-4 in the document
+   column, --sp-3 in the narrower aside". With both columns at --sp-4 the
+   "inner density" contrast the rule describes does not exist, and a ~348px
+   panel carries the same inset as a 780px document — on the Pages form, every
+   sidebar panel 16px on all four sides around three checkbox rows. Overpadded,
+   and the box is mostly box. The @media below puts --sp-4 back the moment the
+   aside stops being narrow, which is the only thing that justifies 16. */
+.form-aside { --form-pad: var(--sp-3); --form-gap: var(--sp-3); min-width: 0; }
+
+/* THE ASIDE'S TIGHTER PADDING IS A CONSEQUENCE OF THE GRID, so it ends when the
+   grid does. At 1080 `.panel__grid` collapses to one column (§2) and the aside
+   is full-width, stacked UNDER the main card — the ~350px that justified --sp-4
+   is gone, and what is left is two cards on top of each other disagreeing about
+   their own left edge by 8px. Measured at 1024 without this rule.
+
+   IT SITS HERE, next to the declaration it overrides, and NOT next to the
+   collapse rule in §2 where it reads better. There it does nothing:
+   `.form-aside` above is later in the file at equal specificity, and @media
+   contributes no specificity of its own, so the base value wins and the
+   padding measures 16px at 1024 exactly as without it. The
+   breakpoint must match §2's 1080 — §21's rule is that a one-off width is how
+   a layout ends up right at one size and broken 40px away. */
+@media (max-width: 1080px) {
+  .form-aside { --form-pad: var(--sp-4); }
+}
+
+/* A FORM IS THE PRIMARY CONTENT of the page it lives on (/thing/new,
+   /thing/{id}/edit), so the form card is SHARP — it is substance, not a floater.
+   Rounded is for floaters, never for the primary elements on a page.
+
+   ONE CARD PER COLUMN, DIVIDED BY HAIRLINES. The card itself carries no padding
+   any more; `.form-card__section` does. The aside used to be five separately
+   bordered boxes with tops at [134, 291, 460, 732, 915] — five borders, five
+   pairs of 24px padding and four 16px gaps between them, sharing no rhythm with
+   the single tall card beside them. That reads as uneven, and it is not
+   fixable by retuning the gap: a stack of boxes each sized to its own
+   contents has no rhythm to tune. A rule between sections separates them for a
+   quarter of the ink and leaves the column one object with one outer edge.
+   Borders, not shadows — and here, one border rather than five. */
+.form-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+.form-card + .form-card { margin-top: var(--sp-4); }
+
+/* THE TITLE CARD SITS ABOVE THE GRID, so `.form-card + .form-card` never fires
+   between it and the columns below — its next sibling is `.panel__grid`, which
+   is not on that pair list. Measured: the title card's bottom edge and the main
+   card's top edge were 1px apart, two full-width borders stacked, reading as one
+   broken box. §2 has the same defect three times over for the same reason: the
+   adjacent-sibling list IS the rule, so a block that is not in it has no spacing
+   at all. */
+.title-card { margin-bottom: var(--sp-4); }
+
+.form-card__section { padding: var(--form-gap, var(--sp-5)) var(--form-pad, var(--sp-5)); }
+.form-card__section + .form-card__section { border-top: 1px solid var(--border); }
+
+/* The ONE place a --danger button is legal outside a confirm dialog. It stays a
+   card of its OWN rather than a section in the stack above — the red edge is the
+   whole point of the surface, and a red edge cannot be drawn around a middle
+   slice of a shared box. Being detached is also correct: it is the one control
+   on the screen that does not save with the rest. */
+.form-card--danger-zone { border-color: var(--danger); }
+
+/* Form FOOTER: draws its own rule and right-aligns via the spacer. */
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+/* THE FOOTER IS THE CARD'S LAST SECTION, not a bar floating under it. Detached,
+   it drew its own rule 8px below the card's own bottom border — two horizontal
+   lines 8px apart, saying nothing to each other. As a section it inherits the
+   column's --form-pad, so Cancel sits on the same left edge as every label above
+   it and Save on the same right edge as every input.
+
+   The border-top is NOT reset here: `.form-actions` and the section-sibling rule
+   declare the identical hairline, so they agree by value rather than by
+   precedence. Do not add `border-top: none` to this block — it is the same
+   specificity as the sibling rule and later in the file, so it would win, and a
+   footer with no rule above it butts straight into the last field. */
+.form-card__section.form-actions {
+  margin-top: 0;
+  padding: var(--sp-3) var(--form-pad, var(--sp-5));
+}
+
+.form-actions__spacer { flex: 1; }
+.form-actions__hint { font-size: var(--fs-xs); color: var(--ink-3); }
+/* Pages kept reusing .form-actions for clusters that are NOT footers and then
+   undoing half of it with an inline justify-content override, which left a stray
+   rule cutting across the page. --bare is the same cluster minus the chrome. */
+.form-actions--bare {
+  margin-top: var(--sp-3);
+  padding-top: 0;
+  border-top: none;
+  justify-content: flex-start;
+}
+/* Controls are width:100% so they fill a grid cell. In an action row that makes a
+   lone select span the page. Size to content here instead. */
+.form-actions--bare > .input,
+.form-actions--bare > .select { width: auto; }
+
+/* Form footers get NO icons. Save / Cancel / Apply / Reset / Go are the entire
+   contents of the bar — position and skin already say which is which, and a
+   floppy disk teaches no one anything. */
+
+
+/* ═══ 5. LISTS AND TABLES ═════════════════════════════════════════════════ */
+
+/* The page's main substance: SHARP, 1px hairlines, flush rows, no shadow.
+   Do not round this. Do not shadow-separate the rows. */
+.list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+/* ── A ROW COLLAPSES WHEN THE LIST IS NARROW, NOT WHEN THE WINDOW IS ───────
+   Every `.list__row` grid template in this admin used to be undone by a
+   `@media (max-width: 720px)` block. That measures the WINDOW, and the window
+   is the wrong thing: crossing 721px ADDS the 240px sidebar, so the content
+   column jumps DOWN from 720px to about 460px at the exact width where the
+   narrow rules stop applying. Every fixed-rail list is therefore at its
+   tightest in the band where it is being given the desktop layout.
+
+   Measured on /admin/forms at a 768px window: tracks resolved to
+   `90px 0px 168px 160px` in a 478px row, the meta column was crushed to ZERO,
+   and its 99px "2 submissions" link painted straight across "Contact us" and
+   "Updated Aug …" — three lines of text in one line's space.
+
+   A container query asks the question the layout actually has: how much room
+   does this list have? 720 is deliberately the SAME canonical md number — what
+   changed is what it is measured against, not the value — and re-using the
+   breakpoint keeps one number in the system instead of two.
+
+   `inline-size` and not `size`: block-axis containment would need the list's
+   height to be independent of its rows, which for a list is never true. */
+.list { container-type: inline-size; }
+
+.list__row {
+  display: grid;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 6px var(--sp-3);
+  /* A ROW RHYTHM, not a control height: the floor keeps rows even whether or not
+     a given row carries a 22px avatar. The control scale (24/28/32/…) governs
+     the buttons INSIDE the row, not the row itself. The marker below is what a
+     sanctioned one-off looks like — stated, ON the line, never a silently
+     widened scale. */
+  min-height: 36px;   /* DESIGN-LINT: CTL-H-OK (row rhythm, not a control) */
+  border-bottom: 1px solid var(--border);
+  transition: background var(--t-fast);
+  /* Positioning context for the stretched-link overlay below. */
+  position: relative;
+}
+.list__row:last-child { border-bottom: none; }
+
+/* A LIST THAT IS THE WHOLE OF ITS SECTION — it reaches the card's own edges
+   instead of sitting inset inside the section's padding with a second border
+   drawn a few pixels in from the first. That inset shape is padding within
+   padding, and it costs nothing to remove: the card's border is already there
+   and already the right one.
+
+   The pull-out reads var(--form-pad), the same declaration the padding it is
+   cancelling comes from, so the two cannot drift apart when a column's padding
+   is retuned. Side and bottom borders go with it for the same reason.
+
+   ── AND IT PAINTS NOTHING ────────────────────────────────────────────────
+   `.list` sets `background: var(--surface)` because a list is normally the
+   page's content sheet, sitting on `--bg`. A BLEEDING list is not that. It has
+   given up three of its four borders and every pixel of its own margin to
+   become the card's own rows, and a block that is the whole of its parent is
+   not a block nested inside it.
+
+   Painting `--surface` here would make that claim anyway, on a card already
+   painting `--surface` — one surface drawn twice, with a hairline between the
+   two only where a border happened to survive.
+
+   The other repair would be `--surface-2`, per the ladder in §4 — `--bg` is the
+   page and the trim, `--surface` the content sheet and every control,
+   `--surface-2` a block nested INSIDE either. It is wrong because the premise
+   is false: a recessed tone would announce a nested block where there is not
+   one, and the two rows either side of the list's top border would then be
+   different colours for no reason a reader could name. Removing a claim that
+   was never true beats dressing the screen to make the claim look intended.
+
+   `.form-aside .list` in admin.css gives the same answer, for the same
+   reason. */
+.list--bleed {
+  margin: 0 calc(var(--form-pad, var(--sp-5)) * -1) calc(var(--form-pad, var(--sp-5)) * -1);
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+/* AND WHEN IT FOLLOWS THE SECTION HEADING, IT SITS AGAINST IT.
+   Measured on `/admin/orders/1`: `.form-card__title` carries `margin-bottom:
+   16px`, and because the bled list reaches the card's edges, that gap renders
+   as a full-width empty band between the dark heading bar and the first row —
+   which reads as a blank row of the list rather than as spacing.
+
+   It went unnoticed on the two screens that already had one, because both put
+   a paragraph of help text in that space. This is the case where the list IS
+   the first thing under the heading.
+
+   The pull-up reads `--form-pad`, the same declaration the heading's margin
+   comes from and the same one the side pulls above use, so the three cannot
+   drift apart when a column's padding is retuned. */
+.form-card__title + .list--bleed { margin-top: calc(var(--form-pad, var(--sp-5)) * -1); }
+
+/* The row's BACKGROUND CHANGE is the hover affordance for a clickable row — not
+   an underline. Underline is reserved for .link text affordances.
+   
+   ── AND ONLY FOR A CLICKABLE ROW ─────────────────────────────────────────
+   Unconditional, a row with nothing to click still lights up under the
+   pointer: the trash lists, the redirect list, the export list, the field rows
+   on a form. Things that are not interactive must not have hover effects. A
+   hover cue is a promise that something is under the pointer, and on those
+   rows there is nothing — which is the same fault the stretched-anchor rule
+   below names ("a hover cue over dead space") and fixes only for rows that
+   HAVE the anchor.
+   
+   The condition is the anchor itself, or the `data-row-href` the JS rows use,
+   so a row cannot acquire the cue without acquiring the target in the same
+   edit. */
+.list__row:has(a.list__row-link):hover,
+.list__row[data-row-href]:hover { background: var(--hover); }
+
+/* Per-row column layout goes on the row as a grid template. Default to
+   `auto 1fr auto` (leading mark / stacked title+sub / trailing meta). AVOID
+   fixed 200px/160px sub and meta columns — they overflow the moment content is
+   longer than you guessed, and they leave a dead gap when it is shorter. */
+
+.list__row-link { min-width: 0; }
+.list__row-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list__row-sub {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  /* MEASURED AT 0px — the title's descenders and the sub's ascenders were the
+     only thing separating them, so a row title and its timestamp touched.
+     2px is the value `.page__subtitle` already uses for exactly this
+     relationship (§1, a subtitle under an h1) — the one place on the scale's
+     off-ramp that is sanctioned, because a title and its own subtitle are not
+     two items with a gap between them, they are one item on two lines. It must
+     stay BELOW the 4px that separates sibling items (`.check-list` in
+     admin.css §3) or the pair stops reading as one entry. */
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list__row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ROW ACTIONS ARE A FIXED-WIDTH RAIL, and the verbs stretch to fill it. Never
+   text-sized buttons of differing widths stacked in one column: "Review & send"
+   at 126px over "Edit analysis" at 114px over a select reads as clutter. Set the
+   width per list to the widest verb, MEASURE every row with
+   getBoundingClientRect, and accept nothing but pixel equality.
+
+   `form { display: inline }` stops the stretch at a form's edge — hence the
+   explicit inline-flex on wrapped forms. Glyph-only .icon-btn keeps its 28px
+   square and sits outside the stretch. */
+.list__row-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--sp-2);
+  width: var(--row-actions-w, auto);
+}
+.list__row-actions > .btn { flex: 1 1 auto; }
+.list__row-actions > form {
+  flex: 1 1 auto;
+  display: inline-flex;
+}
+.list__row-actions > form > .btn { flex: 1 1 auto; }
+.list__row-actions > .icon-btn { flex: 0 0 auto; }
+@container (max-width: 720px) {
+  /* Reset the stretch in the narrow stack — a full-width verb column is wrong
+     once the row has become a card. */
+  .list__row-actions { width: auto; }
+  .list__row-actions > .btn,
+  .list__row-actions > form,
+  .list__row-actions > form > .btn { flex: 0 0 auto; }
+}
+
+/* WHOLE-ROW CLICK, model A — a real anchor stretched over the row.
+   The primary link only filled its own grid cell, so the row's padding, the grid
+   gaps and the meta columns showed the :hover background but had NO link under
+   them: a hover cue over dead space. Stretch the anchor, then lift the genuinely
+   interactive children above it so they keep their own clicks. */
+.list__row:not([data-row-href]) a.list__row-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+/* DESCENDANTS, NOT CHILDREN — and this is the whole bug that was here.
+   These said `.list__row > form` / `> button` / `> a`, so an interactive element
+   nested one level deeper stayed UNDER the stretched anchor and its clicks went
+   to the row instead of to itself. Two shipped that way and were simply dead:
+   the "2 submissions" link on /admin/forms (inside `.list__row-meta`) and the
+   form name on /admin/forms/submissions (inside a plain wrapper div). Not a
+   narrow-viewport fault — measured with elementFromPoint at the control's own
+   centre, both were being hit by `a.list__row-link` at 1440 as well.
+
+   The child combinator reads as tighter and safer and is neither: it does not
+   restrict WHAT gets lifted, only HOW DEEP it may sit, which is a fact about
+   markup nesting that no one thinks about when adding a link to a row. The
+   `:not(.list__row-link)` is what actually keeps the stretched anchor itself
+   from being lifted over its own overlay, and that still holds at any depth. */
+.list__row-actions,
+.list__row form,
+.list__row button,
+.list__row a:not(.list__row-link),
+.list__row [data-handle] {
+  position: relative;
+  z-index: 1;
+}
+
+/* WHOLE-ROW CLICK, model B — data-row-href + a delegated click handler.
+   Use when the row contains interactive spans that an <a> wrapper would swallow
+   (an anchor cannot legally contain a button, and it eats their clicks).
+   ALWAYS pair it with a real <a href> on the title: data-row-href alone is a
+   MOUSE-ONLY affordance — no keyboard, no middle-click, no open-in-new-tab. */
+[data-row-href] { cursor: pointer; }
+
+/* Group divider inside a list — separates two kinds of row that must not read as
+   one pile. */
+.list__group-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+}
+
+/* A real <table> where the data is genuinely tabular. Same rules: sharp,
+   hairlines, tinted header. Wide tables scroll INSIDE their own container —
+   the page body must never scroll horizontally. */
+.table-wrap { overflow-x: auto; }
+.table {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+  font-size: var(--fs-sm);
+}
+.table th,
+.table td {
+  padding: 6px var(--sp-3);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+.table thead th {
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semi);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover { background: var(--hover); }
+/* Numbers people compare down a column line up. */
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+
+/* ═══ 6. CARDS AND WIDGETS ════════════════════════════════════════════════ */
+
+/* A dashboard whose widgets ARE the page is primary content — SHARP. A card
+   floating over content is a floater and may round; that is the distinction, and
+   it is the one people get wrong. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  min-width: 0;
+}
+.card__head strong { color: var(--ink); font-weight: var(--fw-semi); }
+/* Each card's domain mark. Identical shells stacked across a dashboard are told
+   apart only by their heading text unless you give them a glyph — that glyph is
+   what makes a dashboard scannable rather than readable. */
+.card__glyph { color: var(--ink-3); }
+.card__count { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* The card's one line of prose — what this destination is for. Quieter than the
+   heading above it and NOT truncated: unlike a list row, a card has room, and a
+   sentence cut at the edge is worse than a sentence on two lines. */
+.card__text { font-size: var(--fs-sm); color: var(--ink-3); margin: 0; }
+/* Secondary tools — always available, never the point. */
+.card__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+}
+
+.card-grid {
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+
+/* ═══ 7. BOARD (KANBAN) ═══════════════════════════════════════════════════ */
+
+.kanban {
+  display: grid;
+  gap: var(--sp-3);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  overflow-x: auto;
+  align-items: start;
+}
+
+/* A column carries a colour accent, so it is SHARP and the accent is a 3px TOP
+   BAR. That pairing is locked: a single coloured EDGE on a rounded box looks
+   wrong. */
+.kanban__column {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--col-accent, var(--border-strong));
+  border-radius: var(--r-none);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.kanban__col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+}
+.kanban__col-count { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.kanban__cards { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 8px; }
+.kanban__empty { font-size: var(--fs-xs); color: var(--ink-3); padding: var(--sp-3) 0; text-align: center; }
+
+/* Sharp rows in a container — a card inside a board column is still substance. */
+.kanban__card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+  padding: var(--sp-2) var(--sp-3);
+  min-width: 0;
+}
+.kanban__card:hover { border-color: var(--border-strong); }
+
+/* CLICK TARGET ON A BOARD CARD — the card's CONTROL DENSITY decides. Count the
+   interactive children the card carries (buttons, toggles, handles, checkboxes,
+   inline links):
+     0–2 controls → the WHOLE CARD is clickable (data-row-href + a real <a> on
+                    the title, so keyboard/middle-click work).
+     3+  controls → the TITLE ONLY. The dead space between controls stops being
+                    safe to navigate from, so the body is inert.
+   Never a bare addEventListener('click') on the card in either case: no href
+   means no keyboard and no new tab. */
+
+
+/* ═══ 8. STATUS CHIPS ═════════════════════════════════════════════════════ */
+
+/* ONE unified chip, built on ACCENT + AN ICON. Never a per-state hue, never an
+   alert-colour tint.
+
+   The state reads from the GLYPH, not the colour. This is not minimalism — it is
+   what makes the chip survive 21 themes. Amber and red are plausible ACCENT
+   colours; the moment a theme's accent is orange or pink, a "warning" chip and a
+   "brand" chip are the same colour and the alarm stops meaning anything.
+
+   The intensity ramp is: muted → neutral → accent. Nothing else. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  /* Right for the one-word states this chip was built for — published, hidden,
+     private. A chip carrying a PHRASE takes `--phrase` below, or capitalize
+     Title-Cases it: "Added With Event". */
+  text-transform: capitalize;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+.status__icon { width: 12px; height: 12px; flex: 0 0 auto; fill: currentColor; }
+/* A chip whose label is a sentence fragment rather than a state name. Capitalize
+   is per-WORD, so anything longer than one word comes out Title Cased. */
+.status--phrase { text-transform: none; }
+
+/* TINT, never fill — see §3. A 1px coloured border may add terminal emphasis. */
+.status--active { background: var(--accent-soft); color: var(--accent-strong); border-color: transparent; }
+/* COMPLETE IS MUTED, NOT ACCENT. A Complete status is effectively inactive, so
+   its chip wears the muted tone. The accent reads as live/actionable; a
+   finished thing is neither. The check glyph carries it. */
+.status--complete { color: var(--ink-3); }
+.status--archived { color: var(--ink-3); }
+.status--waiting  { /* base neutral — the glyph carries it */ }
+.status--on-hold  { /* base neutral — the glyph carries it */ }
+
+/* If you render a status chip WITHOUT its glyph, every state becomes an identical
+   grey chip and the system silently dies. Always go through `Ui\Status::render()`
+   (or `OrderStatus::render()`), which cannot emit an iconless chip. */
+
+
+/* ═══ 9. CHIPS AND TAGS ═══════════════════════════════════════════════════ */
+
+/* An entry chip — a value the user has picked and can remove. Interactive, so
+   the accent tint is legitimate here; the whole chip is the delete target. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 8px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-radius: var(--r);
+  font-size: var(--fs-sm);
+  line-height: 1.2;
+  max-width: 100%;
+  cursor: pointer;
+}
+.chip:hover { background: color-mix(in srgb, var(--accent) 14%, var(--accent-soft)); }
+.chip__label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  max-width: 220px;
+}
+.chip__remove {
+  background: transparent;
+  border: 0;
+  color: var(--ink-3);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+}
+.chip:hover .chip__remove { color: var(--ink); }
+
+/* A tag is a LABEL — non-interactive, so it is neutral. Distinction between tag
+   kinds is the LABEL TEXT (and a glyph), never a colour. Giving one kind a hue
+   because it should look distinct is exactly the reasoning that produces an
+   invented palette. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* MULTI-SELECT IS A CHIP-PICKER, never <select multiple>. Cmd+click does not
+   scale past a few dozen options and is the wrong UX at any size. Typeahead
+   input + a filterable menu; click an option to chip it; ↑/↓ navigate, Enter
+   adds, Esc closes, Backspace on an empty input removes the last chip. */
+.chip-picker { position: relative; display: flex; flex-direction: column; gap: var(--sp-1); }
+.chip-picker__chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); min-height: 0; }
+.chip-picker__chips:empty { display: none; }
+.chip-picker__menu {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);   /* floater: dropdown menu over page content */
+  box-shadow: var(--shadow);
+}
+.chip-picker__option { padding: 6px var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
+.chip-picker__option:hover,
+.chip-picker__option.is-active { background: var(--hover); }
+.chip-picker__option.is-selected { color: var(--ink-3); text-decoration: line-through; }
+
+
+/* ═══ 10. ALERTS, FLASHES, TOASTS ═════════════════════════════════════════ */
+
+/* ── THE ALERT DOCTRINE ─────────────────────────────────────────────────────
+   An alert is a STANDALONE SURFACE: its own box, background, icon, title and
+   body. It deliberately reads as a thing sitting ON TOP of the page rather than
+   a coloured piece OF the page. That separation is the entire point.
+
+   --warning and --danger may be painted in EXACTLY these places and nowhere else:
+     1. .alert          — the block-level notice (this component)
+     2. .alert-flag     — the inline badge form, for dense rows
+     3. .flash / .toast — the same surface, page-top and floating
+     4. .btn--danger inside a .form-card--danger-zone or a confirm dialog
+
+   That list is CLOSED. A vague tail such as "& co." is precisely how a rule like
+   this rots: it gets cited to license a red text-link modifier, red menu items,
+   danger-tinted chip hovers, and bare red buttons on ordinary page headers.
+
+   NEVER: red due-text, amber chips, tinted rows, a coloured count, a category
+   wearing an alert colour. A public holiday, a lunch break, a pinned message and
+   a weekend are KINDS, not alarms. Inside a themed component the attention mark
+   is an ICON.
+
+   Variants: --warning (degraded) · --danger (broken) · --info (neutral heads-up,
+   wears no alert colour at all — just the alert SHAPE). */
+.alert {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  background: var(--warning-soft);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--warning);
+  border-radius: var(--r-none);   /* coloured single edge ⇒ sharp. Locked. */
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.alert__icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--warning);
+}
+.alert__body { min-width: 0; flex: 1; }
+.alert__title {
+  margin: 0 0 2px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+}
+.alert__text {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  color: var(--ink-2);
+}
+.alert__text a { color: inherit; text-decoration: underline; }
+.alert__actions { margin-top: var(--sp-2); display: flex; gap: var(--sp-2); align-items: center; }
+.alert__dismiss {
+  margin-left: auto;
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--ink-3);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+}
+.alert__dismiss:hover { color: var(--ink); }
+
+.alert--danger { background: var(--danger-soft); border-top-color: var(--danger); }
+.alert--danger .alert__icon { color: var(--danger); }
+.alert--info   { background: var(--surface-2); border-top-color: var(--border-strong); }
+.alert--info .alert__icon { color: var(--ink-3); }
+.alert--compact {
+  flex: 0 0 auto;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+.alert--compact .alert__icon { width: 15px; height: 15px; }
+.alert--compact .alert__title,
+.alert--compact .alert__text { font-size: var(--fs-xs); }
+
+/* An alert gets the FACT and the ACT, not a paragraph on mechanism.
+   "No Google credential — syncs are paused." + a "Connect Google →" link.
+   Never explain how to use the UI on the UI. */
+
+/* ── .alert-flag — the inline micro alert surface ───────────────────────────
+   The badge form, for when bad news must sit inside a dense row and a full
+   notice box would be absurd: an overdue date, an account over budget, a post
+   over its character limit.
+
+   It is a SURFACE, not tinted text — its own background, its own 1px edge, its
+   own icon. That is exactly what separates it from the thing it replaced (a bare
+   red <time>): the alert colour is BOUNDED by a box that reads as an alert
+   instead of bleeding into the row's typography.
+
+   Reserve it for genuinely BAD states. "Due soon" and "due today" are NOT bad —
+   they render as ordinary neutral text. Nothing informational gets one. */
+.alert-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.6;
+  white-space: nowrap;
+  vertical-align: baseline;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+}
+.alert-flag--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+}
+.alert-flag .icon { width: 11px; height: 11px; }
+
+/* Page-top flash (post-redirect). Same 3px-top-edge severity language. */
+.flashes { margin-bottom: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }
+.flash {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-none);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-top-width: 3px;
+  font-size: var(--fs-sm);
+}
+.flash--success { border-top-color: var(--accent); }
+.flash--error   { border-top-color: var(--danger); }
+.flash--info    { border-top-color: var(--ink-3); }
+
+/* Floating transient notice. */
+.toast-region {
+  position: fixed;
+  bottom: var(--sp-4);
+  right: var(--sp-4);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+  max-width: 400px;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-top-width: 3px;
+  border-radius: var(--r-none);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  animation: toast-in 200ms ease;
+  word-wrap: break-word;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+.toast.is-leaving { opacity: 0; transform: translateX(8px); transition: opacity 220ms ease, transform 220ms ease; }
+.toast--success { border-top-color: var(--accent); }
+.toast--error   { border-top-color: var(--danger); }
+.toast--info    { border-top-color: var(--ink-3); }
+/* The tint LAYERED OVER an opaque surface, not used as the background outright.
+   --warning-soft is 10% opaque. .alert can use it raw because an alert sits in
+   page flow over a solid background; a toast FLOATS, so a raw tint let the list
+   underneath read straight through it. */
+.toast--warning {
+  border-top-color: var(--warning);
+  background: linear-gradient(var(--warning-soft), var(--warning-soft)), var(--surface);
+}
+.toast__msg { flex: 1; min-width: 0; }
+/* An inline action composes .link — a toast is already a floater competing for
+   attention; a second button inside it is button bloat. */
+.toast__action { flex: none; align-self: center; font-weight: var(--fw-semi); }
+
+
+/* ═══ 11. EMPTY STATES ════════════════════════════════════════════════════ */
+
+/* AN EMPTY STATE IS THE PUREST CASE OF TELLING. Every page-level empty state
+   carries a GLYPH naming the kind of place you are standing in — and a
+   FILTERED-empty gets the magnifying glass instead, because "your filter found
+   nothing" is a different fact from "there is nothing here". */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: center;
+  padding: var(--sp-7) var(--sp-5);
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+}
+.empty__glyph { width: 28px; height: 28px; color: var(--ink-disabled); }
+.empty__title { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--ink-2); }
+
+/* ONE supporting line, and it has to earn its place. The no-on-screen-commentary
+   rule kills subtitles that restate the heading — and an empty state is the one
+   surface where it does not apply, because there is nothing on screen for the
+   reader to infer from. "No categories yet" tells someone who already knows
+   what a category is; the line under it is for the person who does not, which
+   on this product is the audience.
+
+   It is NOT a paragraph. `max-width` in ch caps it at roughly a sentence and a
+   half — centred prose running the full width of a 1400px page is unreadable no
+   matter what it says, which is its own kind of telling-not-showing. Inherits
+   --fs-sm / --ink-3 from `.empty`, so it sits below the title on both axes. */
+.empty__text { max-width: 52ch; }
+
+.empty__action { margin-top: var(--sp-2); }
+
+
+/* ═══ 12. FILTER BARS ═════════════════════════════════════════════════════ */
+
+/* TWO IDIOMS, and the difference must be VISIBLE:
+     .filterbar        instant client-side filtering. Unlabeled controls, NO
+                       Apply button, and it is NEVER a <form>.
+     .filterbar--apply server round-trip. Labeled controls + an Apply button, and
+                       it IS a <form>.
+   The Apply button's presence or absence IS the "does this reload the page?"
+   signal. Putting the instant class on a form element is the hybrid that lies
+   about both.
+
+   SINGLE-SELECT dropdowns only. Multi-select entry uses the chip-picker. */
+.filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);   /* floater: control bar sitting above the content */
+}
+.filterbar__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+}
+.filterbar__field { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.filterbar__label {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.filterbar .input,
+.filterbar .select { width: auto; min-width: 140px; }
+.filterbar .input--search { min-width: 200px; flex: 1; max-width: 320px; }
+.filterbar__actions { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.filterbar__reset {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+}
+.filterbar__reset:hover { color: var(--ink); background: var(--hover); }
+
+/* MIXED-HEIGHT CHILDREN DO NOT GO IN ONE FLEX ROW. A bar containing chip-pickers
+   AND date inputs AND buttons, all align-items:center, stacks its labels and
+   controls on visibly different lines. Give it explicit row groups instead. */
+.filterbar--stacked { flex-direction: column; align-items: stretch; }
+.filterbar--stacked .filterbar__group { flex: none; }
+
+
+/* ═══ 13. TOOLTIPS ════════════════════════════════════════════════════════ */
+
+/* ── THE TOOLTIP RULE ───────────────────────────────────────────────────────
+   IF AN ELEMENT HAS ITS OWN VISIBLE TEXT LABEL, IT DOES NOT GET A TOOLTIP.
+   This covers data-tip, title="", and any other hover bubble — they are the same
+   thing for this rule. A button with a WORD on it does not need more words
+   jammed into a tooltip above it.
+
+   ALLOWED, and only here: pips, status dots, drag handles, glyph-only icon
+   buttons, and bare numbers with no self-evident header. Pair data-tip with
+   aria-label on any of those.
+
+   KEEP THEM TO A FEW WORDS. If you feel the need to write a sentence, the
+   tooltip is not the problem — the element is under-designed. Pick one:
+     1. the label is sufficient → delete the tooltip;
+     2. the label is unclear    → rename the label or restructure;
+     3. the action has a non-obvious side effect → put it in the confirm dialog.
+   Hover bubbles get missed and do not exist on touch devices, so anything
+   important must never live only in one.
+
+   The implementation is a SINGLE body-level node positioned by JS (js/tooltip.js)
+   rather than a per-element ::after — one node means one measurement pass, real
+   viewport clamping, and top-layer promotion so it cannot be painted under an
+   open <dialog>. Theme-stable via the inverted hero tokens: always dark on light
+   themes, always light on dark ones. */
+.tip-popup {
+  position: fixed;
+  background: var(--surface-hero);
+  color: var(--ink-hero);
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.01em;
+  /* Short labels stay on one line; a long tip wraps instead of running off the
+     viewport. The JS measures the RENDERED box, so placement follows whichever
+     shape a given tip takes.
+
+     `width: max-content` IS LOad-BEARING, and its absence is a real bug that
+     shipped. A `position: fixed` box with no width shrink-to-fits against the
+     space between its `left` and the viewport's right edge — so a tip on a
+     control near the right edge gets almost no room and wraps at every space.
+     The entry list's view-on-site button sits at x≈1389 of 1440, leaving ~50px,
+     and "View on site" rendered as three stacked words. max-content sizes to
+     the text instead; max-width still caps a genuinely long tip, and the JS
+     still clamps the placement back into the viewport afterwards. */
+  width: max-content;
+  max-width: min(42ch, calc(100vw - var(--sp-5) * 2));
+  text-wrap: pretty;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 9999;
+  transform: translateX(-50%);
+  border-radius: var(--r-sm);
+  /* An open <dialog> renders in the browser's TOP LAYER, above every z-index on
+     the page — so a tooltip parented to <body> was painted UNDER any modal
+     however high its z-index. The JS promotes this node via the popover API;
+     these three lines undo the UA popover defaults so our positioning applies. */
+  margin: 0;
+  border: 0;
+  overflow: visible;
+}
+.tip-popup--visible { opacity: 1; }
+.tip-popup::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  /* --tip-arrow-x is set by the JS so the arrow keeps pointing at the trigger
+     even when the bubble has been clamped to a viewport edge. */
+  left: var(--tip-arrow-x, 50%);
+  transform: translateX(-50%);
+  border-style: solid;
+  border-width: 0 5px 5px 5px;
+  border-color: transparent transparent var(--surface-hero) transparent;
+}
+.tip-popup--above::before {
+  bottom: auto;
+  top: 100%;
+  border-width: 5px 5px 0 5px;
+  border-color: var(--surface-hero) transparent transparent transparent;
+}
+/* Side placement — for triggers pinned to the left edge (a nav rail, via
+   data-tip-side="right" on the column). A tooltip ABOVE a 34px icon row lands on
+   the row above it; pointing out into the empty content band is the only
+   readable direction. */
+/* SIDE PLACEMENT IS THE NAV RAIL, and the rail is the one surface where the
+   default tip is invisible. `.tip-popup` is built on the inverted hero tokens —
+   always dark on a light theme — which is right everywhere except against a
+   dark chrome column, where it lands black on black. Themes like Tuxedo scope a
+   dark palette onto `.sb`, so the rail's tooltips had no contrast at all.
+
+   The accent is the one colour guaranteed to read against both, it is the
+   single sanctioned accent source (§6a), and `--ink-on-strong` is what text on
+   a saturated fill uses (§6). This is a tooltip, not a status chip: the fill
+   here is not reporting state, it is making a label legible. */
+.tip-popup--right {
+  transform: none;
+  background: var(--accent);
+  color: var(--ink-on-strong);
+}
+.tip-popup--right::before {
+  bottom: auto;
+  left: auto;
+  right: 100%;
+  top: var(--tip-arrow-y, 50%);
+  transform: translateY(-50%);
+  border-width: 5px 5px 5px 0;
+  /* The arrow follows the bubble, so this is --accent and not --surface-hero.
+     Set in THIS rule rather than a second one above it: a separate
+     `border-right-color` declaration was silently overwritten by this
+     shorthand, which resets all four sides. */
+  border-color: transparent var(--accent) transparent transparent;
+}
+[data-tip] { -webkit-tap-highlight-color: transparent; }
+
+
+/* ═══ 14. HERO / INSET SURFACES ═══════════════════════════════════════════ */
+
+/* The inverted-band widget pattern: an always-DARK hero panel on any theme, with
+   an always-LIGHT inset block nested inside it. Use for headline-number bands. */
+.surface--hero {
+  background: var(--surface-hero);
+  color: var(--ink-hero);
+  border-radius: var(--r-xl);   /* floater: hero panel */
+  padding: var(--sp-6);
+}
+.surface--hero h1,
+.surface--hero h2,
+.surface--hero h3,
+.surface--hero a { color: var(--ink-hero); }
+
+.surface--inset {
+  background: var(--surface-inset);
+  color: var(--ink-inset);
+  border-radius: var(--r-lg);   /* floater: inset panel inside a hero */
+  padding: var(--sp-4);
+}
+.surface--inset h1,
+.surface--inset h2,
+.surface--inset h3 { color: var(--ink-inset); }
+
+
+/* ═══ 15. ICONS ═══════════════════════════════════════════════════════════ */
+
+/* Icons are INLINE SVG, emitted by icon($slug). NEVER a CSS mask.
+   A mask — even from an inlined data: URI — is an IMAGE RESOURCE: the browser
+   decodes it asynchronously, and an element whose mask image is not ready yet is
+   masked OUT, i.e. INVISIBLE. So every masked icon is briefly blank and then
+   appears, on every single load. That is not a race you can win by loading
+   the mask sooner; the decode is always there. Inline SVG is DOM — it
+   paints with the text beside it, full stop.
+
+   The width/height ATTRIBUTES on the <svg> matter: with them the glyph draws at
+   the right size even before any stylesheet has applied. An <svg> with no
+   intrinsic size defaults to 300×150 and flashes something far worse than
+   nothing. icon() emits both. */
+.icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+svg.icon { fill: currentColor; }
+.icon--xs { width: 10px; height: 10px; }
+.icon--sm { width: 12px; height: 12px; }
+.icon--lg { width: 16px; height: 16px; }
+
+/* The "go here" chevron. A control whose label leads somewhere ends with
+   icon('angle-right', 'icon icon--xs icon--go') — never the CHARACTER "›".
+   Fifty-seven of those were text: the character takes the body font's weight and
+   baseline and is the one mark on the control that is not part of the icon set.
+   The same character stays as TEXT where it is genuinely typography: a UI path
+   in a sentence, a range ("9:00 › 17:00"), a pipeline in <code>, and <option>
+   labels — which cannot hold markup at all. */
+.icon--go {
+  color: var(--ink-3);
+  margin-left: 2px;
+  vertical-align: -0.08em;
+  flex: none;
+}
+a:hover > .icon--go,
+.btn:hover .icon--go { color: inherit; }
+
+/* Close / dismiss controls. Every one of these used to be the literal character
+   "×" in the body font, sized by whatever font-size its own rule happened to
+   pick (16/20/22/15/12px across six components). It is the most repeated control
+   in an app and it was the one thing never on the icon set — a multiplication
+   sign is not a close glyph, it just resembles one. */
+.modal__x,
+.alert__dismiss,
+.panel__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+/* ═══ 16. AVATARS ═════════════════════════════════════════════════════════ */
+
+/* The RING carries identity (a per-user colour); the SHAPE carries status if you
+   add a presence pip. Per-user colour is the one sanctioned escape from the
+   single-accent rule, because it is an identity, not a brand. Note that it is
+   per-USER — do not colour rows by client, project or category. */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  border: 2px solid var(--avatar-color, var(--border-strong));
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.avatar--xs { width: 18px; height: 18px; font-size: 10px; border-width: 1.5px; }
+.avatar--sm { width: 22px; height: 22px; font-size: var(--fs-xs); }
+.avatar--lg { width: 48px; height: 48px; font-size: var(--fs-lg); border-width: 2.5px; }
+.avatar--xl { width: 88px; height: 88px; font-size: var(--fs-3xl); border-width: 3px; }
+/* <img> variant: the photo fills the circle, the identity colour stays as the
+   border so attribution survives on top of the picture. */
+.avatar--img { padding: 0; object-fit: cover; background: transparent; }
+
+
+/* ═══ 17. PROGRESS ════════════════════════════════════════════════════════ */
+
+/* A NUMBER YOU HAVE TO COMPARE IS A BAR. "40%" beside another "40%" makes you
+   read; a bar makes you glance. Use this anywhere a percentage runs down a
+   column. The fill is accent — a progress fill genuinely acts, so the saturated
+   fill is correct here. Over/under states are carried by a GLYPH, not by
+   recolouring the bar. */
+.progress-bar {
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.progress-bar__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--t-mid);
+}
+
+
+/* ═══ 18. MODALS ══════════════════════════════════════════════════════════ */
+
+/* Native <dialog>. It handles modal-ness, the focus trap and Esc-to-cancel for
+   free — do not hand-roll any of those. Replaces browser confirm(), which cannot
+   be styled and cannot be themed.
+
+   A modal IS an alert surface (it is where destructive intent belongs), which is
+   why --danger is legal inside one. */
+.modal {
+  border: none;
+  padding: 0;
+  margin: auto;
+  max-width: 460px;
+  width: calc(100% - var(--sp-5) * 2);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: var(--r-lg);   /* floater: modal dialog over the page */
+  box-shadow: var(--shadow);
+  font-family: inherit;
+}
+/* A neutral darken-overlay — black with alpha, NOT a tinted colour. Achromatic,
+   so it reads identically on every theme. (Black-with-alpha is not a "colour"
+   for the purposes of the locked palette; a tinted backdrop is.) */
+.modal::backdrop {
+  background: rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(1.5px);
+}
+.modal__inner {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: 0;
+}
+.modal__title {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.modal__body {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  line-height: var(--lh);
+  margin: 0;
+}
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+
+/* ═══ 19. RENDERED MARKDOWN ═══════════════════════════════════════════════ */
+
+/* USER FREE-TEXT RENDERS THROUGH MARKDOWN, never nl2br(escape()). Any long-form
+   free text a user types — descriptions, comments, notes, article bodies — goes
+   through a safe-mode markdown renderer and is output raw inside a `.md`
+   container. Short single-line labels, titles and names stay escaped-only.
+   This applies to every NEW free-text field too; it is a standing rule.
+
+   Tight vertical rhythm so a short comment reads as one block, not a document.
+   `.md--inline` is for one-line previews inside a row. */
+.md > :first-child { margin-top: 0; }
+.md > :last-child  { margin-bottom: 0; }
+.md p { margin: 0 0 var(--sp-2); }
+.md ul, .md ol { margin: var(--sp-2) 0; padding-left: var(--sp-5); }
+/* reset.css strips list markers globally — restore them inside rendered markdown. */
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li { margin: 2px 0; }
+.md li > ul, .md li > ol { margin: 2px 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin: var(--sp-3) 0 var(--sp-2);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+}
+.md h1 { font-size: var(--fs-lg); }
+.md h2 { font-size: var(--fs-md); }
+.md h3, .md h4, .md h5, .md h6 { font-size: var(--fs-sm); }
+.md a { color: var(--accent); }
+.md strong { font-weight: var(--fw-semi); }
+.md em { font-style: italic; }
+.md u { text-decoration: underline; }
+.md code, .md kbd {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 0.05em 0.35em;
+}
+.md pre {
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow-x: auto;
+}
+.md pre code { background: none; border: 0; padding: 0; }
+.md blockquote {
+  margin: var(--sp-2) 0;
+  padding: 2px var(--sp-3);
+  border-left: 3px solid var(--border);
+  color: var(--ink-2);
+}
+.md hr { border: 0; border-top: 1px solid var(--border); margin: var(--sp-3) 0; }
+.md img { max-width: 100%; height: auto; border-radius: var(--r); }
+/* Markdown tables had NO styling at all — cells ran together with no borders,
+   which is what shipped the moment a comment contained a table. display:block +
+   overflow-x lets a wide table scroll WITHIN its column instead of forcing the
+   whole page sideways. */
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: var(--sp-3) 0;
+  font-size: var(--fs-sm);
+}
+.md th, .md td {
+  border: 1px solid var(--border);
+  padding: 6px var(--sp-2);
+  text-align: left;
+  vertical-align: top;
+}
+.md thead th { background: var(--surface-2); font-weight: var(--fw-semi); white-space: nowrap; }
+.md tbody tr:nth-child(even) { background: var(--surface-2); }
+.md--inline, .md--inline p { display: inline; margin: 0; }
+
+
+/* ═══ 20. KEY/VALUE DETAIL LISTS ══════════════════════════════════════════ */
+
+.kv-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.kv-list__row { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr); gap: var(--sp-3); }
+.kv-list__key { font-size: var(--fs-xs); color: var(--ink-3); }
+/* `min-width: 0` lets the TRACK shrink; it does not let the TEXT break, and a
+   kv row's value is very often one unbreakable token — a URL, a path, a
+   permalink pattern. Measured at 390px the permalinks screen put
+   `https://…/page-slug` in a 211px box with `overflow-wrap: normal`: 392px of
+   text with nowhere to break, taking the document to scrollWidth 454.
+   `anywhere` rather than `break-word` because break-word will not break a token
+   that is alone on its line, which is exactly the case here. Matches
+   `.msg__text`, which solved the same problem for chat text. */
+.kv-list__val { font-size: var(--fs-sm); color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.kv-list__val--num { font-variant-numeric: tabular-nums; }
+/* AN ABSENCE IS NOT A VALUE. "No public address" is the answer to the row's
+   question, but printing it at full `--ink` gives a missing thing the same
+   weight as a real one. Sits beside `--num` because a modifier on the value is
+   the pattern here; `.ink-3` was written first and is not a class in this
+   system — the tokens are `--ink-*`, and utility classes for them do not exist
+   on purpose. */
+.kv-list__val--muted { color: var(--ink-3); }
+
+
+/* ═══ 21. RESPONSIVE BREAKPOINT CONTRACT ══════════════════════════════════ */
+
+/* THERE ARE FOUR BREAKPOINTS. THAT IS THE WHOLE LIST.
+     sm  560px
+     md  720px
+     lg 1080px
+     xl 1280px
+   (±1 for the non-overlapping min/max complement.)
+
+   A one-off width — 880, 760, 900 — is how a layout ends up correct at one size
+   and broken 40px away, and how a media query gets orphaned and out-specifies
+   the rule it was meant to refine. That exact bug rendered a whole app 52px wide
+   on a phone: an un-media-queried `:has()` rule out-specified the mobile grid,
+   and it only fired when a cookie-driven class was set — so every clean-session
+   screenshot looked perfect while the user's actual phone did not.
+
+   Pointer, hover, motion and orientation queries are NOT breakpoints and are
+   unaffected.
+
+   Page padding drops from --sp-5 (24px) to --sp-3 (12px) at md. */
+@media (max-width: 720px) {
+  .main { padding: var(--sp-3); }
+  .page__header { gap: var(--sp-2); }
+}
+
+
+/* ═══ 22. TOUCH TARGETS ═══════════════════════════════════════════════════ */
+
+/* SIX CONTROLS IN THE ADMIN ARE UNDER 24px TALL. THIS GROWS THEIR TARGET
+   WITHOUT MOVING A SINGLE PIXEL OF WHAT IS PAINTED.
+
+   Measured across all 49 admin routes at 390px, by HIT AREA rather than by
+   painted box (a checkbox inside its <label>, and a stretched `.list__row-link`,
+   are already row-sized and are correctly not here):
+
+     .link / .link--xs        17px tall   Cancel · Trash · Move to trash
+     .page__back              17px tall   the breadcrumb out of every editor
+     .fgrow__handle        28x17px        the field reorder grip
+     .cfield__kill         22x22px        delete this field
+     .permalink__url          19px tall
+     .nav-top__brand       50x22px
+
+   THE MEDIA QUERY IS `pointer: coarse`, NOT A WIDTH. §21 says in as many words
+   that pointer, hover, motion and orientation queries are NOT breakpoints and
+   are unaffected by the four-breakpoint contract — so this is the sanctioned
+   shape, and it is also the CORRECT one: the problem is a fingertip, not a
+   narrow window. A width query would have grown these on a 700px desktop window
+   (where they are fine) and left them small on a 1024px tablet (where they are
+   not.) Nothing here reaches a mouse.
+
+   AND IT GROWS THE TARGET, NOT THE CONTROL. Padding would push every one of
+   these apart and re-space the rows they sit in — a layout change on every
+   touch device, to fix a hit area. An `::after` overlay changes hit testing and
+   nothing else, so the screen looks identical and the tap lands.
+
+   VERTICAL ONLY, deliberately. These controls sit in horizontal rows —
+   `.list__row-actions` puts Edit and Trash 8px apart — and a target grown
+   sideways would sit ON TOP of its neighbour, so the fix for one control would
+   make the next one unhittable. Height is where they all fail; height is what
+   this grows. */
+@media (pointer: coarse) {
+  .link,
+  .link--xs,
+  .page__back,
+  .fgrow__handle,
+  .cfield__kill,
+  .permalink__url,
+  .nav-top__brand { position: relative; }
+
+  .link::after,
+  .link--xs::after,
+  .page__back::after,
+  .fgrow__handle::after,
+  .cfield__kill::after,
+  .permalink__url::after,
+  .nav-top__brand::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* Centred on the control: half the shortfall above, half below, so the
+       target grows symmetrically and never drifts off the thing it belongs to.
+       24px is the floor; a control already at or over it gets a zero inset. */
+    top: 50%;
+    transform: translateY(-50%);
+    height: 24px;
+    min-height: 100%;
+  }
+}
+
+
+/* ═══ 23. THE DRAG SYSTEM ══════════════════════════════════════════════════
+
+   ONE VOCABULARY FOR EVERY DRAG IN THE APP. `js/reorder.js` puts these three
+   classes on; the form builder's palette drag borrows the same two objects
+   through `Reorder.mirror()` / `Reorder.indicator()` rather than drawing its
+   own. Three screens drawing three different drag affordances — a dashed
+   accent box in one, a 2px accent rule in another, a browser-drawn HTML5 drag
+   image in the third — is the inconsistency this replaces.
+
+   ── WHAT REPLACED WHAT ──────────────────────────────────────────────────
+   `sortable-ghost` / `sortable-chosen` used to be styled THREE TIMES, once per
+   consumer (`.fields`, `.canvas`, `.fgrow`), because the element being marked
+   was the real row and every list's row looked different. There is nothing
+   per-consumer left to say: the indicator is a plain box sized by the script
+   to whatever it is standing in for, so it is declared once here. The option
+   names are still honoured — the class a call site passes lands on the
+   indicator, which IS the gap left behind, and on the mirror, which IS the
+   thing chosen — so no call site had to change.                             */
+
+/* WHAT YOU ARE CARRYING. Pinned to the viewport and driven by `transform`, so
+   it follows the pointer on the compositor rather than re-laying-out the page
+   sixty times a second — and `position: fixed` so it is not trapped inside the
+   scrolling, clipping box the item came out of. */
+.reorder-mirror {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  /* NOT INTERACTIVE, AND NOT IN THE WAY. It sits under the pointer by
+     definition, so anything else would mean the drag hit-tests itself. */
+  pointer-events: none;
+  /* Slightly transparent: you have to be able to see the gap open up
+     UNDERNEATH the thing you are carrying, or the preview is behind the
+     preview. */
+  opacity: 0.9;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-none);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+/* The clone inside is a picture. Nothing in it may take focus or a click. */
+.reorder-mirror * { pointer-events: none; }
+
+/* A chip, for a drag that has no element yet — the palette carries "a Text
+   field", which does not exist until it lands. A ghost of the palette row
+   would be a picture of the wrong thing. */
+.reorder-mirror--chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* WHERE IT WILL LAND. A DOTTED LINE BETWEEN TWO THINGS — horizontal between
+   rows, vertical between two items sharing a row.
+
+   ── WHAT THIS REPLACED, AND WHY ─────────────────────────────────────────
+   First it was `opacity: 0.35` on a copy of the row: a faint duplicate on a
+   pale surface, which does not show where anything is dropping. Then it was a
+   dashed box the size of the item, opened in the flow so a gap appeared where
+   it would land — better, and still not an answer, because nothing drew a line
+   (horizontal or vertical, depending on drop position) where the item will
+   actually go.
+
+   A box says how much room something takes. The question is BETWEEN WHICH TWO,
+   and the only shape that answers it is a line between two things — the same
+   reason a text caret is a line and not a rectangle. Two orientations because
+   they are two different questions: a new row, or a place in this one.
+
+   ── POSITIONED, NOT IN THE FLOW ─────────────────────────────────────────
+   A twelve-column grid has no track to spare for a 3px element: in the flow it
+   takes a whole column, compressing the row and pushing its last field onto
+   the next line. `reorder.js` makes the container a containing block for the
+   duration of the drag and puts this inside it, so the layout does not move
+   and the only thing that travels is the line.
+
+   3px and DOTTED. At 1px it reads as a rendering artefact against a hairline
+   border; dotted rather than dashed so it cannot be mistaken for the dashed
+   `is-dropzone` outline the form canvas draws around itself at the same
+   moment. */
+.reorder-drop {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: var(--r-none);
+}
+/* Between rows: across the container, at the seam. The negative offset centres
+   the line ON the gap rather than hanging it below the row above. */
+.reorder-drop--h {
+  border-top: 3px dotted var(--accent);
+  margin-top: -2px;
+}
+/* Within a row: as tall as the row, at the seam between two items. */
+.reorder-drop--v {
+  border-left: 3px dotted var(--accent);
+  margin-left: -2px;
+}
+
+/* OUT OF THE FLOW WHILE IT IS IN THE AIR. Left laid out, the list is one item
+   longer than it looks and every gap opens in the wrong place. */
+.reorder-source { display: none; }

@@ -1,0 +1,584 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOP NAV + MOBILE DRAWER
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Load AFTER core.css and shell.css. Fills the `nav` grid area that shell.css
+   reserves.
+
+   Contains: the bar, dropdown tab groups (with right-flyout submenus), the user
+   chip, the hamburger, the mobile drawer, the responsive DROP cascade, and the
+   dark-chrome scope-override pattern.
+
+   ── THE ONE RULE PEOPLE BREAK HERE ─────────────────────────────────────────
+   THE TOP NAV, ITS DROPDOWNS AND THE USER MENU ARE TEXT-ONLY. NO ICONS.
+
+   That is deliberate and it is not an oversight to be "fixed". Two of three rows
+   wearing a glyph is worse than none of them, and at nav size a glyph renders as
+   noise: it is small enough to read as garbled.
+
+   The sidebar is the opposite — EVERY row there has an icon, no exceptions
+   (shell.css §4). The two rules coexist because they solve different problems:
+   the sidebar's rail state makes the glyph the entire row, while the nav never
+   collapses to glyphs, it DROPS items instead (see §6). If you add a nav row, it
+   gets text.
+
+   AND NO TOOLTIPS. Every control in here carries a visible label, so none of
+   them may carry `data-tip` — not a "Start Task" button tipped "Start a task —
+   clock in", and not a user chip showing a person's name tipped "Your
+   profile".
+
+   CONTENTS
+     1  The bar
+     2  Brand
+     3  Destination links
+     4  Dropdown tab groups
+     5  User chip + spacer + badge
+     6  The responsive DROP cascade
+     7  Hamburger
+     8  Mobile drawer
+     9  Dark chrome on a light theme — the scope-override pattern
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══ 1. THE BAR ══════════════════════════════════════════════════════════ */
+
+.nav-top {
+  grid-area: nav;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5);
+  height: var(--nav-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  /* The nav is a GRID ITEM, and a grid item's default min-width is `auto` — so it
+     will happily grow past the viewport to fit its content. One long label in the
+     bar overflowed the whole page sideways. min-width:0 constrains it so the
+     shrinkable children actually ellipsise instead. */
+  min-width: 0;
+}
+
+/* THE BAR NEVER SQUISHES OR WRAPS. Every child holds its intrinsic size; only
+   the spacer flexes. Without this, a tight bar crushed the avatar into a 4px
+   oval and wrapped two labels onto a second line. §6 DROPS items as width falls
+   so the bar stays on one row rather than compressing into illegibility —
+   hiding beats shrinking, every time. */
+.nav-top { flex-wrap: nowrap; }
+.nav-top > * { flex: 0 0 auto; }
+.nav-top__spacer { flex: 1 1 auto; }
+.nav-top__link { white-space: nowrap; }
+
+
+/* ═══ 2. BRAND ════════════════════════════════════════════════════════════ */
+
+.nav-top__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semi);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.nav-top__brand-mark {
+  height: 28px;
+  width: auto;
+  display: block;
+  flex: none;
+}
+
+/* Non-production environment badge. A NEUTRAL chip — the TEXT carries the
+   meaning. This was an amber pill once; alert colours are theme-ADJACENT and
+   never sit inside themed chrome, so it was demoted to a neutral bordered chip
+   the same day the rule was written. No tooltip: the label says "STAGING". */
+.nav-top__env-badge {
+  font-size: 10px;
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  padding: 1px 6px;
+  border-radius: var(--r);
+}
+
+
+/* ═══ 3. DESTINATION LINKS ════════════════════════════════════════════════ */
+
+.nav-top__links {
+  display: flex;
+  align-items: center;
+  /* Full nav height, so a group's dropdown can anchor flush to the bar's bottom
+     edge rather than floating below it with a gap. */
+  align-self: stretch;
+  gap: var(--sp-1);
+  margin-left: var(--sp-4);
+}
+.nav-top__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  border-radius: var(--r);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.nav-top__link:hover { background: var(--hover); color: var(--ink); }
+.nav-top__link.is-active { color: var(--ink); background: var(--active); }
+.nav-top__link.is-active:hover { background: var(--active); }
+
+
+/* ═══ 4. DROPDOWN TAB GROUPS ══════════════════════════════════════════════ */
+
+/* Theme-first: the container has NO styling of its own, the trigger reuses
+   .nav-top__link, and the menu floater reuses the same border/shadow recipe as
+   every other menu in the app. Items inside reuse .nav-top__link too, so hover
+   and active behave identically to the top-level bar on every theme. Reusing the
+   proven recipe is why this needed no bespoke per-theme rules. */
+.nav-top__group {
+  position: relative;
+  display: inline-flex;
+  align-self: stretch;   /* fill nav height so the menu anchors to the bar's edge */
+  align-items: center;
+}
+.nav-top__group-toggle {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+}
+/* While a group is OPEN — you have moved the cursor off the title and into its
+   dropdown — keep the title showing its hover look, so the trail back to it
+   stays lit. An ACTIVE group keeps its stronger active background instead. */
+.nav-top__group-toggle[aria-expanded="true"]:not(.is-active) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* THE CARET IS A REAL ICON, not a typed "▾".
+   It was a 10px text character with 2px of air, which is invisible in practice —
+   so a grouped title read exactly like a plain link and nobody knew there was a
+   menu. This is the one place a glyph belongs in the nav, and it is not a label:
+   it is a state indicator, and it rotates. */
+.nav-top__group-caret {
+  margin-left: 5px;
+  opacity: 0.65;
+  transition: transform var(--t-fast), opacity var(--t-fast);
+}
+.nav-top__group-toggle:hover .nav-top__group-caret,
+.nav-top__group-toggle[aria-expanded="true"] .nav-top__group-caret { opacity: 1; }
+.nav-top__group-toggle[aria-expanded="true"] .nav-top__group-caret { transform: rotate(180deg); }
+
+.nav-top__group-menu {
+  position: absolute;
+  z-index: 30;
+  top: 100%;              /* flush under the bar's bottom edge */
+  left: 0;
+  min-width: 200px;
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  /* The NAV'S OWN bottom border is this menu's top edge, and the top corners stay
+     square — together they make the menu read as ATTACHED to the bar rather than
+     floating near it. */
+  border-top: 0;
+  border-radius: 0 0 var(--r-lg) var(--r-lg);   /* floater: dropdown menu over page content */
+  box-shadow: var(--shadow);
+}
+.nav-top__group-menu[hidden] { display: none; }
+.nav-top__group-menu .nav-top__link {
+  display: flex;
+  border-radius: 0;
+  padding: 6px var(--sp-3);
+}
+
+/* Nested groups. A sub-group inside a menu is a full-width row, and its own
+   submenu flies out to the RIGHT of the parent item instead of stacking below. */
+.nav-top__group--sub {
+  position: relative;
+  display: block;        /* fill the menu row width, not inline */
+  align-self: stretch;
+}
+.nav-top__subgroup-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.nav-top__group-caret--right {
+  margin-left: auto;
+  transition: none;      /* a flyout indicator, not a rotating disclosure */
+}
+.nav-top__group-menu--sub {
+  top: -4px;             /* align with the parent item, accounting for menu padding */
+  left: 100%;
+  border-top: 1px solid var(--border-strong);
+  border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg);   /* floater: submenu flyout */
+  z-index: 31;
+}
+/* If a right flyout would overflow the viewport, flip it left — where it stacks
+   back OVER the parent menu. It needs to read as a distinct layer, since it no
+   longer has open space beside it to separate the two: the raised z-index does
+   that, and var(--shadow) carries the depth. (An earlier version used a bespoke
+   directional rgba here for a stronger left-edge shadow. It looked marginally
+   better and it was a second shadow recipe — var(--shadow) is theme-aware and
+   the dark-chrome scope already strengthens it, so the token wins.)
+   JS adds .flip-left after measuring. */
+.nav-top__group--sub.flip-left > .nav-top__group-menu--sub {
+  left: auto;
+  right: 100%;
+  border-radius: var(--r-lg) 0 var(--r-lg) var(--r-lg);   /* floater: flipped submenu flyout */
+  z-index: 32;
+  box-shadow: var(--shadow);
+}
+
+
+/* ═══ 5. USER CHIP + BADGE ════════════════════════════════════════════════ */
+
+/* A count badge that NAVIGATES, so the saturated accent fill is correct here —
+   fill means "this acts". A badge that merely reported a number would take the
+   tint instead (core.css §3). */
+.nav-top__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  border-radius: var(--r);
+  background: var(--accent);
+  color: var(--ink-on-strong);
+  margin-left: 2px;
+}
+
+.nav-top__user {
+  display: flex;
+  align-items: center;
+  align-self: stretch;   /* full nav height so a dropdown sits flush under the bar */
+  gap: var(--sp-3);
+}
+.nav-top__user-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 8px;
+  border-radius: var(--r);
+  text-decoration: none;
+  transition: background var(--t-fast);
+}
+.nav-top__user-link:hover { background: var(--hover); }
+.nav-top__user-name { font-size: var(--fs-sm); color: var(--ink-2); }
+.nav-top__user-link:hover .nav-top__user-name { color: var(--ink); }
+/* The avatar composes core.css's .avatar — the RING carries identity colour. Only
+   the flex behaviour is nav-specific. */
+.nav-top__avatar { flex: none; }
+
+
+/* ═══ 6. THE RESPONSIVE DROP CASCADE ══════════════════════════════════════ */
+
+/* The full inline bar needs roughly 1220px. As width falls we DROP the widest,
+   least-essential pieces IN ORDER so the bar always fits on ONE row — never
+   squishing (§1), never wrapping.
+   HIDING BEATS SHRINKING. A bar that compresses to fit produces a 4px avatar and
+   two-line labels; a bar that drops its least-essential item stays legible.
+
+   These blocks sit AFTER the base rules so source order cannot undo them. That
+   is not a stylistic note: when an equivalent mobile block was authored ABOVE
+   the base rules, the base rules silently won and the narrow layout never
+   applied despite the media query being right there in the file. */
+
+/* ≤ xl(1280): the user NAME and the env badge are wide-desktop-only. Dropping
+   them frees ~170px, so all the inline destinations still fit down to lg. */
+@media (max-width: 1279px) {
+  .nav-top__user-name { display: none; }
+  .nav-top__env-badge { display: none; }
+}
+
+/* ≤ lg(1080): the inline destinations no longer fit → they collapse into the
+   hamburger drawer. The sidebar still shows from 721 up; only the top-level
+   destinations move. */
+@media (max-width: 1080px) {
+  .nav-top__links { display: none; }
+  /* The hamburger's reveal is NOT here — see the foot of this file. §7's base
+     rule sits after this block at equal specificity and would win. */
+}
+
+/* ≤ md(720): mobile. shell.css already collapses the grid and relocates the
+   sidebar; the nav just tightens. */
+@media (max-width: 720px) {
+  .nav-top { padding: 0 var(--sp-3); gap: var(--sp-3); }
+}
+
+/* ≤ sm(560): the brand drops to the mark alone. The mark identifies the app on
+   its own, and ellipsising a wordmark to "C…" looks broken rather than compact. */
+@media (max-width: 560px) {
+  .nav-top__brand > span:not(.nav-top__env-badge) { display: none; }
+}
+
+
+/* ═══ 7. HAMBURGER ════════════════════════════════════════════════════════ */
+
+/* HIDDEN BY DEFAULT, REVEALED BY THE ≤lg RULE AT THE FOOT OF THIS FILE.
+   Not by the cascade in §6. §6's own preamble states the reason it cannot be:
+   "These blocks sit AFTER the base rules so source order cannot undo them."
+   This base rule sits after §6 — same specificity (0,1,0), later in the file —
+   so it would silently beat a reveal there and leave the hamburger
+   `display: none` AT EVERY WIDTH.
+
+   The effect: at ≤1080 the inline destinations are hidden and the hamburger
+   would be hidden too, so there would be NO WAY TO REACH NAVIGATION AT ALL on a
+   tablet or a phone — a complete mobile treatment with nothing to open it. The
+   reveal lives at the end of the file, where nothing follows it. */
+.nav-top__hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink-2);
+  padding: 4px 10px;
+  border-radius: var(--r);
+  /* A FULL 44×44 TOUCH TARGET. The hamburger only appears ≤1080, where a coarse
+     pointer is likely, so it gets the whole target — not the 32px control size
+     that suits a mouse. */
+  min-width: 44px;
+  min-height: 44px;
+  line-height: 1;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.nav-top__hamburger:hover { background: var(--hover); color: var(--ink); }
+
+
+/* ═══ 8. MOBILE DRAWER ════════════════════════════════════════════════════ */
+
+/* THE DRAWER RELOCATES THE ONE SIDEBAR NODE. IT NEVER RENDERS A SECOND COPY.
+   A second copy left a text filter dead on six panels (the JS bound to the first
+   match) and produced 10 duplicate element ids. js/nav.js moves the node in on
+   open and puts it back on close, so every existing binding keeps working. */
+
+.nav-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.45);   /* achromatic darken-overlay, not a tint */
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fast);
+}
+body.is-drawer-open .nav-drawer-backdrop { opacity: 1; pointer-events: auto; }
+
+.nav-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 320px;
+  max-width: 85vw;
+  height: 100vh;
+  /* The drawer IS the mobile sidebar, so it wears the sidebar's exact colour
+     (--bg, matching .sb) and joins the same dark-chrome scope (§9). One surface,
+     matching the rail, on every theme. */
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  z-index: 100;
+  transform: translateX(-100%);
+  transition: transform var(--t-fast);
+  overflow: hidden;   /* the drawer never scrolls — only the ACTIVE tab panel does */
+  display: flex;
+  flex-direction: column;
+  visibility: hidden;
+}
+body.is-drawer-open .nav-drawer { transform: none; visibility: visible; }
+
+.nav-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);   /* the same one surface as the body, not a lifted band */
+  flex: 0 0 auto;
+}
+.nav-drawer__title { font-size: var(--fs-md); font-weight: var(--fw-semi); color: var(--ink); }
+.nav-drawer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink-3);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: var(--r);
+}
+.nav-drawer__close:hover { background: var(--hover); color: var(--ink); }
+
+/* TWO TABS — "Navigate" (the app's destinations) and "This page" (the relocated
+   sidebar). Only the ACTIVE panel is shown, and it is the single scroll region.
+   Stacking both meant two navigations fighting for the same column and a double
+   scrollbar; tabbing them means exactly one thing scrolls. */
+.nav-drawer__tabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.nav-drawer__tab {
+  flex: 1;
+  min-height: 44px;   /* touch target */
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  border-radius: var(--r);
+}
+.nav-drawer__tab.is-active { background: var(--surface-2); color: var(--ink); font-weight: var(--fw-medium); }
+/* A page with no sidebar of its own must not show an empty "This page" tab. The
+   JS sets .has-page-nav only when a non-global section actually exists. */
+.nav-drawer:not(.has-page-nav) .nav-drawer__tab[data-drawer-tab="page"] { display: none; }
+
+.nav-drawer__panel { display: none; flex: 1; min-height: 0; overflow-y: auto; }
+.nav-drawer__panel.is-active { display: block; }
+
+.nav-drawer__nav {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-3) var(--sp-2);
+  gap: 2px;
+}
+.nav-drawer__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.nav-drawer__link:hover { background: var(--hover); color: var(--ink); }
+.nav-drawer__link.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: var(--fw-semi);
+}
+
+/* EVERY interactive row in the drawer gets a ≥44px hit height. The drawer only
+   shows ≤1080 — a coarse-pointer context — and rows are already full width, so
+   height is the whole target. */
+.nav-drawer a,
+.nav-drawer button { min-height: 44px; }
+.nav-drawer button { min-width: 44px; }
+.nav-drawer .sb__item { min-height: 44px; }
+
+/* The relocated sidebar fills the panel: no second column, no rail toggle
+   (there is no column to rail on a phone). */
+.nav-drawer__rail .sb {
+  display: flex;
+  width: auto;
+  border-right: 0;
+  position: static;
+  height: auto;
+}
+.nav-drawer__rail .sb__rail-toggle { display: none; }
+
+
+/* ═══ 9. DARK CHROME ON A LIGHT THEME ═════════════════════════════════════ */
+
+/* THE SCOPE-OVERRIDE PATTERN. Reusable, and worth understanding before you
+   invent anything else.
+   Rather than introducing chrome-specific tokens (--nav-bg, --rail-bg, …) and
+   then teaching every component to read them, a theme redefines the ORDINARY
+   tokens WITHIN the chrome subtrees. Children inherit; the component CSS that
+   already reads var(--surface) / var(--ink) / var(--hover) picks up the dark
+   values with no changes at all. That is how one theme ships light content with
+   black chrome without a single component knowing it exists.
+
+   Copy this block for any "dark chrome on a light theme" combination. It lives
+   in the THEME file, not here — this is documentation of the shape:
+
+     :root[data-theme="<key>"] .sb,
+     :root[data-theme="<key>"] .entity-rail-col,
+     :root[data-theme="<key>"] .nav-drawer {
+       --bg: …; --surface: …; --surface-2: …;
+       --ink: …; --ink-2: …; --ink-3: …; --ink-disabled: …;
+       --border: …; --border-strong: …;
+       --hover: rgba(255,255,255,0.05); --active: rgba(255,255,255,0.08);
+       --color-scheme: dark; --picker-invert: 0.6;
+     }
+     :root[data-theme="<key>"] .nav-top { … the same set, nav's own values … }
+
+   THREE THINGS THAT ARE EASY TO GET WRONG:
+
+   1. The rail and the nav get SEPARATE blocks with different --surface values.
+      Giving them identical values merges the two bands into one undifferentiated
+      slab and the seam between them disappears.
+   2. --hover and --active must flip to white-alpha. Black-alpha on a dark
+      surface is invisible, so every hover state in the chrome silently dies.
+   3. --color-scheme and --picker-invert belong in the block too, or native
+      widgets (date pickers, scrollbars, autofill) render light chrome punched
+      into the dark bar.
+
+   Note what the override deliberately does NOT set: --accent. Leaving the accent
+   alone lets the theme's brand colour glow against the dark chrome — which is
+   the entire visual point of the combination. */
+
+
+/* ═══ 10. THE HAMBURGER'S REVEAL — LAST, ON PURPOSE ═══════════════════════ */
+
+/* This one rule lives at the very end of the file because §7's base
+   `display: none` has the same specificity (0,1,0), and whichever comes later
+   wins. Inside §6's cascade, ABOVE that base rule, the hamburger would never
+   appear at any viewport width — and with `.nav-top__links` hidden at ≤lg,
+   there would be no route to navigation at all below 1080px.
+
+   Anything else that must survive a same-specificity base rule goes here too,
+   with its reason. Do not move this block up the file. */
+
+/* ── AND IT REVEALS AT md, NOT lg ──────────────────────────────────────────
+   At `max-width: 1080px` the hamburger's job would be to reach
+   `.nav-top__links` — the top bar's own destinations, which hide at ≤lg. With
+   `Ui\AdminMenu` putting the whole information architecture in the sidebar,
+   that is not what it opens: on this install the drawer's only content is the
+   RELOCATED SIDEBAR, and the sidebar hides at ≤md (shell.css §7). Two
+   breakpoints for one decision would sit 360px apart.
+
+   Across that gap, every width from 721 to 1080 would show BOTH: sidebar
+   visible at x=0..240 and a hamburger in the bar offering to open it again.
+   Tapping it moves the live column into a sheet drawn over the page and leaves
+   the grid at `240px 660px` with nothing in the first track.
+
+   So the reveal follows the thing it reveals. The ≤lg rule is kept for the case
+   it was actually written for — a drawer that has DESTINATIONS of its own, which
+   `nav-drawer.php` renders a "nav" panel for only when `$navItems` is non-empty.
+   There the hamburger is the only route to them and must still appear on a
+   tablet.
+
+   Both rules are inside media queries ON PURPOSE. core.css §21's warning is
+   about an un-media-queried `:has()` out-specifying the mobile grid; scoped to
+   a band it cannot reach past its own. */
+@media (max-width: 720px) {
+  .nav-top__hamburger { display: inline-flex; }
+}
+@media (min-width: 721px) and (max-width: 1080px) {
+  body:has(.nav-drawer__panel[data-drawer-panel="nav"]) .nav-top__hamburger {
+    display: inline-flex;
+  }
+}
