@@ -105,8 +105,8 @@ class Taxonomy
         $stmt = $db->prepare('
             INSERT INTO taxonomies
                 (taxonomy_key, plural_label, singular_label, admin_slug, public_slug, content_types, is_hierarchical,
-                 min_terms, max_terms, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 min_terms, max_terms, is_option, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $stmt->execute([
             $data['taxonomy_key'],
@@ -125,6 +125,8 @@ class Taxonomy
             // old behaviour: none needed, no limit.
             (int) ($data['min_terms'] ?? 0),
             isset($data['max_terms']) ? (int) $data['max_terms'] : null,
+            // Whether a customer chooses from it when buying (migration 095).
+            !empty($data['is_option']) ? 1 : 0,
             $data['is_active'] ?? 1,
         ]);
 
@@ -143,7 +145,7 @@ class Taxonomy
             UPDATE taxonomies
             SET taxonomy_key = ?, plural_label = ?, singular_label = ?,
                 admin_slug = ?, public_slug = ?, content_types = ?, is_hierarchical = ?,
-                min_terms = ?, max_terms = ?, is_active = ?
+                min_terms = ?, max_terms = ?, is_option = ?, is_active = ?
             WHERE id = ?
         ');
         $stmt->execute([
@@ -157,6 +159,7 @@ class Taxonomy
             $data['is_hierarchical'] ? 1 : 0,
             (int) ($data['min_terms'] ?? 0),
             isset($data['max_terms']) ? (int) $data['max_terms'] : null,
+            !empty($data['is_option']) ? 1 : 0,
             $data['is_active'] ?? 1,
             $id,
         ]);

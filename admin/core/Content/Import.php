@@ -161,6 +161,15 @@ final class Import
                         continue;
                     }
 
+                    $refusal = self::skuRefusal($key, $row, $held !== null ? (int) $held['id'] : null);
+                    if ($refusal !== '') {
+                        $plan['skipped'][] = [
+                            'what' => sprintf('"%s" (%s)', (string) ($row['title'] ?? $slug), $key),
+                            'why'  => $refusal,
+                        ];
+                        continue;
+                    }
+
                     $plan['entries'][] = [
                         'type'   => $key,
                         'slug'   => $slug,
@@ -356,6 +365,12 @@ final class Import
                                   . (string) $existing['post_type'] . ' here';
                     continue;
                 }
+                $refusal = self::skuRefusal($key, $row, $existing !== null ? (int) $existing['id'] : null);
+                if ($refusal !== '') {
+                    $out['skipped']++;
+                    $out['log'][] = 'skipped /' . $slug . ' — ' . $refusal;
+                    continue;
+                }
                 $fields   = [
                     'post_type'    => $key,
                     'title'        => (string) ($row['title'] ?? $slug),
@@ -409,6 +424,30 @@ final class Import
                         }
                     }
                 }
+
+                // ── ITS CATEGORIES, MATCHED BY SLUG ───────────────────────────
+                // Exported all along and never read back, so a site restored
+                // from its own file came back with nothing filed anywhere. FIRST,
+                // because an option's size and colour are terms too, and are
+                // looked up by slug below once these have made any this install
+                // lacked.
+                if (is_array($row['terms'] ?? null)) {
+                    foreach (self::importTerms($id, $key, $slug, $row['terms']) as $line) {
+                        $out['log'][] = $line;
+                    }
+                }
+
+                // ── A PRODUCT'S OPTIONS, MATCHED BY LABEL ─────────────────────
+                // The file is the truth for an entry it overwrites, as it is for
+                // the entry's fields above — counts included, and an option the
+                // file does not list goes. Matched by label rather than created
+                // afresh, so an option kept across a re-import keeps its row and
+                // the order lines that point at it. A file with no `options`
+                // (made before they were exported) leaves them alone: what the
+                // file does not say, the overwrite does not touch.
+                if (is_array($row['options'] ?? null) && \Cms\Commerce\Product::isSellableType($key)) {
+                    \Cms\Commerce\Variation::sync($id, self::optionRows($id, $row['options']));
+                }
             }
         }
 
@@ -424,6 +463,133 @@ final class Import
         }
 
         return $out;
+    }
+
+    /**
+     * Why this entry's SKUs cannot come in, or ''. The same rule the entry form
+     * applies (`Product::skuProblems()`): an import is a third way to write a
+     * SKU, and a rule only one door enforces is not a rule.
+     */
+    private static function skuRefusal(string $key, array $row, ?int $existingId): string
+    {
+        if (!\Cms\Commerce\Product::isSellableType($key)) {
+            return '';
+        }
+        $meta    = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+        $options = is_array($row['options'] ?? null) ? $row['options'] : [];
+        $sku     = is_array($meta[\Cms\Commerce\Product::SKU] ?? null) ? '' : (string) ($meta[\Cms\Commerce\Product::SKU] ?? '');
+
+        return \Cms\Commerce\Product::skuProblems($sku, $options, $existingId)[0] ?? '';
+    }
+
+    /**
+     * An export's options as `Variation::sync()` takes them, each carrying the
+     * id of this product's own option of the same label, if it has one.
+     *
+     * @param  array<int|string, mixed> $options
+     * @return list<array<string, string|int>>
+     */
+    private static function optionRows(int $postId, array $options): array
+    {
+        $byLabel = [];
+        foreach (\Cms\Commerce\Variation::forProduct($postId) as $v) {
+            $byLabel[mb_strtolower((string) $v['label'])] = (int) $v['id'];
+        }
+
+        $rows = [];
+        foreach ($options as $o) {
+            if (!is_array($o) || trim((string) ($o['label'] ?? '')) === '') {
+                continue;
+            }
+            $label  = trim((string) $o['label']);
+            $rows[] = [
+                'id'           => $byLabel[mb_strtolower($label)] ?? 0,
+                'label'        => $label,
+                'sku'          => (string) ($o['sku'] ?? ''),
+                'price'        => isset($o['price']) && !is_array($o['price']) ? (string) $o['price'] : '',
+                'sale_price'   => isset($o['sale_price']) && !is_array($o['sale_price']) ? (string) $o['sale_price'] : '',
+                // ITS SIZE AND COLOUR, from slugs back to this install's ids.
+                // `Variation::sync()` keeps only option taxonomies' terms.
+                'terms'        => self::termIds(is_array($o['terms'] ?? null) ? $o['terms'] : []),
+                'manage_stock' => !empty($o['manage_stock']) ? '1' : '',
+                'stock_qty'    => (string) (int) ($o['stock_qty'] ?? 0),
+                'stock_status' => (string) ($o['stock_status'] ?? ''),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Taxonomy key => slug, as an export writes an option's terms, read back as
+     * taxonomy key => this install's term id. A slug with no term here is left
+     * out: the option is still imported, made of what can be matched.
+     *
+     * @param  array<int|string, mixed> $bySlug
+     * @return array<string, int>
+     */
+    private static function termIds(array $bySlug): array
+    {
+        $out = [];
+        foreach ($bySlug as $tax => $slug) {
+            if (!is_string($tax) || !is_string($slug)) {
+                continue;
+            }
+            $term = \Cms\Models\Term::findBySlug($tax, $slug);
+            if ($term !== null) {
+                $out[$tax] = (int) $term['id'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * File an imported entry under the terms its export names, making any this
+     * install lacks. Only taxonomies this content type has; a set the taxonomy's
+     * own rule refuses is left as it was, and said.
+     *
+     * @param  array<int|string, mixed> $terms
+     * @return list<string> lines for the import's log
+     */
+    private static function importTerms(int $postId, string $typeKey, string $slug, array $terms): array
+    {
+        $byTaxonomy = [];
+        foreach ($terms as $t) {
+            if (!is_array($t)) {
+                continue;
+            }
+            $tax  = (string) ($t['taxonomy_key'] ?? '');
+            $term = trim((string) ($t['slug'] ?? ''));
+            if ($tax !== '' && $term !== '') {
+                $name = trim((string) ($t['name'] ?? ''));
+                $byTaxonomy[$tax][$term] = $name !== '' ? $name : $term;
+            }
+        }
+
+        $log  = [];
+        $here = \Cms\ContentType\TaxonomyRegistry::getForContentType($typeKey);
+        foreach ($byTaxonomy as $tax => $named) {
+            if (!isset($here[$tax])) {
+                $log[] = 'left /' . $slug . ' out of "' . $tax . '" — that taxonomy is not on ' . $typeKey . ' here';
+                continue;
+            }
+            $ids = [];
+            foreach ($named as $termSlug => $name) {
+                $found = \Cms\Models\Term::findBySlug($tax, (string) $termSlug);
+                $ids[] = $found !== null ? (int) $found['id'] : \Cms\Models\Term::create([
+                    'taxonomy_key' => $tax, 'name' => $name, 'slug' => (string) $termSlug,
+                    'parent_id' => null, 'sort_order' => 0,
+                ]);
+            }
+            try {
+                \Cms\Models\Term::setPostTerms($postId, $tax, $ids);
+            } catch (\DomainException $e) {
+                $log[] = 'kept /' . $slug . '\'s own ' . $tax . ' — ' . $e->getMessage();
+            }
+        }
+
+        return $log;
     }
 
     /** @return list<array<string, mixed>> */

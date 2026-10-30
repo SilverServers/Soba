@@ -55,6 +55,9 @@ class TaxonomyRegistry
             'hierarchical'  => false,
             'min_terms'     => 0,       // how many an entry must have (0 or 1)
             'max_terms'     => null,    // how many it may have; null = no limit
+            // MIGRATION 095. A taxonomy a customer chooses from when buying —
+            // Size, Colour — whose terms make a product's options.
+            'is_option'     => false,
             'source'        => 'code',
         ], $definition, ['key' => $key]); // key always matches $key
     }

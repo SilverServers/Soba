@@ -69,6 +69,12 @@ $env      = is_array($__config) && ($__config['app_env'] ?? 'production') !== 'p
     : '';
 unset($__config);
 
+// WHICH RELEASE THIS IS, at the foot of the screen. Admins only: they update
+// the site and report its problems, and this is the line they read first. Not
+// on a flush screen, which is pinned to the viewport, so a line under it would
+// scroll the page and push the composer off screen.
+$cmsVersion = Auth::hasRole('admin') && empty($mainFlush) ? \Cms\Update\Release::version() : '';
+
 // The bar shows WHERE YOU ARE, so it wants the screen's own title — not the
 // document title with the app name appended. Captured before the suffix goes on,
 // rather than stripped off again downstream.
@@ -102,6 +108,9 @@ require ROOT_PATH . '/admin/templates/partials/head.php';
           // way to style `.main` from any template that fancies one. ?>
     <main class="main<?= !empty($mainFlush) ? ' main--flush' : '' ?>" id="main" tabindex="-1">
         <?= $pageContent ?? '' ?>
+        <?php if ($cmsVersion !== ''): ?>
+            <footer class="main__foot">Version <?= h($cmsVersion) ?></footer>
+        <?php endif; ?>
     </main>
 </div>
 

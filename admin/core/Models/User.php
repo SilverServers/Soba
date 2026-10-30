@@ -9,7 +9,6 @@ use PDO;
 
 class User
 {
-    private const VALID_ROLES = ['admin', 'editor', 'author'];
 
     /** No 0/o, no 1/i/l, as on backup codes: an issued password is read off a terminal and typed. */
     private const ISSUED_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -187,7 +186,7 @@ class User
         $pdo = Database::getInstance();
 
         $role = $data['role'] ?? 'author';
-        if (!in_array($role, self::VALID_ROLES, true)) {
+        if (!isset(\Cms\Auth\Auth::ROLE_LEVELS[$role])) {
             $role = 'author';
         }
 
@@ -237,7 +236,7 @@ class User
             $params[':email']  = $data['email'];
         }
 
-        if (isset($data['role']) && in_array($data['role'], self::VALID_ROLES, true)) {
+        if (isset($data['role']) && isset(\Cms\Auth\Auth::ROLE_LEVELS[$data['role']])) {
             $sets[]           = 'role = :role';
             $params[':role']  = $data['role'];
         }

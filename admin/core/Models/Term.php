@@ -441,7 +441,15 @@ class Term
             throw new \DomainException($problem);
         }
 
-        $db->beginTransaction();
+        // JOINED, NOT NESTED. An import writes a whole file in one transaction
+        // and files each entry through here, and PDO has no nested
+        // transactions: beginning a second one threw "There is already an
+        // active transaction" and rolled the whole import back. Inside a
+        // caller's transaction this is part of it; on its own it is its own.
+        $own = !$db->inTransaction();
+        if ($own) {
+            $db->beginTransaction();
+        }
         try {
             // Delete existing assignments for this post/taxonomy pair only
             $stmt = $db->prepare('
@@ -461,9 +469,13 @@ class Term
                 }
             }
 
-            $db->commit();
+            if ($own) {
+                $db->commit();
+            }
         } catch (\Throwable $e) {
-            $db->rollBack();
+            if ($own) {
+                $db->rollBack();
+            }
             throw $e;
         }
     }

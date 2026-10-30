@@ -265,6 +265,17 @@ class ContentTypeController
             Term::setPostTerms($id, $taxKey, $termIds);
         }
 
+        // ── AND ITS OPTIONS, ON THE FIRST SAVE ──────────────────────────────
+        // The Options panel is on a new product's screen too, so "Make
+        // options" can be pressed before the product exists; the rows are kept
+        // here on the same terms as `handleUpdate()` keeps them — the panel's
+        // marker says it was drawn, and an empty list then means none.
+        if (!empty($_POST['variations_panel'])
+            && in_array('product', (array) ($contentType['archetypes'] ?? []), true)) {
+            $rows = $_POST['variations'] ?? [];
+            \Cms\Commerce\Variation::sync($id, is_array($rows) ? $rows : []);
+        }
+
         header('Location: ' . ADMIN_URL . '/' . $contentType['admin_slug'] . '/' . $id . '/edit');
         exit;
     }
@@ -1211,6 +1222,19 @@ class ContentTypeController
             $error = FieldRenderer::validateField($field, $sanitized[$field['key']]);
             if ($error !== null) {
                 $errors[] = $error;
+            }
+        }
+
+        // ── A SKU NAMES ONE THING ────────────────────────────────────────────
+        // `Product::skuProblems()` has the reasoning. Only on a type that sells,
+        // and the product's own SKU only when its type kept that field.
+        if (\Cms\Commerce\Product::isSellableType((string) $this->contentType['key'])) {
+            $rows = isset($postData['variations_panel']) && is_array($postData['variations'] ?? null)
+                ? $postData['variations'] : [];
+            foreach (\Cms\Commerce\Product::skuProblems(
+                (string) ($sanitized[\Cms\Commerce\Product::SKU] ?? ''), $rows, $excludeId
+            ) as $problem) {
+                $errors[] = $problem;
             }
         }
 

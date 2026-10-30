@@ -32,51 +32,92 @@ namespace Cms\Commerce;
  * A discount that does NOT reduce tax exists (a manufacturer's coupon the shop
  * is reimbursed for), and this system does not offer one. That is written down
  * rather than left for someone to discover from a total.
+ *
+ * ── THE TAX IS THE PLACE'S ──────────────────────────────────────────────────
+ * Each figure is computed for where the order goes (`TaxRates::forPlace()`):
+ * an Ontario order has an HST line, a Quebec one a GST line and a QST line.
+ * Before an address is known — the basket — the shop's own province stands
+ * in, and the line says it is an estimate for it.
  */
 final class Totals
 {
     /**
-     * Add up an order.
+     * Add up an order, taxed for where it goes.
      *
      * @param int $subtotal the sum of the line totals, in minor units
      * @param int $shipping what delivery costs, in minor units
      * @param int $discount what comes off, in minor units — a POSITIVE number
-     *
+     * @param array{country?: string, region?: string}|null $place where it
+     *        goes; null before an address is known, which taxes it for the
+     *        shop's own place and marks the tax as an estimate when the rates
+     *        depend on where an order goes
      * @return array{
-     *     subtotal: int, discount: int, shipping: int, taxable: int,
-     *     tax: int, total: int, taxIncluded: bool, taxLine: string
+     *     subtotal: int, discount: int, shipping: int, taxable: int, tax: int,
+     *     taxLines: list<array{label: string, rate: int, amount: int}>,
+     *     total: int, taxIncluded: bool, taxPlace: string, coupon: string
      * }
      */
     public static function of(
         int $subtotal,
         int $shipping = 0,
         int $discount = 0,
-        string $couponCode = ''
+        string $couponCode = '',
+        ?array $place = null
     ): array {
-        return self::compute(
+        $rows     = TaxRates::all();
+        $estimate = $place === null;
+        $place    = $place ?? TaxRates::home();
+        $country  = (string) ($place['country'] ?? '');
+        $region   = (string) ($place['region'] ?? '');
+
+        $totals = self::compute(
             $subtotal,
             $shipping,
             $discount,
-            Tax::rate(),
+            TaxRates::forPlace($rows, $country, $region),
             Tax::isInclusive(),
-            Tax::label(),
             $couponCode
         );
+        if ($estimate && TaxRates::dependOnPlace($rows)) {
+            $totals['taxPlace'] = TaxRates::placeName($country, $region);
+        }
+
+        return $totals;
     }
 
-    /** The sum of the basket as it stands, ready for a screen. */
-    public static function forCart(): array
+    /**
+     * The sum of the basket as it stands, ready for a screen: delivered to the
+     * place given, or collected — or, before an address is known, estimated
+     * for the shop's own place.
+     *
+     * COLLECTED, IT IS TAXED WHERE THE SHOP IS, because that is where the sale
+     * happens, and costs nothing to deliver.
+     *
+     * @param array{country?: string, region?: string}|null $place where it is delivered
+     */
+    public static function forCart(?array $place = null, string $method = Shipping::DELIVERY): array
     {
-        // DELIVERY AND THE DISCOUNT ARE ASKED FOR HERE, not passed in by a
-        // screen. A checkout that worked out its own could show a different
-        // figure from the basket the customer just agreed to, which is the one
-        // disagreement in this subsystem that costs money.
-        return self::of(
+        $pickup = $method === Shipping::PICKUP;
+        $totals = self::of(
             Cart::subtotal(),
-            Shipping::forCart(),
+            self::cartShipping($place, $method),
             self::cartDiscount(),
-            Cart::coupon()
+            Cart::coupon(),
+            $pickup ? TaxRates::home() : $place
         );
+
+        // THE LINE UNDER THE FIGURES about delivery to this place, and the
+        // delivery line's own estimate, as the tax line has one.
+        $totals['deliveryNote'] = Shipping::noteFor(Cart::subtotal(), $place, $method);
+        if (Shipping::forCart($place, $method) > 0 && (int) $totals['shipping'] === 0) {
+            $totals['deliveryNote'] = 'Delivery is free with ' . Cart::coupon() . '.';
+        }
+        if ($place === null && !$pickup && Shipping::dependOnPlace(Shipping::rates())) {
+            $home = TaxRates::home();
+            $totals['shippingPlace'] = TaxRates::placeName($home['country'], $home['region']);
+        }
+
+        return $totals;
     }
 
     /**
@@ -102,36 +143,52 @@ final class Totals
 
         $coupon = Coupon::find($code);
 
-        return $coupon === null ? 0 : Coupon::discountOn($coupon, Cart::subtotal());
+        // OF WHAT IT REACHES in the basket: the products and terms it names,
+        // and not what is on sale when it leaves sale items alone.
+        return $coupon === null ? 0 : Coupon::discountOn($coupon, Cart::subtotal(), null, Coupon::cartLines());
+    }
+
+    /**
+     * What delivery costs this basket: to the place given or collected, and
+     * nothing while a code that makes delivery free applies — counted against
+     * this customer when the email is known.
+     *
+     * @param array{country?: string, region?: string}|null $place
+     */
+    public static function cartShipping(?array $place, string $method = Shipping::DELIVERY, string $email = ''): int
+    {
+        $shipping = Shipping::forCart($place, $method);
+
+        return $shipping > 0 && Coupon::freeDeliveryOnCart($email) ? 0 : $shipping;
     }
 
     /**
      * The same sum with every input handed in — no settings, no session, no
      * database.
+     *
+     * @param list<array{label: string, rate: int}> $rates the place's rates,
+     *        in thousandths of a percent (`TaxRates::forPlace()`)
      */
     public static function compute(
         int $subtotal,
         int $shipping,
         int $discount,
-        int $taxRate,
+        array $rates,
         bool $taxInclusive,
-        string $taxLabel,
         string $couponCode = ''
     ): array {
-        // ── A DISCOUNT CANNOT EXCEED THE GOODS ──────────────────────────────
-        // A £30 coupon against a £20 basket must not produce a £10 refund on a
-        // shop that has taken no money. Clamped here rather than where coupons
-        // are read, because this is the last place before the number becomes a
-        // total and it is the only place every caller passes through.
+        // A discount can take the goods to nothing and no further: a $30 code
+        // on a $20 basket is a free basket, not a $10 credit.
         $discount = max(0, min($discount, $subtotal));
         $shipping = max(0, $shipping);
 
+        // Discount off the goods, delivery on, then each tax on what is left.
         $taxable = $subtotal - $discount + $shipping;
-        $tax     = Tax::compute($taxable, $taxRate, $taxInclusive);
+        $lines   = Tax::lines($taxable, $rates, $taxInclusive);
+        $tax     = (int) array_sum(array_column($lines, 'amount'));
 
-        // INCLUSIVE TAX IS NOT ADDED. It is already in the prices the owner
-        // typed, so adding it again charges the rate twice — and the arithmetic
-        // looks perfectly reasonable while it happens.
+        // Included in the prices, the tax is already in `$taxable`; added, it
+        // goes on top.
         $total = $taxInclusive ? $taxable : $taxable + $tax;
 
         return [
@@ -140,9 +197,12 @@ final class Totals
             'shipping'    => $shipping,
             'taxable'     => $taxable,
             'tax'         => $tax,
+            'taxLines'    => $lines,
             'total'       => $total,
             'taxIncluded' => $taxInclusive,
-            'taxLine'     => Tax::line($taxLabel, $taxRate),
+            'taxPlace'    => '',
+            'shippingPlace' => '',
+            'deliveryNote'  => '',
             'coupon'      => $couponCode,
         ];
     }
@@ -151,17 +211,29 @@ final class Totals
      * The same shape, rebuilt from an order row that has already been stored.
      *
      * ── FROM THE ROW, NEVER FROM SETTINGS ───────────────────────────────────
-     * An order carries its own `tax_rate`, `tax_label` and `tax_inclusive`
-     * (migration 044) precisely so a receipt printed next year says what it
-     * said the day it was issued. Calling `of()` here instead would read
-     * today's rate against last year's subtotal and print two figures that do
-     * not agree with each other on the same page.
+     * An order carries its own tax lines (`order_tax_lines`, migration 096),
+     * each with its name, rate and amount, precisely so a receipt printed next
+     * year says what it said the day it was issued. Calling `of()` here
+     * instead would read today's rates against last year's subtotal and print
+     * two figures that do not agree with each other on the same page.
+     *
+     * An order placed before tax was charged by place has no lines: its one
+     * rate is on the row (migration 044), in hundredths of a percent.
      *
      * @param array<string, mixed> $order
      */
     public static function ofOrder(array $order): array
     {
-        $inclusive = !empty($order['tax_inclusive']);
+        $lines = is_array($order['tax_lines'] ?? null)
+            ? $order['tax_lines']
+            : \Cms\Models\Order::taxLines((int) ($order['id'] ?? 0));
+        if ($lines === [] && (int) ($order['tax_total'] ?? 0) > 0) {
+            $lines = [[
+                'label'  => (string) ($order['tax_label'] ?? ''),
+                'rate'   => (int) ($order['tax_rate'] ?? 0) * 10,
+                'amount' => (int) $order['tax_total'],
+            ]];
+        }
 
         return [
             'subtotal'    => (int) ($order['subtotal'] ?? 0),
@@ -169,15 +241,12 @@ final class Totals
             'shipping'    => (int) ($order['shipping_total'] ?? 0),
             'taxable'     => 0,
             'tax'         => (int) ($order['tax_total'] ?? 0),
-            // THE STORED TOTAL, not a recomputed one. If the two ever disagree
-            // the row is what was charged, and quietly printing a different
-            // number would hide that rather than show it.
+            'taxLines'    => $lines,
             'total'       => (int) ($order['total'] ?? 0),
-            'taxIncluded' => $inclusive,
-            'taxLine'     => Tax::line(
-                (string) ($order['tax_label'] ?? ''),
-                (int) ($order['tax_rate'] ?? 0)
-            ),
+            'taxIncluded' => !empty($order['tax_inclusive']),
+            'taxPlace'    => '',
+            'shippingPlace' => '',
+            'deliveryNote'  => '',
             'coupon'      => (string) ($order['coupon_code'] ?? ''),
         ];
     }
@@ -196,6 +265,10 @@ final class Totals
      * how much of the total was tax. Printing it as another row to add up is
      * how a customer decides they have been charged twice.
      *
+     * ── AND AN ESTIMATE SAYS WHOSE ──────────────────────────────────────────
+     * Before an address is known, "HST (13%), estimated for Ontario": the
+     * figure is the shop's own province's, and changes at the checkout.
+     *
      * @param array $t from `of()` or `compute()`
      * @return list<array{0: string, 1: int, 2: bool}> label, amount, is-a-note
      */
@@ -204,29 +277,29 @@ final class Totals
         $rows = [['Subtotal', (int) $t['subtotal'], false]];
 
         if ((int) $t['discount'] > 0) {
-            // ── THE CODE IS IN THE LABEL ────────────────────────────────────
-            // "Discount −$4.50" is a number an owner cannot account for and a
-            // customer cannot check. "Discount (SPRING20) −$4.50" says where it
-            // came from, on the basket, the receipt, the email and the order
-            // screen — which is the difference between a figure and a record.
             $code  = trim((string) ($t['coupon'] ?? ''));
             $label = $code !== '' ? 'Discount (' . $code . ')' : 'Discount';
-
-            // NEGATIVE, so the column adds up on the page. A discount printed as
-            // a positive number in a column of positive numbers is a line the
-            // reader has to be told to subtract.
             $rows[] = [$label, -(int) $t['discount'], false];
         }
 
         if ((int) $t['shipping'] > 0) {
-            $rows[] = ['Delivery', (int) $t['shipping'], false];
+            $where  = trim((string) ($t['shippingPlace'] ?? ''));
+            $rows[] = [$where !== '' ? 'Delivery, estimated for ' . $where : 'Delivery', (int) $t['shipping'], false];
         }
 
-        if ((int) $t['tax'] > 0) {
+        $estimate = trim((string) ($t['taxPlace'] ?? ''));
+        foreach ((array) ($t['taxLines'] ?? []) as $line) {
+            if ((int) ($line['amount'] ?? 0) <= 0) {
+                continue;
+            }
+            $label = TaxRates::line((string) $line['label'], (int) $line['rate']);
+            if ($estimate !== '') {
+                $label .= ', estimated for ' . $estimate;
+            }
             $rows[] = [
-                $t['taxIncluded'] ? 'Includes ' . $t['taxLine'] : (string) $t['taxLine'],
-                (int) $t['tax'],
-                (bool) $t['taxIncluded'],
+                !empty($t['taxIncluded']) ? 'Includes ' . $label : $label,
+                (int) $line['amount'],
+                !empty($t['taxIncluded']),
             ];
         }
 

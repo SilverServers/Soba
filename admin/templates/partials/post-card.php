@@ -94,13 +94,25 @@ $url        = \Cms\Helpers\Url::page(($cardType['public_slug'] ?? '') . '/' . $p
                          at all (the branch above is false without `event`), so on
                          Memberships the price is still the first thing under the
                          title. */ ?>
-                <?php if ($isProduct && ($meta['product_price'] ?? '') !== ''): ?>
+                <?php
+                /* THROUGH `Commerce\Product`, AS THE PRODUCT PAGE IS. The card
+                   printed a `$` and the two meta strings as typed: "$38" here
+                   and "$38.00" on the page, a dollar sign on a shop in pounds, a
+                   "sale" struck through even when its price was the higher one
+                   or its days were over, and one figure for a product whose
+                   sizes cost different amounts. The meta is already in hand,
+                   and the list primes every card's options in one read
+                   (`Variation::prime()`), so this costs no query per card. */
+                $cardProduct = $isProduct ? \Cms\Commerce\Product::fromPost($p, null, $meta) : null;
+                $cardPrice   = $cardProduct !== null ? \Cms\Commerce\Product::priceHtmlParts($cardProduct) : null;
+                ?>
+                <?php if ($cardPrice !== null): ?>
                     <p class="product-price">
-                        <?php if (($meta['product_sale_price'] ?? '') !== ''): ?>
-                            <del>$<?= htmlspecialchars($plain('product_price')) ?></del>
-                            <strong>$<?= htmlspecialchars($plain('product_sale_price')) ?></strong>
+                        <?php if ($cardPrice['was'] !== null): ?>
+                            <del><?= htmlspecialchars($cardPrice['was']) ?></del>
+                            <strong><?= htmlspecialchars($cardPrice['now']) ?></strong>
                         <?php else: ?>
-                            $<?= htmlspecialchars($plain('product_price')) ?>
+                            <?= htmlspecialchars($cardPrice['now']) ?>
                         <?php endif; ?>
                     </p>
                 <?php endif; ?>

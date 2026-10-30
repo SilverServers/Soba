@@ -185,10 +185,30 @@ ob_start();
                         <?php endif; ?>
                     </div>
                     <div>
-                        <h3 class="order-address__title">Delivery</h3>
-                        <?php $address($order, 'shipping'); ?>
+                        <?php if ((string) ($order['shipping_method'] ?? '') === 'pickup'): ?>
+                            <h3 class="order-address__title">Collection</h3>
+                            <p><?= nl2br(h((string) $order['shipping_method_title'])) ?></p>
+                        <?php else: ?>
+                            <h3 class="order-address__title">Delivery</h3>
+                            <?php if ((string) ($order['shipping_method_title'] ?? '') !== ''): ?>
+                                <p class="u-text-muted"><?= h((string) $order['shipping_method_title']) ?></p>
+                            <?php endif; ?>
+                            <?php $address($order, 'shipping'); ?>
+                        <?php endif; ?>
                     </div>
                 </div>
+
+                <?php // WHAT THE CUSTOMER AGREED TO AND ASKED FOR at the checkout. ?>
+                <?php if ((string) ($order['terms_agreed'] ?? '') !== '' || !empty($order['marketing_opt_in'])): ?>
+                    <p class="u-text-muted" data-order-consent>
+                        <?php if ((string) ($order['terms_agreed'] ?? '') !== ''): ?>
+                            Agreed to the <?= h((string) $order['terms_agreed']) ?>.
+                        <?php endif; ?>
+                        <?php if (!empty($order['marketing_opt_in'])): ?>
+                            Asked for news and offers by email.
+                        <?php endif; ?>
+                    </p>
+                <?php endif; ?>
 
                 <?php if (trim((string) ($order['customer_note'] ?? '')) !== ''): ?>
                     <h3 class="order-address__title">Customer's note</h3>
@@ -314,7 +334,7 @@ ob_start();
             <form method="post" id="delete-order"
                   action="<?= h(Url::admin('orders/' . $oid . '/delete')) ?>"
                   data-confirm="Delete order <?= h(Order::number($order)) ?>?"
-                  data-confirm-detail="The customer's details, the items and the whole history go with it. This cannot be undone."
+                  data-confirm-detail="The customer's details, the items and the whole history go with it<?= !empty($order['stock_reduced']) ? ', and the items it holds go back in stock' : '' ?>. This cannot be undone."
                   data-confirm-verb="Delete order">
                 <?= Csrf::field() ?>
             </form>

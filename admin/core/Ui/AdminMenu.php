@@ -190,7 +190,9 @@ final class AdminMenu
         // registered in `config/` counts, which a model query would miss.
         // Declaring the Product kind on any content type is what turns the
         // shop on, and there is no separate switch to forget.
-        if (self::hasProducts() && Modules::enabled('commerce')) {
+        // AND ONLY FOR WHOEVER RUNS IT. Orders hold customers' addresses; an
+        // author or an editor has no business there (`Auth::ROLE_LEVELS`).
+        if (self::hasProducts() && Modules::enabled('commerce') && Auth::hasRole('shop_manager')) {
             $sections[] = self::commerceSection($here);
         }
 

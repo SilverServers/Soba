@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cms\Forms;
 
+use Cms\Helpers\Dates;
 use Cms\Helpers\Theme;
 use Cms\Mail\Mailer;
 
@@ -148,7 +149,10 @@ final class Notify
             $body .= ($labels[$key] ?? $key) . ': ' . (is_array($value) ? implode(', ', $value) : $value) . "\n";
         }
         $body .= "\n" . str_repeat('-', 50) . "\n";
-        $body .= 'Submitted at: ' . gmdate('Y-m-d H:i:s') . " UTC\n";
+        // THE SITE'S CLOCK, as the submissions screen shows it (`Dates`), and
+        // named: in UTC a message sent at 1:48 pm read 20:48.
+        $now   = time();
+        $body .= 'Submitted at: ' . Dates::stamp($now) . ' ' . Dates::format($now, 'T') . "\n";
         $body .= 'IP: ' . ((string) ($meta['ip'] ?? '') !== '' ? $meta['ip'] : 'unknown') . "\n";
 
         return $body;

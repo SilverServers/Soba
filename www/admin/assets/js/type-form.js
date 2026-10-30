@@ -108,11 +108,24 @@
             var seed = doc.querySelector(
                 '[data-archetype-seed="' + box.value + '"]'
             );
-            if (!seed) { return; }
 
             box.addEventListener('change', function () {
-                seed.hidden = !box.checked;
+                if (seed) { seed.hidden = !box.checked; }
+                if (box.checked) { bring(box); }
             });
         }(boxes[i]));
+    }
+
+    /* AND WHAT IT BRINGS TO THE ENTRY FORM. A product has a photo, so ticking
+       Product ticks Featured image under Entry form, where the owner sees it
+       and can untick it. Unticking the archetype leaves those boxes alone:
+       they may have been ticked for their own sake. */
+    function bring(box) {
+        var parts = (box.getAttribute('data-archetype-supports') || '').split(' ');
+        for (var j = 0; j < parts.length; j++) {
+            if (!parts[j]) { continue; }
+            var part = doc.querySelector('input[name="supports[' + parts[j] + ']"]');
+            if (part) { part.checked = true; }
+        }
     }
 }());

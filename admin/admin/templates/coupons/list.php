@@ -29,7 +29,7 @@ use Cms\Security\Csrf;
  */
 
 ob_start();
-$today = date('Y-m-d');
+$today = \Cms\Helpers\Dates::today();   // the site's day, not UTC's
 ?>
 <div class="page">
 
@@ -77,10 +77,11 @@ $today = date('Y-m-d');
                 $state = Coupon::refusalFor($c, PHP_INT_MAX, $today);
                 $live  = $state === '';
                 $why   = match ($state) {
-                    Coupon::INACTIVE => 'Off',
-                    Coupon::EXPIRED  => 'Expired',
-                    Coupon::SPENT    => 'Used up',
-                    default          => 'Live',
+                    Coupon::INACTIVE    => 'Off',
+                    Coupon::NOT_STARTED => 'Not started',
+                    Coupon::EXPIRED     => 'Expired',
+                    Coupon::SPENT       => 'Used up',
+                    default             => 'Live',
                 };
                 ?>
                 <div class="list__row"
@@ -91,7 +92,20 @@ $today = date('Y-m-d');
                             <?= h((string) $c['code']) ?>
                         </a>
                         <div class="list__row-sub">
-                            <?= h(Coupon::describe((string) $c['kind'], (int) $c['amount'])) ?>
+                            <?= h(Coupon::describe((string) $c['kind'], (int) $c['amount'], !empty($c['free_shipping']))) ?>
+                            <?php $reach = count(Coupon::ids($c['product_ids'] ?? null)) + count(Coupon::ids($c['category_ids'] ?? null)); ?>
+                            <?php if ($reach > 0): ?>
+                                · on <?= $reach ?> <?= $reach === 1 ? 'product or category' : 'products and categories' ?>
+                            <?php endif; ?>
+                            <?php if (!empty($c['exclude_sale'])): ?>
+                                · not on sale items
+                            <?php endif; ?>
+                            <?php if ((int) ($c['per_customer'] ?? 0) > 0): ?>
+                                · <?= (int) $c['per_customer'] === 1 ? 'once' : (int) $c['per_customer'] . ' times' ?> each
+                            <?php endif; ?>
+                            <?php if ((string) ($c['starts_at'] ?? '') !== ''): ?>
+                                · from <?= h((string) $c['starts_at']) ?>
+                            <?php endif; ?>
                             <?php if ((int) $c['min_spend'] > 0): ?>
                                 · over <?= h(Money::format((int) $c['min_spend'])) ?>
                             <?php endif; ?>

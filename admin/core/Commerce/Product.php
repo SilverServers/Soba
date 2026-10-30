@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Cms\Commerce;
 
 use Cms\ContentType\Registry;
+use Cms\Database\Database;
 use Cms\Models\Meta;
 use Cms\Models\Post;
+use PDO;
 
 /**
  * A PRODUCT IS AN ENTRY OF A CONTENT TYPE THAT DECLARES THE `product`
@@ -45,6 +47,11 @@ final class Product
     /** The meta keys the `product` archetype seeds. One list, read by all of it. */
     public const PRICE       = 'product_price';
     public const SALE_PRICE  = 'product_sale_price';
+    /** The days a sale runs, both ends included, in the site's zone. Either may be blank. */
+    public const SALE_FROM   = 'product_sale_from';
+    public const SALE_TO     = 'product_sale_to';
+    /** More photos than the featured one: a repeater of `image` rows (migration 095). */
+    public const GALLERY     = 'product_gallery';
     public const SKU         = 'product_sku';
     public const STOCK       = 'product_stock_status';
     /**
@@ -104,21 +111,18 @@ final class Product
      * Separate so a listing that has already loaded fifty rows does not issue
      * fifty more queries to price them.
      *
-     * ── AND IT NOW MAKES EXACTLY ONE QUERY OF ITS OWN ───────────────────────
-     * `Variation::forProduct()`. Said out loud because the paragraph above is a
-     * promise about query counts and this is the one thing that breaks it: a
-     * fifty-row listing calling this would issue fifty variation reads.
+     * ── A LISTING HANDS IN WHAT IT HAS ALREADY READ ─────────────────────────
+     * On its own this reads the product's meta and its options: two queries,
+     * fine for a product page or a basket line. A shop list pricing a page of
+     * cards reads every card's meta in one query (`Meta::getAllFor()`) and
+     * every card's options in one more (`Variation::forProducts()`) and passes
+     * them in, so a page of fifty cards is two queries and not a hundred.
      *
-     * Nothing does today — the archive reads meta directly and this is called
-     * once per product page and once per basket line — so there is no batch
-     * loader here, because a seam nothing uses is machinery to maintain for a
-     * caller that may never exist. Whoever writes that listing should add
-     * `Variation::forProducts(array $ids)` and pass the map in, and this note
-     * is here so they see the cost before they measure it.
-     *
-     * @param array<string, mixed> $post
+     * @param array<string, mixed>                  $post
+     * @param list<array<string, mixed>>|null       $variations this product's, when already read
+     * @param array<string, mixed>|null             $meta       this product's, when already read
      */
-    public static function fromPost(array $post): ?array
+    public static function fromPost(array $post, ?array $variations = null, ?array $meta = null): ?array
     {
         $type = (string) ($post['post_type'] ?? '');
         if (!self::isSellableType($type)) {
@@ -152,7 +156,7 @@ final class Product
         }
 
         $id   = (int) ($post['id'] ?? 0);
-        $meta = Meta::getAll($id);
+        $meta = $meta ?? Meta::getAll($id);
 
         $regular = Money::parse((string) ($meta[self::PRICE] ?? ''));
         if ($regular === null) {
@@ -161,12 +165,24 @@ final class Product
 
         $sale = Money::parse((string) ($meta[self::SALE_PRICE] ?? ''));
 
+        // ── A SALE RUNS FROM ITS FIRST DAY TO ITS LAST, IN THE SITE'S DAYS ──
+        // Read at the moment of asking, so nothing has to switch a sale on or
+        // off: the price on Saturday morning is the sale price because it is
+        // Saturday. Both days included, and the site's own day rather than
+        // UTC's — PHP runs in UTC here (`Database::init()`), and a sale ending
+        // on Sunday must not end at five on Sunday afternoon in Vancouver.
+        $saleOpen = self::saleOpen(
+            (string) ($meta[self::SALE_FROM] ?? ''),
+            (string) ($meta[self::SALE_TO] ?? ''),
+            self::today()
+        );
+
         // A SALE PRICE THAT IS NOT LOWER IS NOT A SALE. Typed above the regular
         // price it would otherwise CHARGE MORE while the page says "on sale",
         // struck-through, in the customer's favour by every visual cue. Zero is
         // a legitimate sale price (a free sample), so the test is `< regular`
         // and not `> 0`.
-        $onSale = $sale !== null && $sale < $regular;
+        $onSale = $saleOpen && $sale !== null && $sale < $regular;
         $price  = $onSale ? $sale : $regular;
 
         $stock = (string) ($meta[self::STOCK] ?? self::IN_STOCK);
@@ -201,7 +217,12 @@ final class Product
             // the rest of the system can hold, and a second reader of the
             // variations table is a second place to forget that a variant can
             // be sold out on its own.
-            'variations'    => Variation::forProduct($id),
+            'variations'    => $variations ?? Variation::forProduct($id),
+            // WHETHER THE SALE'S DAYS ARE OPEN — options read it too, so an
+            // option's own sale price keeps to the product's dates.
+            'sale_open'     => $saleOpen,
+            // MORE PHOTOS, as attachment ids in the owner's order.
+            'gallery'       => self::galleryIds((string) ($meta[self::GALLERY] ?? '')),
             // Backorders are purchasable — that is what "on backorder" means.
             // Out of stock is not. AND a counted product with none left is not
             // either, whatever the status word says: `Stock::syncStatus()`
@@ -219,17 +240,181 @@ final class Product
      * would have shown pounds priced in dollars on the archive, the single and
      * the cart. One formatter, one currency, one answer.
      *
+     * ── A PRODUCT SOLD IN OPTIONS IS A RANGE, AND ITS SALE STILL SHOWS ─────
+     * The range of what the options cost now, collapsed to one figure when they
+     * all cost the same. When any option is cheaper than its regular price, the
+     * regular range is struck through before it: a tee whose sizes all take the
+     * product's sale reads "<del>$25.00</del> $18.00", where it used to read
+     * "$18.00" and give no hint of a sale at all.
+     *
      * @param array<string, mixed> $product a row from find()/fromPost()
      * @return array{now: string, was: string|null}
      */
     public static function priceHtmlParts(array $product): array
     {
+        $variants = (array) ($product['variations'] ?? []);
+        if ($variants === []) {
+            return [
+                'now' => Money::format((int) $product['price']),
+                'was' => ($product['on_sale'] ?? false)
+                    ? Money::format((int) $product['regular_price'])
+                    : null,
+            ];
+        }
+
+        $b = Variation::bounds($variants, $product);
+
         return [
-            'now' => Money::format((int) $product['price']),
-            'was' => ($product['on_sale'] ?? false)
-                ? Money::format((int) $product['regular_price'])
+            'now' => self::range($b['low'], $b['high']),
+            'was' => $b['was_low'] !== $b['low'] || $b['was_high'] !== $b['high']
+                ? self::range($b['was_low'], $b['was_high'])
                 : null,
         ];
+    }
+
+    /** "$20.00 – $25.00", or one figure when the ends meet. */
+    private static function range(int $low, int $high): string
+    {
+        return $low === $high ? Money::format($low) : Money::format($low) . ' – ' . Money::format($high);
+    }
+
+    /**
+     * Is a sale open on `$today`, given its first and last days?
+     *
+     * Pure, for the same reason `Tax::compute()` is. A blank end is open: no
+     * first day means it has already started, no last day means it has not
+     * ended. A day that is not a date is treated as blank, rather than as a
+     * reason to call off a sale the owner typed a price for.
+     */
+    public static function saleOpen(string $from, string $to, string $today): bool
+    {
+        $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($from)) ? trim($from) : '';
+        $to   = preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($to)) ? trim($to) : '';
+
+        return ($from === '' || $today >= $from) && ($to === '' || $today <= $to);
+    }
+
+    /** Today, as the site counts days (`Dates::today()`). */
+    public static function today(): string
+    {
+        return \Cms\Helpers\Dates::today();
+    }
+
+    /** @return list<int> the gallery's attachment ids, in order, each once */
+    private static function galleryIds(string $stored): array
+    {
+        $rows = json_decode($stored, true);
+        $ids  = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $id = is_array($row) ? (int) ($row['image'] ?? 0) : 0;
+            if ($id > 0 && !in_array($id, $ids, true)) {
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Why these SKUs cannot be saved on this product, one sentence each, or [].
+     *
+     * ── A SKU NAMES ONE THING ───────────────────────────────────────────────
+     * It is the code on the shelf label, the packing slip and the order line,
+     * and two products sharing one is a parcel packed from the wrong shelf.
+     * The shop audit saved the tote with the tee's SKU without a word. Every
+     * SKU here must be unlike every other product's, every other product's
+     * options', and the others on this same form — the product's own and its
+     * options' — compared without regard to case, as the column compares them.
+     * A blank SKU names nothing and is not compared.
+     *
+     * @param array<int|string, mixed> $rows the Options panel as posted
+     * @return list<string>
+     */
+    public static function skuProblems(string $productSku, array $rows, ?int $excludePostId): array
+    {
+        $problems = [];
+        $here     = [];   // lower-cased SKU => what on this form already has it
+
+        $productSku = trim($productSku);
+        if ($productSku !== '') {
+            $here[mb_strtolower($productSku)] = 'the product itself';
+            $owner = self::skuOwner($productSku, $excludePostId);
+            if ($owner !== null) {
+                $problems[] = 'The SKU "' . $productSku . '" is already used by ' . self::skuHolder($owner) . '.';
+            }
+        }
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $label = trim((string) ($row['label'] ?? ''));
+            $sku   = trim((string) ($row['sku'] ?? ''));
+            // A ROW WITH NO LABEL IS NOT SAVED (`Variation::sync()`), so its
+            // SKU is not one this product will have.
+            if ($label === '' || $sku === '') {
+                continue;
+            }
+
+            $key = mb_strtolower($sku);
+            if (isset($here[$key])) {
+                $problems[] = 'The option "' . $label . '" has the SKU "' . $sku . '", which '
+                            . $here[$key] . ' has too. Each needs its own.';
+                continue;
+            }
+            $here[$key] = 'the option "' . $label . '"';
+
+            $owner = self::skuOwner($sku, $excludePostId);
+            if ($owner !== null) {
+                $problems[] = 'The option "' . $label . '" has the SKU "' . $sku . '", which is already used by '
+                            . self::skuHolder($owner) . '.';
+            }
+        }
+
+        return $problems;
+    }
+
+    /**
+     * The product, or the option of one, that already has this SKU — or null.
+     *
+     * Any product but `$excludePostId`, in any status: a product in the trash
+     * comes back with its SKU when it is restored.
+     *
+     * @return array{title: string, status: string, option: ?string}|null
+     */
+    public static function skuOwner(string $sku, ?int $excludePostId): ?array
+    {
+        $stmt = Database::getInstance()->prepare(
+            "SELECT p.title, p.status, NULL AS option_label
+               FROM post_meta m JOIN posts p ON p.id = m.post_id
+              WHERE m.meta_key = :key AND m.meta_value = :sku AND p.id <> :ex
+             UNION ALL
+             SELECT p.title, p.status, v.label
+               FROM product_variations v JOIN posts p ON p.id = v.post_id
+              WHERE v.sku = :sku2 AND p.id <> :ex2
+              LIMIT 1"
+        );
+        $stmt->execute([
+            ':key' => self::SKU, ':sku' => $sku, ':ex' => (int) $excludePostId,
+            ':sku2' => $sku, ':ex2' => (int) $excludePostId,
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : [
+            'title'  => (string) $row['title'],
+            'status' => (string) $row['status'],
+            'option' => $row['option_label'] !== null ? (string) $row['option_label'] : null,
+        ];
+    }
+
+    /** "the option "M / Navy" of "Union Hoodie"", and where it is when that matters. */
+    private static function skuHolder(array $owner): string
+    {
+        $what = $owner['option'] !== null
+            ? 'the option "' . $owner['option'] . '" of "' . $owner['title'] . '"'
+            : '"' . $owner['title'] . '"';
+
+        return $owner['status'] === 'trash' ? $what . ', which is in the trash' : $what;
     }
 
     /** How a stock state reads to a customer. */

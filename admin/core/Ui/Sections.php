@@ -265,6 +265,10 @@ final class Sections
             // is marked identically wherever it appears — which is what stops a
             // reader learning two marks for one thing.
             'coupons'         => 'tag',
+            // WHAT A RECEIPT CARRIES and what the checkout asks the customer
+            // to agree to. `print`, because a receipt is the thing printed;
+            // no other section wears it.
+            'receipts'        => 'print',
             // A product sold in several forms. `clone` is one thing drawn
             // twice, which is exactly what a size run is — NOT `tags`, which is
             // one mark away from `tag` on Discount codes and would read as the

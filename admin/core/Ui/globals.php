@@ -125,6 +125,9 @@ if (!function_exists('variation_row')) {
         $price = $v !== null && $v['price'] !== null && $v['price'] !== ''
             ? \Cms\Commerce\Money::edit((int) $v['price'])
             : '';
+        $sale = $v !== null && ($v['sale_price'] ?? null) !== null && ($v['sale_price'] ?? '') !== ''
+            ? \Cms\Commerce\Money::edit((int) $v['sale_price'])
+            : '';
 
         $manages = $v !== null && !empty($v['manage_stock']);
         $status  = (string) ($v['stock_status'] ?? 'in_stock');
@@ -163,6 +166,14 @@ if (!function_exists('variation_row')) {
             . ' value="' . \Cms\Ui\View::escape($price) . '"'
             . ' placeholder="Same as above" autocomplete="off"></div>';
 
+        // ITS OWN SALE, for an option with its own price — one that takes the
+        // product's price takes its sale too (`Variation::prices()`), on the
+        // product's sale dates either way.
+        $h .= '<div class="field field--third"><label class="label">Sale price</label>'
+            . '<input class="input" type="text" inputmode="decimal" name="' . $name . '[sale_price]"'
+            . ' value="' . \Cms\Ui\View::escape($sale) . '"'
+            . ' placeholder="No sale of its own" autocomplete="off"></div>';
+
         $h .= '<div class="field field--third"><label class="label">Code</label>'
             . '<input class="input" type="text" name="' . $name . '[sku]"'
             . ' value="' . $val('sku') . '" autocomplete="off"></div>';
@@ -180,7 +191,21 @@ if (!function_exists('variation_row')) {
         $h .= '<div class="field field--third"><label class="label">In stock</label>'
             . '<input class="input" type="number" min="0" step="1" name="' . $name . '[stock_qty]"'
             . ' value="' . $val('stock_qty', '0') . '"></div>';
+
+        // ITS PHOTO, shown when a customer chooses it — the library's own
+        // picker, which `entry-form.js` already drives for any row cloned in.
+        $h .= '<div class="field field--third"><span class="label">Photo</span>'
+            . \Cms\ContentType\FieldRenderer::renderImage($name . '[image_id]', $v['image_id'] ?? null)
+            . '</div>';
         $h .= '</div>';
+
+        // WHAT IT IS MADE OF — Size M, Colour Navy — for `product.js` to match
+        // a customer's choice against. Written by "Make options"; a row typed
+        // by hand has none, and is chosen from the one combined list.
+        foreach (\Cms\Commerce\Variation::termsOf($v ?? []) as $tax => $term) {
+            $h .= '<input type="hidden" name="' . $name . '[terms][' . \Cms\Ui\View::escape($tax) . ']"'
+                . ' value="' . (int) $term . '" data-option-term="' . \Cms\Ui\View::escape($tax) . '">';
+        }
 
         // Glyph-only, so a tooltip is legal.
         $h .= '<button type="button" class="icon-btn" data-repeater-remove'

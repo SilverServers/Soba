@@ -176,7 +176,12 @@ class ShopController
         // CHECKED AGAINST THE BASKET AS IT STANDS. A minimum-spend refusal has
         // to name the figure, which `explain()` does, or "spend more" is an
         // instruction nobody can follow.
-        $refusal = Coupon::refusalFor($coupon, Cart::subtotal(), date('Y-m-d'));
+        $refusal = Coupon::refusalFor(
+            $coupon,
+            Cart::subtotal(),
+            \Cms\Helpers\Dates::today(),
+            Coupon::eligible($coupon, Coupon::cartLines())
+        );
         if ($refusal !== '') {
             $this->notice(Coupon::explain($refusal, $coupon), 'error');
             $this->redirect(BASE_URL . '/cart');
@@ -186,8 +191,7 @@ class ShopController
 
         Cart::setCoupon($typed);
         $this->notice(
-            $typed . ' applied — ' . Money::format(Coupon::discountOn($coupon, Cart::subtotal()))
-                . ' off.',
+            $typed . ' applied — ' . $this->couponSays($coupon) . '.',
             'success'
         );
         $this->redirect(BASE_URL . '/cart');
@@ -205,6 +209,15 @@ class ShopController
         $this->requireCsrf();
 
         $form   = Checkout::readForm($_POST);
+
+        // "UPDATE THE TOTAL" — the form drawn again with the figures for the
+        // address as it stands, nothing placed and nothing refused yet. What
+        // `checkout.js` does in place, for a browser without it.
+        if (!empty($_POST['refresh'])) {
+            $this->renderCheckout($form, []);
+            return;
+        }
+
         $errors = Checkout::validate($form);
 
         if ($errors !== []) {
@@ -256,7 +269,10 @@ class ShopController
     {
         $items     = Cart::items();
         $subtotal  = Cart::subtotal();
-        $totals    = Totals::forCart();
+        // FOR THE ADDRESS ON THE FORM AND HOW IT IS GOT — delivered there, or
+        // collected — or estimated for the shop's own place until the address
+        // names a province (`Checkout::deliveryPlace()`).
+        $totals    = Totals::forCart(Checkout::deliveryPlace($form), Checkout::method($form));
         $methods   = PaymentMethods::enabled();
         $countries = Countries::ALL;
 
@@ -274,6 +290,29 @@ class ShopController
     }
 
     // ── The receipt ─────────────────────────────────────────────────────────
+
+    /**
+     * GET /checkout/totals — the checkout's figures for an address, drawn on
+     * their own for `checkout.js` to put in place when the province changes.
+     *
+     * Read-only: the basket as it stands, taxed for the place the address
+     * fields name. It takes only those fields, never the whole form — a GET
+     * address ends up in logs, and nothing else on the checkout belongs in
+     * one.
+     */
+    public function checkoutTotals(array $vars = []): void
+    {
+        $form   = Checkout::readForm(array_intersect_key($_GET, array_flip([
+            'billing_country', 'billing_region', 'billing_region_text',
+            'shipping_country', 'shipping_region', 'shipping_region_text', 'ship_elsewhere', 'delivery_method',
+        ])));
+        $totals = Totals::forCart(Checkout::deliveryPlace($form), Checkout::method($form));
+
+        header('Content-Type: text/html; charset=UTF-8');
+        header('Cache-Control: no-store');
+        header('X-Robots-Tag: noindex');
+        require Template::locate('shop/totals.php');
+    }
 
     /**
      * The order-received page, found by key.
@@ -309,6 +348,21 @@ class ShopController
     }
 
     // ── Plumbing ────────────────────────────────────────────────────────────
+
+    /**
+     * What an applied code does to this basket, for the notice that says it
+     * was applied: "$4.50 off", "free delivery", or both.
+     */
+    private function couponSays(array $coupon): string
+    {
+        $off  = Coupon::discountOn($coupon, Cart::subtotal(), null, Coupon::cartLines());
+        $says = array_filter([
+            $off > 0 ? Money::format($off) . ' off' : '',
+            !empty($coupon['free_shipping']) ? 'free delivery' : '',
+        ]);
+
+        return $says !== [] ? implode(' and ', $says) : 'nothing off this basket yet';
+    }
 
     private function siteName(): string
     {

@@ -14,12 +14,13 @@ use Cms\SEO\Sitemap;
 class SeoController
 {
     /**
-     * GET /sitemap.xml — sitemap index
+     * GET /sitemap.xml — the sitemap index, or the one map while there is one
+     * (`Sitemap::root()`)
      */
     public function sitemapIndex(array $vars = []): void
     {
         header('Content-Type: application/xml; charset=utf-8');
-        echo Sitemap::index();
+        echo Sitemap::root();
     }
 
     /**

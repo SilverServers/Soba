@@ -327,10 +327,11 @@ final class Cart
             }
 
             // THE VARIANT'S PRICE WHEN IT HAS ONE, and the product's when it
-            // does not — `Variation::priceOf()` is the one place that decides,
-            // so a null price means "the same as the product" everywhere.
+            // does not — sale and all, on the product's sale dates.
+            // `Variation::prices()` is the one place that decides, so a null
+            // price means "the same as the product" everywhere.
             $unit = $variation !== null
-                ? Variation::priceOf($variation, (int) $product['price'])
+                ? Variation::prices($variation, $product)[1]
                 : (int) $product['price'];
 
             $out[] = [

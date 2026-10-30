@@ -5,7 +5,10 @@ declare(strict_types=1);
 use Cms\Commerce\Countries;
 use Cms\Commerce\Money;
 use Cms\Commerce\PaymentMethods;
-use Cms\Commerce\Tax;
+use Cms\Commerce\Regions;
+use Cms\Commerce\Shipping;
+use Cms\Commerce\TaxRates;
+use Cms\Helpers\Asset;
 use Cms\Helpers\Url;
 use Cms\Security\Csrf;
 
@@ -31,12 +34,15 @@ use Cms\Security\Csrf;
  *   commerce_pay_title_*     `PaymentMethods::describe()`. Copied ONTO an order
  *   commerce_pay_instr…_*    at checkout, so renaming one here does not rewrite
  *                            a receipt already sent.
- *   commerce_tax_rate        `Tax::rate()`, which `Totals::of()` is the only
- *   commerce_tax_label       caller of — so the basket, the checkout, the order
- *   commerce_tax_inclusive   row, the receipt and the email cannot disagree
- *                            about what an order comes to. The rate is stored
- *                            in hundredths of a percent; the box takes a
- *                            percentage and refuses more than two decimals.
+ *   commerce_region          `TaxRates::home()`: where the shop is, which a
+ *                            basket's tax is estimated for before an address
+ *                            is known.
+ *   commerce_tax_rates       `TaxRates::all()`, which `Totals::of()` reads for
+ *   commerce_tax_inclusive   the place an order goes — so the basket, the
+ *                            checkout, the order, the receipt and the email
+ *                            cannot disagree about what it comes to. Rates are
+ *                            stored in thousandths of a percent; each box
+ *                            takes a percentage and refuses a fourth decimal.
  *
  * ── AND WHY THERE IS NO CARD GATEWAY TO CONFIGURE ───────────────────────────
  * Said on the screen rather than left as an absence. No third-party script runs
@@ -50,27 +56,27 @@ use Cms\Security\Csrf;
  * @var bool                       $saved
  * @var list<string>               $errors
  * @var array<string, mixed>       $user
+ * @var list<array{country: string, region: string, label: string, rate: string}> $taxRows
+ * @var list<array{country: string, region: string, rate: string, free_over: string}> $shipRows
+ * @var string                     $notice
  */
 
 $opt = static fn (string $k, string $fallback = ''): string
     => (string) ($options[$k] ?? $fallback);
 
-$enabled  = array_keys(PaymentMethods::enabled());
-$currency = Money::currency();
-
-// ── THE RATE COMES FROM `$options`, NOT FROM `Tax::rate()` ──────────────────
+// ── FROM `$options`, NOT FROM THE STORED SETTINGS ───────────────────────────
 // The two are the same on an ordinary load and DIFFERENT on a failed save,
 // which is the case that matters: `handleCommerce()` hands back what was
-// posted so nothing on the screen is lost to one wrong field. Reading the
-// stored rate here would redraw the box with the OLD number while the error
-// message above it complained about the new one.
-$taxRate = (int) $opt('commerce_tax_rate', '0');
+// posted so nothing on the screen is lost to one wrong field. The ticked
+// methods and the shop's country were read from storage, and a refusal about
+// something else untick and re-chose them.
+$enabled     = array_values(array_intersect(
+    array_map('trim', explode(',', $opt('commerce_payment_methods', 'bacs'))),
+    array_keys(PaymentMethods::METHODS)
+));
+$currency    = Money::currency();
+$shopCountry = Countries::isValid($opt('commerce_country')) ? strtoupper($opt('commerce_country')) : Countries::shopDefault();
 
-// THE SAME REASONING FOR DELIVERY: `$options`, not the stored settings, so a
-// failed save redraws what was typed rather than what is on disk.
-$shipMode = $opt('commerce_ship_mode', 'none') === 'flat' ? 'flat' : 'none';
-$shipFlat = (int) $opt('commerce_ship_flat', '0');
-$shipFree = (int) $opt('commerce_ship_free_over', '0');
 ?>
 <div class="page">
 
@@ -102,6 +108,15 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                         <li><?= h($error) ?></li>
                     <?php endforeach; ?>
                 </ul>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($notice !== ''): ?>
+        <div class="alert alert--info">
+            <?= icon('circle-info', 'alert__icon icon', '', 18) ?>
+            <div class="alert__body">
+                <p class="alert__text"><?= h($notice) ?></p>
             </div>
         </div>
     <?php endif; ?>
@@ -146,7 +161,7 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                             <label class="label" for="f-country">Shop country</label>
                             <select class="select" id="f-country" name="commerce_country">
                                 <?php foreach (Countries::ALL as $code => $name): ?>
-                                    <option value="<?= h($code) ?>"<?= Countries::shopDefault() === $code ? ' selected' : '' ?>>
+                                    <option value="<?= h($code) ?>"<?= $shopCountry === $code ? ' selected' : '' ?>>
                                         <?= h($name) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -154,6 +169,27 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                             <p class="form-help">
                                 The country a checkout starts on. A customer can
                                 still choose any other.
+                            </p>
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="f-region">Shop province or state</label>
+                            <?php // GROUPED BY COUNTRY, one list for both: the
+                                  // codes never overlap, and the save refuses a
+                                  // province of a country the shop is not in. ?>
+                            <select class="select" id="f-region" name="commerce_region">
+                                <option value="">None chosen</option>
+                                <?php foreach (Regions::ALL as $regionCountry => $regionList): ?>
+                                    <optgroup label="<?= h(Countries::name($regionCountry)) ?>">
+                                        <?php foreach ($regionList as $code => $name): ?>
+                                            <option value="<?= h($code) ?>"<?= $regionCountry === $shopCountry && strtoupper($opt('commerce_region')) === $code ? ' selected' : '' ?>><?= h($name) ?></option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="form-help">
+                                Where the shop is. Until a customer gives an
+                                address, the basket's tax is worked out for here.
                             </p>
                         </div>
                     </div>
@@ -184,78 +220,154 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                 <div class="form-card__section">
                     <?= panel_title('Delivery', 'delivery') ?>
 
-                    <div class="form-grid form-grid--2">
-                        <div class="field">
-                            <label class="label" for="f-ship-mode">What delivery costs</label>
-                            <select class="select" id="f-ship-mode" name="commerce_ship_mode">
-                                <option value="none"<?= $shipMode === 'none' ? ' selected' : '' ?>>
-                                    Nothing — I do not charge for delivery
-                                </option>
-                                <option value="flat"<?= $shipMode === 'flat' ? ' selected' : '' ?>>
-                                    One flat rate per order
-                                </option>
-                            </select>
-                            <?php // DEFAULTING TO "NOTHING" IS THE POINT. A
-                                  // shop that has not been told what delivery
-                                  // costs must not invent a figure and add it
-                                  // to somebody's order — and plenty of these
-                                  // shops hand the thing over in person. ?>
-                            <p class="form-help">
-                                One rate for the whole order, however many
-                                things are in it — posting three jars is one
-                                parcel. This site does not charge different rates
-                                to different places; if you need that, this is
-                                not enough for your shop.
-                            </p>
-                        </div>
+                    <?php
+                    // A PLACE AND A PRICE PER ROW, read as the tax rates are:
+                    // a province's row, else its country's, else everywhere's.
+                    // The same two selects as a tax row, so an owner learns
+                    // one way of saying where.
+                    $placeSelects = static function (string $name, array $row): string {
+                        $out = '<div class="field field--quarter"><label class="label">Country</label>'
+                             . '<select class="select" name="' . $name . '[country]">'
+                             . '<option value="">Everywhere</option>';
+                        foreach (Countries::ALL as $code => $countryName) {
+                            $out .= '<option value="' . h($code) . '"' . ($row['country'] === $code ? ' selected' : '') . '>'
+                                  . h($countryName) . '</option>';
+                        }
+                        $out .= '</select></div>';
+                        $out .= '<div class="field field--quarter"><label class="label">Province or state</label>'
+                              . '<select class="select" name="' . $name . '[region]">'
+                              . '<option value="">All of the country</option>';
+                        foreach (Regions::ALL as $regionCountry => $regionList) {
+                            $out .= '<optgroup label="' . h(Countries::name($regionCountry)) . '">';
+                            foreach ($regionList as $code => $regionName) {
+                                $on   = $row['country'] === $regionCountry && $row['region'] === $code;
+                                $out .= '<option value="' . h($code) . '"' . ($on ? ' selected' : '') . '>' . h($regionName) . '</option>';
+                            }
+                            $out .= '</optgroup>';
+                        }
 
-                        <div class="field">
-                            <label class="label" for="f-ship-flat">The rate</label>
-                            <input class="input" type="text" id="f-ship-flat"
-                                   name="commerce_ship_flat"
-                                   value="<?= h($shipFlat > 0 ? Money::edit($shipFlat) : '') ?>"
-                                   autocomplete="off" spellcheck="false"
-                                   inputmode="decimal"
-                                   placeholder="<?= h(Money::edit(0)) ?>">
-                            <p class="form-help">
-                                In <?= h(Money::currency()) ?>. Leave it blank
-                                or at nothing and delivery is free.
-                            </p>
+                        return $out . '</select></div>';
+                    };
+                    $shipRow = static function (int|string $i, ?array $row) use ($placeSelects): string {
+                        $row  = $row ?? ['country' => '', 'region' => '', 'rate' => '', 'free_over' => ''];
+                        $name = 'ship_rates[' . $i . ']';
+
+                        return '<div class="repeater__row" data-repeater-row>'
+                             . '<div class="repeater__fields form-grid form-grid--12">'
+                             . $placeSelects($name, $row)
+                             . '<div class="field field--quarter"><label class="label">Delivery costs</label>'
+                             . '<input class="input" type="text" name="' . $name . '[rate]" value="' . h($row['rate']) . '"'
+                             . ' inputmode="decimal" placeholder="0.00" autocomplete="off" spellcheck="false"></div>'
+                             . '<div class="field field--quarter"><label class="label">Free over</label>'
+                             . '<input class="input" type="text" name="' . $name . '[free_over]" value="' . h($row['free_over']) . '"'
+                             . ' inputmode="decimal" placeholder="Never" autocomplete="off" spellcheck="false"></div>'
+                             . '</div>'
+                             . '<button type="button" class="icon-btn" data-repeater-remove'
+                             . ' data-tip="Remove this rate" aria-label="Remove this rate">'
+                             . \Cms\Ui\Icons::render('trash-can', 'icon icon--sm') . '</button>'
+                             . '</div>';
+                    };
+
+                    // WHAT DELIVERY TO EACH PROVINCE COMES TO, from the rows
+                    // on the screen; a row that cannot be read yet is left out.
+                    $shipPreview = Shipping::clean(array_map(static fn (array $r): array => [
+                        'country'   => $r['country'],
+                        'region'    => $r['region'],
+                        'rate'      => $r['rate'] === '' ? 0 : (Money::parse($r['rate']) ?? 'x'),
+                        'free_over' => $r['free_over'] === '' ? 0 : (Money::parse($r['free_over']) ?? 0),
+                    ], $shipRows));
+                    $costs = static function (?array $rate): string {
+                        if ($rate === null) {
+                            return 'Not delivered';
+                        }
+                        if ($rate['rate'] <= 0) {
+                            return 'Free';
+                        }
+                        return Money::format($rate['rate'])
+                             . ($rate['free_over'] > 0 ? ', free over ' . Money::format($rate['free_over']) : '');
+                    };
+                    $shipCountries = array_values(array_unique(array_filter(array_merge(
+                        [$shopCountry],
+                        array_column($shipPreview, 'country')
+                    ), static fn (string $c): bool => Regions::listed($c))));
+                    ?>
+
+                    <p class="form-help">
+                        What delivery costs, by where it goes. An order is charged
+                        its province's row if it has one, otherwise its country's,
+                        otherwise the one for everywhere; a place no row reaches is
+                        one you do not deliver to, and the checkout says so. With
+                        no rows, delivery costs nothing anywhere.
+                    </p>
+
+                    <div class="repeater" data-repeater data-ship-rates>
+                        <div class="repeater__rows" data-repeater-rows>
+                            <?php foreach ($shipRows as $i => $row): ?>
+                                <?= $shipRow($i, $row) ?>
+                            <?php endforeach; ?>
                         </div>
+                        <div class="form-actions form-actions--bare">
+                            <button type="button" class="btn" data-repeater-add>Add a delivery rate</button>
+                        </div>
+                        <template data-repeater-template><?= $shipRow('__ROW__', null) ?></template>
                     </div>
 
-                    <div class="form-grid form-grid--2">
+                    <?php if ($shipPreview !== []): ?>
                         <div class="field">
-                            <label class="label" for="f-ship-free">Free over</label>
-                            <input class="input" type="text" id="f-ship-free"
-                                   name="commerce_ship_free_over"
-                                   value="<?= h($shipFree > 0 ? Money::edit($shipFree) : '') ?>"
-                                   autocomplete="off" spellcheck="false"
-                                   inputmode="decimal">
-                            <?php // AT OR ABOVE, and the word matters. A
-                                  // threshold of $100 that does not include a
-                                  // basket of exactly $100 is an off-by-one the
-                                  // customer notices immediately and reads as a
-                                  // trick. ?>
-                            <p class="form-help">
-                                Spend this much or more on the goods and
-                                delivery is free. Blank for never. The basket
-                                tells a customer how much more they need.
-                            </p>
+                        <?php foreach ($shipCountries as $shipCountry): ?>
+                            <p class="label" id="ship-preview-<?= h($shipCountry) ?>">What delivery to <?= h(Countries::name($shipCountry)) ?> costs</p>
+                            <table class="table table--compact" data-ship-preview="<?= h($shipCountry) ?>"
+                                   aria-labelledby="ship-preview-<?= h($shipCountry) ?>">
+                                <tbody>
+                                    <?php foreach (Regions::of($shipCountry) as $code => $regionName): ?>
+                                        <tr>
+                                            <th scope="row"><?= h($regionName) ?></th>
+                                            <td><?= h($costs(Shipping::rateFor($shipPreview, $shipCountry, $code))) ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endforeach; ?>
+                        <p class="form-help" data-ship-elsewhere>
+                            Anywhere else: <?= h($costs(Shipping::rateFor($shipPreview, '', ''))) ?>.
+                        </p>
                         </div>
+                    <?php endif; ?>
 
-                        <div class="field">
-                            <label class="label" for="f-ship-note">What to tell customers</label>
-                            <input class="input" type="text" id="f-ship-note"
-                                   name="commerce_ship_note"
-                                   value="<?= h($opt('commerce_ship_note')) ?>"
-                                   autocomplete="off"
-                                   placeholder="Posted within two working days">
-                            <p class="form-help">
-                                Shown under the total on the basket and the
-                                checkout. Blank for nothing.
-                            </p>
-                        </div>
+                    <div class="field">
+                        <label class="check-list__row" for="f-pickup">
+                            <input type="checkbox" id="f-pickup" name="commerce_pickup" value="1"
+                                   <?= $opt('commerce_pickup') === '1' ? 'checked' : '' ?>>
+                            <span>Customers can collect their order</span>
+                        </label>
+                        <p class="form-help">
+                            The checkout offers it beside delivery, at no charge.
+                            An order collected is taxed for the shop's own
+                            province, set above.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label" for="f-pickup-where">Where and when to collect</label>
+                        <textarea class="textarea" id="f-pickup-where" name="commerce_pickup_where" rows="2"
+                                  placeholder="12 Queen St W, Toronto — weekdays 10 to 4"><?= h($opt('commerce_pickup_where')) ?></textarea>
+                        <p class="form-help">
+                            Shown at the checkout and on the receipt and the email
+                            of an order that is collected.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label" for="f-ship-note">What to tell customers</label>
+                        <input class="input" type="text" id="f-ship-note"
+                               name="commerce_ship_note"
+                               value="<?= h($opt('commerce_ship_note')) ?>"
+                               autocomplete="off"
+                               placeholder="Posted within two working days">
+                        <p class="form-help">
+                            Shown under the total on the basket and the
+                            checkout. Blank for nothing.
+                        </p>
                     </div>
 
                     <?php // THE PRODUCT DECIDES, AND THE OWNER HAS TO KNOW
@@ -280,42 +392,140 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                 <div class="form-card__section">
                     <?= panel_title('Tax', 'tax') ?>
 
-                    <div class="form-grid form-grid--2">
-                        <div class="field">
-                            <label class="label" for="f-tax-rate">Rate</label>
-                            <input class="input" type="text" id="f-tax-rate"
-                                   name="commerce_tax_rate"
-                                   value="<?= h(Tax::percent($taxRate)) ?>"
-                                   autocomplete="off" spellcheck="false"
-                                   inputmode="decimal">
-                            <?php // WHAT IS REFUSED, SAID BEFORE IT IS REFUSED.
-                                  // Two decimal places is the floor `Money`
-                                  // sets for money and `Tax` sets for rates: a
-                                  // number the system cannot hold exactly is
-                                  // one it must not pretend to hold. An owner
-                                  // who types 8.875 is told here rather than
-                                  // finding 8.88 saved. ?>
-                            <p class="form-help">
-                                A percentage. Up to two decimal places — 5,
-                                12.5, 8.88. Leave it at 0 and no tax is charged
-                                or shown anywhere.
-                            </p>
+                    <?php
+                    // ONE ROW'S MARKUP, for the rows and for the template
+                    // `entry-form.js` clones — the repeater an entry form's
+                    // fields use, so this screen adds no script of its own.
+                    $rateRow = static function (int|string $i, ?array $row) : string {
+                        $row  = $row ?? ['country' => '', 'region' => '', 'label' => '', 'rate' => ''];
+                        $name = 'tax_rates[' . $i . ']';
+                        $out  = '<div class="repeater__row" data-repeater-row>'
+                              . '<div class="repeater__fields form-grid form-grid--12">';
+
+                        $out .= '<div class="field field--quarter"><label class="label">Country</label>'
+                              . '<select class="select" name="' . $name . '[country]">'
+                              . '<option value="">Everywhere</option>';
+                        foreach (Countries::ALL as $code => $countryName) {
+                            $out .= '<option value="' . h($code) . '"' . ($row['country'] === $code ? ' selected' : '') . '>'
+                                  . h($countryName) . '</option>';
+                        }
+                        $out .= '</select></div>';
+
+                        $out .= '<div class="field field--quarter"><label class="label">Province or state</label>'
+                              . '<select class="select" name="' . $name . '[region]">'
+                              . '<option value="">All of the country</option>';
+                        foreach (Regions::ALL as $regionCountry => $regionList) {
+                            $out .= '<optgroup label="' . h(Countries::name($regionCountry)) . '">';
+                            foreach ($regionList as $code => $regionName) {
+                                $on   = $row['country'] === $regionCountry && $row['region'] === $code;
+                                $out .= '<option value="' . h($code) . '"' . ($on ? ' selected' : '') . '>' . h($regionName) . '</option>';
+                            }
+                            $out .= '</optgroup>';
+                        }
+                        $out .= '</select></div>';
+
+                        $out .= '<div class="field field--quarter"><label class="label">Name</label>'
+                              . '<input class="input" type="text" name="' . $name . '[label]" value="' . h($row['label']) . '"'
+                              . ' maxlength="' . TaxRates::LABEL_MAX . '" placeholder="GST" autocomplete="off"></div>';
+
+                        $out .= '<div class="field field--quarter"><label class="label">Rate (%)</label>'
+                              . '<input class="input" type="text" name="' . $name . '[rate]" value="' . h($row['rate']) . '"'
+                              . ' inputmode="decimal" placeholder="5" autocomplete="off" spellcheck="false"></div>';
+
+                        $out .= '</div>'
+                              . '<button type="button" class="icon-btn" data-repeater-remove'
+                              . ' data-tip="Remove this rate" aria-label="Remove this rate">'
+                              . \Cms\Ui\Icons::render('trash-can', 'icon icon--sm') . '</button>'
+                              . '</div>';
+
+                        return $out;
+                    };
+
+                    // WHAT EACH PLACE COMES TO, from the rows on the screen —
+                    // so a list just filled in by the Canada button is read
+                    // back before it is saved. A row that cannot be read yet
+                    // is left out of it, and the save will say why.
+                    $previewRows = TaxRates::clean(array_map(static fn (array $r): array => [
+                        'country' => $r['country'],
+                        'region'  => $r['region'],
+                        'label'   => $r['label'],
+                        'rate'    => TaxRates::parse($r['rate']) ?? -1,
+                    ], $taxRows));
+                    $says = static function (array $rates): string {
+                        if ($rates === []) {
+                            return 'No tax';
+                        }
+                        return implode(' + ', array_map(
+                            static fn (array $r): string => $r['label'] . ' ' . TaxRates::percent($r['rate']) . '%',
+                            $rates
+                        ));
+                    };
+                    $previewCountries = array_values(array_unique(array_filter(array_merge(
+                        [$shopCountry],
+                        array_column($previewRows, 'country')
+                    ), static fn (string $c): bool => Regions::listed($c))));
+                    ?>
+
+                    <?php // THE RULE IN ONE SENTENCE, because it is the one
+                          // thing an owner has to know to read the list:
+                          // `Commerce\TaxRates` has the reasoning. ?>
+                    <p class="form-help">
+                        A rate for each place you charge tax. An order is charged
+                        its province's rates if it has any, otherwise its country's,
+                        otherwise the ones for everywhere &mdash; so Ontario's HST
+                        replaces Canada's GST, and British Columbia's own rows list
+                        both its GST and its PST. With no rates, no tax is charged
+                        or shown anywhere.
+                    </p>
+
+                    <div class="repeater" data-repeater data-tax-rates>
+                        <div class="repeater__rows" data-repeater-rows>
+                            <?php foreach ($taxRows as $i => $row): ?>
+                                <?= $rateRow($i, $row) ?>
+                            <?php endforeach; ?>
                         </div>
 
-                        <div class="field">
-                            <label class="label" for="f-tax-label">What it is called</label>
-                            <input class="input" type="text" id="f-tax-label"
-                                   name="commerce_tax_label"
-                                   value="<?= h($opt('commerce_tax_label')) ?>"
-                                   placeholder="Tax" autocomplete="off">
-                            <p class="form-help">
-                                GST, VAT, Sales tax. It is printed on the
-                                basket, the receipt and the customer's email
-                                with the rate beside it &mdash;
-                                <strong><?= h(Tax::line($opt('commerce_tax_label'), $taxRate)) ?></strong>.
-                            </p>
+                        <div class="form-actions form-actions--bare">
+                            <button type="button" class="btn" data-repeater-add>Add a rate</button>
+                            <?php // A SUBMIT, NOT A SCRIPT: the server fills the
+                                  // list and draws the form again without saving,
+                                  // so it works however the page is reached. ?>
+                            <button type="submit" class="btn" name="tax_preset" value="canada" formnovalidate>
+                                Fill in Canada's GST and HST
+                            </button>
                         </div>
+
+                        <template data-repeater-template><?= $rateRow('__ROW__', null) ?></template>
                     </div>
+
+                    <p class="form-help">
+                        The button puts in the GST everywhere in Canada and the HST
+                        in Ontario, New Brunswick, Newfoundland and Labrador, Nova
+                        Scotia and Prince Edward Island, at the Canada Revenue
+                        Agency's rates as this version knows them &mdash; check
+                        them before saving. Provincial sales tax (British
+                        Columbia's or Saskatchewan's PST, Manitoba's RST, Quebec's
+                        QST) is charged only where you are registered for it: add
+                        that province's rows, its GST and its own tax together.
+                    </p>
+
+                    <?php foreach ($previewCountries as $previewCountry): ?>
+                        <p class="label" id="tax-preview-<?= h($previewCountry) ?>">What an order to <?= h(Countries::name($previewCountry)) ?> is charged</p>
+                        <table class="table table--compact" data-tax-preview="<?= h($previewCountry) ?>"
+                               aria-labelledby="tax-preview-<?= h($previewCountry) ?>">
+                            <tbody>
+                                <?php foreach (Regions::of($previewCountry) as $code => $regionName): ?>
+                                    <tr>
+                                        <th scope="row"><?= h($regionName) ?></th>
+                                        <td><?= h($says(TaxRates::forPlace($previewRows, $previewCountry, $code))) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endforeach; ?>
+                    <p class="form-help" data-tax-elsewhere>
+                        Anywhere else: <?= h($says(TaxRates::forPlace($previewRows, '', ''))) ?>.
+                    </p>
 
                     <div class="field">
                         <?php // A CHECKBOX AND NOT TWO RADIOS, because the two
@@ -328,41 +538,16 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                             <input type="checkbox" id="f-tax-inclusive"
                                    name="commerce_tax_inclusive" value="1"
                                    <?= $opt('commerce_tax_inclusive') === '1' ? 'checked' : '' ?>>
-                            <span>My prices already include this tax</span>
+                            <span>My prices already include tax</span>
                         </label>
-                        <?php // THE DIFFERENCE IN NUMBERS, not in words. An
-                              // owner reading "inclusive" and "exclusive" has
-                              // to work out which one they are; an owner
-                              // reading what a $10 item costs does not. ?>
                         <p class="form-help">
-                            <?php if ($taxRate > 0): ?>
-                                Off: a <?= h(Money::format(1000)) ?> item costs
-                                <strong><?= h(Money::format(1000 + Tax::compute(1000, $taxRate, false))) ?></strong>
-                                and the tax is
-                                <?= h(Money::format(Tax::compute(1000, $taxRate, false))) ?>.
-                                On: it costs <strong><?= h(Money::format(1000)) ?></strong>
-                                and <?= h(Money::format(Tax::compute(1000, $taxRate, true))) ?>
-                                of that is tax.
-                            <?php else: ?>
-                                With the rate at 0 this changes nothing. Set a
-                                rate above and this line shows what a
-                                <?= h(Money::format(1000)) ?> item would cost
-                                either way.
-                            <?php endif; ?>
+                            Off, tax is added at the checkout: a
+                            <?= h(Money::format(1000)) ?> item sent to Ontario costs
+                            <?= h(Money::format(1130)) ?> at 13% HST. On, it costs
+                            <?= h(Money::format(1000)) ?> and the receipt says how
+                            much of that was tax.
                         </p>
                     </div>
-
-                    <?php // THE LIMIT, WRITTEN ON THE SCREEN AND NOT ONLY IN
-                          // THE CODE. An owner who needs per-province rates has
-                          // to find that out BEFORE they build a price list on
-                          // top of one rate, not after a customer queries a
-                          // receipt. `Commerce\Tax`'s header has the reasoning. ?>
-                    <p class="form-help">
-                        One rate, for the whole shop. This site does not charge
-                        different rates to different provinces or states &mdash;
-                        if you need that, this is not enough for your shop and
-                        it is better to know now.
-                    </p>
                 </div>
 
                 <div class="form-card__section">
@@ -482,6 +667,67 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
                 </div>
 
                 <div class="form-card__section">
+                    <?= panel_title('Receipts and the checkout', 'receipts') ?>
+
+                    <?php // WHOSE RECEIPT IT IS. A business registered for GST/HST
+                          // has to give its registration number on a receipt; the
+                          // name and address are where a customer writes to. ?>
+                    <div class="form-grid form-grid--2">
+                        <div class="field">
+                            <label class="label" for="f-business-name">Business name</label>
+                            <input class="input" type="text" id="f-business-name" name="commerce_business_name"
+                                   value="<?= h($opt('commerce_business_name')) ?>" autocomplete="organization">
+                        </div>
+                        <div class="field">
+                            <label class="label" for="f-tax-number">GST/HST number</label>
+                            <input class="input" type="text" id="f-tax-number" name="commerce_tax_number"
+                                   value="<?= h($opt('commerce_tax_number')) ?>" autocomplete="off" spellcheck="false"
+                                   placeholder="123456789 RT0001">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-business-address">Business address</label>
+                        <textarea class="textarea" id="f-business-address" name="commerce_business_address" rows="3"
+                                  autocomplete="street-address"><?= h($opt('commerce_business_address')) ?></textarea>
+                        <p class="form-help">
+                            The three are printed at the foot of every receipt and
+                            order confirmation. Blank ones are left out.
+                        </p>
+                    </div>
+
+                    <?php $pages = \Cms\Models\Page::all(); ?>
+                    <div class="field">
+                        <label class="label" for="f-terms-page">Terms a customer agrees to</label>
+                        <select class="select" id="f-terms-page" name="commerce_terms_page">
+                            <option value="0">None</option>
+                            <?php foreach ($pages as $termsChoice): ?>
+                                <option value="<?= (int) $termsChoice['id'] ?>"<?= (int) $opt('commerce_terms_page', '0') === (int) $termsChoice['id'] ? ' selected' : '' ?>>
+                                    <?= h((string) $termsChoice['title']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="form-help">
+                            A page such as your returns policy. The checkout asks
+                            for a tick beside a link to it, refuses an order without
+                            one, and the order keeps the title agreed to.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="check-list__row" for="f-offer-signup">
+                            <input type="checkbox" id="f-offer-signup" name="commerce_offer_signup" value="1"
+                                   <?= $opt('commerce_offer_signup') === '1' ? 'checked' : '' ?>>
+                            <span>Offer a box for news and offers at the checkout</span>
+                        </label>
+                        <p class="form-help">
+                            It starts unticked, as Canada's anti-spam law asks: only
+                            a customer who ticks it has asked to hear from you, and
+                            the order says so.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="form-card__section">
                     <?= panel_title('Wording', 'content') ?>
                     <?php // ── THE THREE WORDS A SHOP'S VOICE OWNS ────────────
                           // The shop's templates hold many fixed strings. Most
@@ -545,3 +791,5 @@ $shipFree = (int) $opt('commerce_ship_free_over', '0');
         </div>
     </form>
 </div>
+
+<script src="<?= h(Asset::admin('js/entry-form.js')) ?>"></script>

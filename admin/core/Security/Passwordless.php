@@ -48,7 +48,7 @@ final class Passwordless
     public const METHODS = ['code' => 'A code by email', 'link' => 'A sign-in link'];
 
     /** The roles that may, in the Users screen's order. */
-    public const ROLES = ['admin' => 'Administrators', 'editor' => 'Editors', 'author' => 'Authors'];
+    public const ROLES = ['admin' => 'Administrators', 'shop_manager' => 'Shop managers', 'editor' => 'Editors', 'author' => 'Authors'];
 
     public const DEFAULT_ROLES = ['editor', 'author'];
 

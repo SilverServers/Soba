@@ -8,10 +8,11 @@ use Cms\Helpers\Url;
  * TOOLS → SYSTEM HEALTH.
  *
  * ── EVERY ROW IS A CHECK THE CONTROLLER ACTUALLY RAN ────────────────────────
- * `$checks` is built entirely in `ToolsController::systemHealth()` — PHP
- * version, required extensions, writable directories, migrations. This template
- * renders what it is given and invents nothing: no row is added here, and no row
- * is hidden, so what the screen shows is exactly what was measured.
+ * `$checks` is built entirely in `ToolsController::systemHealth()` — the CMS
+ * release, PHP version, required extensions, writable directories, migrations.
+ * This template renders what it is given and invents nothing: no row is added
+ * here, and no row is hidden, so what the screen shows is exactly what was
+ * measured.
  *
  * ── STATUS IS A WORD PLUS A SHAPE, NOT A COLOUR ALONE ───────────────────────
  * Alert colour is a SURFACE on a closed list of places, and a row in a table is

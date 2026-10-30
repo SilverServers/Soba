@@ -11,6 +11,9 @@ use Cms\Models\Media;
 use Cms\Models\Page;
 use Cms\Models\Post;
 use Cms\Models\User;
+use Cms\Security\FileCheck;
+use Cms\Update\Manifest;
+use Cms\Update\Release;
 
 class ToolsController
 {
@@ -48,6 +51,9 @@ class ToolsController
         Auth::requireRole('admin');
 
         $checks = [];
+
+        // Which release this is, first: the question behind most visits here.
+        $checks['cms'] = Release::health(Release::version(), FileCheck::site() . '/' . Manifest::FILE);
 
         // PHP version
         $phpVersion = PHP_VERSION;

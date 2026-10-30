@@ -89,8 +89,9 @@ class Schema
      *   · `publisher` — the site's Organization, by `@id`, on anything that is
      *     a creative work (an Article, a WebPage). An Event or a Product has no
      *     publisher in schema.org's sense.
-     *   · `author` — a Person with the byline's name (the display name, from
-     *     migration 055).
+     *   · `author` — on an Article only: a Person with the byline's name (the
+     *     display name, from migration 055), or the Organization when the
+     *     byline credits the site.
      *
      * @param string|string[]      $schemaType  'Article' · ['Event', 'Product'] · …
      * @param array<string, mixed> $entry       The post/page data array
@@ -123,11 +124,18 @@ class Schema
             $schema['publisher'] = ['@id' => self::id('organization')];
         }
 
+        // ── AN AUTHOR ON AN ARTICLE, AND ON NOTHING ELSE ─────────────────────
+        // `author` belongs to a creative work, so an Event or a Product cannot
+        // carry one. A WebPage can, but on a static page or a directory entry
+        // the author is only the account that typed it in: a business's About
+        // page has no author worth naming, and the post template prints no
+        // byline on a listing or a product for the same reason.
+        //
         // A PUBLIC QUERY'S `author_name` IS NEVER A SIGN-IN NAME
         // (`User::bylineSql()`): an author with no display name is credited to
         // the site. Then the author IS the organisation, so it points at that
         // node rather than inventing a Person named after the company.
-        if (!empty($entry['author_name'])) {
+        if ($is('Article') && !empty($entry['author_name'])) {
             $schema['author'] = (string) $entry['author_name'] === (string) Head::globalTokens()['site_name']
                 ? ['@id' => self::id('organization')]
                 : ['@type' => 'Person', 'name' => $entry['author_name']];
@@ -160,21 +168,19 @@ class Schema
         }
 
         if ($is('Product')) {
-            $offers = ['@type' => 'Offer'];
-            if (!empty($meta['product_price'])) {
-                $offers['price'] = $meta['product_price'];
-                $offers['priceCurrency'] = 'USD';
-            }
-            if (!empty($meta['product_stock_status'])) {
-                $statusMap = [
-                    'in_stock'     => 'https://schema.org/InStock',
-                    'out_of_stock' => 'https://schema.org/OutOfStock',
-                    'on_backorder' => 'https://schema.org/BackOrder',
-                ];
-                $offers['availability'] = $statusMap[$meta['product_stock_status']] ?? '';
-            }
-            if (count($offers) > 1) {
-                $schema['offers'] = $offers;
+            // ── THE OFFER IS READ THROUGH `Commerce\Product`, AS THE PAGE IS ──
+            // Read off the meta strings here, the offer said USD on a shop that
+            // sells in CAD, gave the regular price of an item on sale (the page
+            // charging $149 while the search result said $189), and judged
+            // availability by the product's own status word, which a product
+            // sold in options leaves unset. `Product::fromPost()` is the door
+            // the page, the basket and the order all go through, so the search
+            // result cannot disagree with them. It returns null for anything
+            // that cannot be bought — no price, not published — and then there
+            // is no offer to describe.
+            $product = isset($entry['id'], $entry['post_type']) ? \Cms\Commerce\Product::fromPost($entry) : null;
+            if ($product !== null) {
+                $schema['offers'] = self::offers($product);
             }
             if (!empty($meta['product_sku'])) {
                 $schema['sku'] = \Cms\ContentType\FieldRenderer::plain($meta['product_sku']);
@@ -182,6 +188,63 @@ class Schema
         }
 
         return $schema;
+    }
+
+    /**
+     * The offer a product makes, from a row `Commerce\Product::fromPost()` built.
+     *
+     * One `Offer` for a product sold one way. A product sold in options is an
+     * `AggregateOffer`: the range the page prints, and in stock while any one
+     * option can be bought — a hoodie with only XL left is still for sale.
+     *
+     * @param array<string, mixed> $product
+     * @return array<string, mixed>
+     */
+    public static function offers(array $product): array
+    {
+        $currency = \Cms\Commerce\Money::currency();
+        $variants = (array) ($product['variations'] ?? []);
+
+        if ($variants === []) {
+            return [
+                '@type'         => 'Offer',
+                'price'         => \Cms\Commerce\Money::edit((int) $product['price']),
+                'priceCurrency' => $currency,
+                'availability'  => self::availability(
+                    (bool) $product['purchasable'],
+                    (string) $product['stock'] === \Cms\Commerce\Product::ON_BACKORDER
+                ),
+            ];
+        }
+
+        $bounds = \Cms\Commerce\Variation::bounds($variants, $product);
+        [$low, $high] = [$bounds['low'], $bounds['high']];
+        $buyable = array_values(array_filter(
+            $variants,
+            static fn (array $v): bool => \Cms\Commerce\Variation::isPurchasable($v)
+        ));
+        $onlyBackorder = $buyable !== [] && array_filter(
+            $buyable,
+            static fn (array $v): bool => ($v['stock_status'] ?? '') !== \Cms\Commerce\Product::ON_BACKORDER
+        ) === [];
+
+        return [
+            '@type'         => 'AggregateOffer',
+            'lowPrice'      => \Cms\Commerce\Money::edit($low),
+            'highPrice'     => \Cms\Commerce\Money::edit($high),
+            'offerCount'    => count($variants),
+            'priceCurrency' => $currency,
+            'availability'  => self::availability((bool) $product['purchasable'] && $buyable !== [], $onlyBackorder),
+        ];
+    }
+
+    private static function availability(bool $purchasable, bool $backorder): string
+    {
+        if (!$purchasable) {
+            return 'https://schema.org/OutOfStock';
+        }
+
+        return $backorder ? 'https://schema.org/BackOrder' : 'https://schema.org/InStock';
     }
 
     /**

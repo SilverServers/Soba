@@ -513,8 +513,39 @@ class Auth
         return self::user()['role'] ?? null;
     }
 
-    /** The roles there are, and their order: admin (3) > editor (2) > author (1). */
-    public const ROLE_LEVELS = ['author' => 1, 'editor' => 2, 'admin' => 3];
+    /**
+     * The roles there are, and their order: admin > shop manager > editor > author.
+     *
+     * ── A SHOP MANAGER RUNS THE SHOP AND NOTHING ELSE ABOVE AN EDITOR ───────
+     * Orders, discount codes and (later) stock, customers and reports. Orders
+     * asked only for a sign-in, so an author — somebody who writes the news —
+     * could read every customer's address, move orders and delete them, and the
+     * only role above that was administrator, which also hands over users,
+     * security and settings. A shop manager is an editor who may also run the
+     * shop; the shop's settings, users and security stay with administrators.
+     */
+    public const ROLE_LEVELS = ['author' => 1, 'editor' => 2, 'shop_manager' => 3, 'admin' => 4];
+
+    /**
+     * Each role's mark beside its name, on the Users list and wherever a rule
+     * names roles. One map, beside the names, so a role added to one cannot be
+     * missing from the other: a role with no glyph was a fatal on the
+     * passwordless settings screen. `check-icons.php` holds it to every role.
+     */
+    public const ROLE_GLYPHS = [
+        'admin'        => 'shield-halved',
+        'shop_manager' => 'box-open',
+        'editor'       => 'pen-to-square',
+        'author'       => 'pen',
+    ];
+
+    /** What each role is called, highest first — the Users screen's order. One list, read by every screen that names a role. */
+    public const ROLE_LABELS = [
+        'admin'        => 'Administrator',
+        'shop_manager' => 'Shop manager',
+        'editor'       => 'Editor',
+        'author'       => 'Author',
+    ];
 
     /**
      * Check whether the current user has at least the given role level.

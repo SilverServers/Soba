@@ -155,6 +155,34 @@ class ExportController
             );
             $termStmt->execute([':pid' => $entry['id']]);
             $entry['terms'] = $termStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // ── A PRODUCT'S OPTIONS ARE PART OF THE PRODUCT ──────────────────
+            // They live in `product_variations`, not in meta, so the export
+            // carried none of them: a shop restored or moved from this file lost
+            // every size, colour and count. Written with what a person would
+            // type — the price as the form shows it, blank when it is the
+            // product's own — and no ids, which mean nothing on another install.
+            if (\Cms\Commerce\Product::isSellableType($postType)) {
+                // ITS SIZE AND COLOUR BY SLUG, as the entry's own terms are:
+                // a term's id is this install's, and its slug is what two
+                // installs can agree on. Its photo is left out, as the entry's
+                // featured image is — an attachment id names a different file
+                // anywhere else.
+                $slugOf = static function (int $termId): string {
+                    $term = \Cms\Models\Term::find($termId);
+                    return $term !== null ? (string) $term['slug'] : '';
+                };
+                $entry['options'] = array_map(static fn (array $v): array => [
+                    'label'        => (string) $v['label'],
+                    'sku'          => (string) $v['sku'],
+                    'price'        => $v['price'] === null ? null : \Cms\Commerce\Money::edit((int) $v['price']),
+                    'sale_price'   => ($v['sale_price'] ?? null) === null ? null : \Cms\Commerce\Money::edit((int) $v['sale_price']),
+                    'terms'        => array_filter(array_map($slugOf, \Cms\Commerce\Variation::termsOf($v))),
+                    'manage_stock' => (int) $v['manage_stock'],
+                    'stock_qty'    => (int) $v['stock_qty'],
+                    'stock_status' => (string) $v['stock_status'],
+                ], \Cms\Commerce\Variation::forProduct((int) $entry['id']));
+            }
         }
         unset($entry);
 

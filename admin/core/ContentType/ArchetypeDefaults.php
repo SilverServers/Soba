@@ -112,6 +112,23 @@ class ArchetypeDefaults
                     'width' => 'half',
                 ],
                 [
+                    // THE DAYS A SALE RUNS, both included, in the site's own
+                    // days (`Product::saleOpen()`), under the sale price they
+                    // belong to. Blank is open-ended, so a sale price with no
+                    // dates is on until it is taken off. Migration 095 gives
+                    // types made before this the same two, in the same place.
+                    'key'   => 'product_sale_from',
+                    'label' => 'Sale starts',
+                    'type'  => 'date',
+                    'width' => 'half',
+                ],
+                [
+                    'key'   => 'product_sale_to',
+                    'label' => 'Sale ends',
+                    'type'  => 'date',
+                    'width' => 'half',
+                ],
+                [
                     'key'   => 'product_sku',
                     'label' => 'SKU',
                     'type'  => 'text',
@@ -159,6 +176,18 @@ class ArchetypeDefaults
                         'in_stock'     => 'In Stock',
                         'out_of_stock' => 'Out of Stock',
                         'on_backorder' => 'On Backorder',
+                    ],
+                ],
+                [
+                    // MORE PHOTOS than the featured one, in the owner's order:
+                    // a repeater of images, the mechanism a field group already
+                    // has, drawn on the product page as thumbnails under the
+                    // main photo. A colour's own photo goes on its options.
+                    'key'        => 'product_gallery',
+                    'label'      => 'More photos',
+                    'type'       => 'repeater',
+                    'sub_fields' => [
+                        ['key' => 'image', 'label' => 'Photo', 'type' => 'image'],
                     ],
                 ],
             ],

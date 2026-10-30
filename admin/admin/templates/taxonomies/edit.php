@@ -71,6 +71,10 @@ $has = $formData !== [];
 $hierarchical = $has
     ? !empty($formData['is_hierarchical'])
     : (!$isNew && (bool) $taxonomy['is_hierarchical']);
+// Whether a customer chooses from it when buying (migration 095).
+$isOption = $has
+    ? !empty($formData['is_option'])
+    : (!$isNew && !empty($taxonomy['is_option']));
 $isActive = $has
     ? isset($formData['is_active'])
     : ($isNew ? true : (bool) $taxonomy['is_active']);
@@ -302,6 +306,26 @@ $action = $isNew
                             </label>
                         </div>
                     </div>
+
+                    <?php // ── WHAT A CUSTOMER CHOOSES WHEN BUYING ───────────────────
+                          // Size and Colour are taxonomies whose terms make a
+                          // product's options (migration 095): its options are
+                          // made from the sizes and colours ticked on it, and the
+                          // product page offers a chooser for each. Drawn only on
+                          // an install that sells anything — on a site without a
+                          // shop the question has no meaning. ?>
+                    <?php if (\Cms\Commerce\Product::sellableTypes() !== []): ?>
+                        <div class="form-card__section">
+                            <?= panel_title('When a customer buys', 'variants') ?>
+                            <div class="check-list">
+                                <label class="check-list__row">
+                                    <input type="checkbox" name="is_option" value="1" <?= $isOption ? 'checked' : '' ?>>
+                                    <span class="check-list__name">Customers choose one</span>
+                                    <span class="check-list__note">its terms are the sizes, colours or fits a product is made in</span>
+                                </label>
+                            </div>
+                        </div>
+                    <?php endif; ?>
 
                     <div class="form-card__section">
                         <?= panel_title('Address', 'address') ?>

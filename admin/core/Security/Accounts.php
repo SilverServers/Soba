@@ -48,7 +48,7 @@ final class Accounts
     public const SINCE_KEY   = 'security_inactive_since';
 
     /** The roles the rule may cover, in the Users screen's order. Not administrators — see above. */
-    public const ROLES = ['editor' => 'Editors', 'author' => 'Authors'];
+    public const ROLES = ['shop_manager' => 'Shop managers', 'editor' => 'Editors', 'author' => 'Authors'];
 
     public const DEFAULT_DAYS = 90;
 

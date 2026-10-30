@@ -139,9 +139,17 @@ $address = static function (array $order, string $prefix) use ($currency): void 
                     <p class="u-text-muted u-text-sm"><?= htmlspecialchars((string) $order['phone']) ?></p>
                 <?php endif; ?>
             </div>
-            <?php if ((string) $order['shipping_line1'] !== ''): ?>
+            <?php $how = (string) ($order['shipping_method_title'] ?? ''); ?>
+            <?php if ((string) ($order['shipping_method'] ?? '') === 'pickup'): ?>
+                <?php // COLLECTED: where and when, in the words the order kept. ?>
+                <div>
+                    <h3 class="shop-address__title">Collection</h3><?php /* audit-ok: a section heading */ ?>
+                    <p><?= nl2br(htmlspecialchars($how)) ?></p>
+                </div>
+            <?php elseif ((string) $order['shipping_line1'] !== ''): ?>
                 <div>
                     <h3 class="shop-address__title">Delivery</h3><?php /* audit-ok: a section heading */ ?>
+                    <?php if ($how !== ''): ?><p class="u-text-muted u-text-sm"><?= htmlspecialchars($how) ?></p><?php endif; ?>
                     <?php $address($order, 'shipping'); ?>
                 </div>
             <?php else: ?>
@@ -149,6 +157,7 @@ $address = static function (array $order, string $prefix) use ($currency): void 
                       // or leaving a blank column that reads as missing data. ?>
                 <div>
                     <h3 class="shop-address__title">Delivery</h3><?php /* audit-ok: a section heading */ ?>
+                    <?php if ($how !== ''): ?><p class="u-text-muted u-text-sm"><?= htmlspecialchars($how) ?></p><?php endif; ?>
                     <p class="u-text-muted">Same as the billing address.</p><?php /* audit-ok: the system saying the two addresses matched, which it decided */ ?>
                 </div>
             <?php endif; ?>
@@ -159,6 +168,13 @@ $address = static function (array $order, string $prefix) use ($currency): void 
             <p><?= nl2br(htmlspecialchars((string) $order['customer_note'])) ?></p>
         <?php endif; ?>
     </section>
+
+    <?php // WHOSE RECEIPT IT IS: the business's name, address and GST/HST
+          // number, as Settings → Shop keeps them (`Commerce\Business`). ?>
+    <?php $business = \Cms\Commerce\Business::lines(); ?>
+    <?php if ($business !== []): ?>
+        <p class="shop-business u-text-muted u-text-sm" data-business><?= implode('<br>', array_map('htmlspecialchars', $business)) ?></p>
+    <?php endif; ?>
 
     <p><a class="shop__link" href="<?= htmlspecialchars(BASE_URL . '/') ?>">Continue shopping</a></p>
 </div>

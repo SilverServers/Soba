@@ -72,6 +72,7 @@ final class Registries
                     'hierarchical'  => (bool) $dbTax['is_hierarchical'],
                     'min_terms'     => (int) ($dbTax['min_terms'] ?? 0),       // migration 056
                     'max_terms'     => isset($dbTax['max_terms']) ? (int) $dbTax['max_terms'] : null,
+                    'is_option'     => !empty($dbTax['is_option']),                // migration 095
                     'source'        => 'database',
                     'db_id'         => $dbTax['id'],
                 ]);

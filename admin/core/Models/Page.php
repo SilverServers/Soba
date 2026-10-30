@@ -120,13 +120,18 @@ class Page
      * Find a live page by slug for the public frontend.
      * Returns pages with status published, password, or private.
      *
+     * Its `author_name` is the PUBLIC byline (`User::bylineSql()`), as on every
+     * public query in `Post`: this row is what the page's JSON-LD and the theme
+     * are built from, and with `nameSql()` here an author with no display name
+     * put their sign-in name in the source of every page they wrote.
+     *
      * @return array<string, mixed>|null
      */
     public static function findBySlug(string $slug): ?array
     {
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
-            "SELECT p.*, " . \Cms\Models\User::nameSql('u') . " AS author_name
+            "SELECT p.*, " . \Cms\Models\User::bylineSql('u') . " AS author_name
              FROM pages p
              JOIN users u ON u.id = p.author_id
              WHERE p.slug = :slug AND p.status IN ('published', 'password', 'private')

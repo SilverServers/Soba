@@ -26,7 +26,7 @@ class OrderController
 {
     public function index(array $vars = []): void
     {
-        Auth::requireAuth();
+        Auth::requireRole('shop_manager');
 
         // THE FILTER IS A GET PARAMETER, so a filtered view can be bookmarked
         // and sent to somebody. A client-side filter cannot be, and it also
@@ -48,7 +48,7 @@ class OrderController
 
     public function show(array $vars = []): void
     {
-        Auth::requireAuth();
+        Auth::requireRole('shop_manager');
 
         $order = Order::find((int) ($vars['id'] ?? 0));
         if ($order === null) {
@@ -67,7 +67,7 @@ class OrderController
 
     public function handleStatus(array $vars = []): void
     {
-        Auth::requireAuth();
+        Auth::requireRole('shop_manager');
         $this->requireCsrf();
 
         $id     = (int) ($vars['id'] ?? 0);
@@ -84,7 +84,7 @@ class OrderController
 
     public function handleNote(array $vars = []): void
     {
-        Auth::requireAuth();
+        Auth::requireRole('shop_manager');
         $this->requireCsrf();
 
         $id = (int) ($vars['id'] ?? 0);
@@ -96,7 +96,7 @@ class OrderController
 
     public function handleDelete(array $vars = []): void
     {
-        Auth::requireAuth();
+        Auth::requireRole('shop_manager');
         $this->requireCsrf();
 
         Order::delete((int) ($vars['id'] ?? 0));

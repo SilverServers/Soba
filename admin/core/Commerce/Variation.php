@@ -10,12 +10,16 @@ use PDO;
 /**
  * A PRODUCT SOLD IN MORE THAN ONE FORM — sizes, colours, weights.
  *
- * ── A LIST THE OWNER TYPES, NOT A MATRIX THE SYSTEM GENERATES ───────────────
- * Migration 046's header has the argument in full. Rather than attributes that
- * generate combinations, this is a list of named variants the owner writes
- * out — "Small", "Large / Red", "500g" — because the shop this
- * system is for sells four of them, not sixty, and typing four is faster than
- * configuring two attribute sets and filling in a grid.
+ * ── A LIST OF ROWS, TYPED OR MADE ───────────────────────────────────────────
+ * Each option is a row with its own name, code, price and count — "Small",
+ * "Large / Red", "500g" — and a shop with three of them types them. A shop
+ * selling a tee in five sizes and three colours has them made instead: Size
+ * and Colour are taxonomies a customer chooses from (`is_option`, migration
+ * 095), "Make options" on the entry form adds a row for every combination of
+ * the terms ticked on the product, and each row keeps the terms it is made of
+ * (`terms`), which is what lets the product page offer a chooser for each. The
+ * row is the unit either way: an order line points at it and its stock is
+ * counted on it.
  *
  * ── EVERY VARIANT INHERITS WHAT IT DOES NOT OVERRIDE ────────────────────────
  * A null price means the product's price. An owner listing three sizes at the
@@ -30,9 +34,32 @@ use PDO;
  */
 final class Variation
 {
+    /** Options a list has already read, by post id — see `prime()`. */
+    private static array $primed = [];
+
+    /**
+     * Read the options of every product on a list in one query, so pricing
+     * each card through `Product::fromPost()` reads none of its own.
+     *
+     * Request-scoped, and dropped by any write to the table (`sync()`,
+     * `take()`, `give()`), so nothing priced after a change reads the
+     * options as they were before it.
+     *
+     * @param list<int> $postIds
+     */
+    public static function prime(array $postIds): void
+    {
+        foreach (self::forProducts($postIds) as $id => $rows) {
+            self::$primed[$id] = $rows;
+        }
+    }
+
     /** Every variant of a product, in the owner's order. */
     public static function forProduct(int $postId): array
     {
+        if (isset(self::$primed[$postId])) {
+            return self::$primed[$postId];
+        }
         $stmt = Database::getInstance()->prepare(
             'SELECT * FROM product_variations
               WHERE post_id = :id
@@ -41,6 +68,36 @@ final class Variation
         $stmt->execute([':id' => $postId]);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Every option of every product named, in one query: post_id => list.
+     *
+     * For a list of products — a page of shop cards — so pricing fifty cards
+     * reads options once rather than fifty times (`Product::fromPost()`).
+     * A product with none is in the map with an empty list.
+     *
+     * @param  list<int> $postIds
+     * @return array<int, list<array<string, mixed>>>
+     */
+    public static function forProducts(array $postIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $postIds), static fn (int $i): bool => $i > 0)));
+        $out = array_fill_keys($ids, []);
+        if ($ids === []) {
+            return $out;
+        }
+
+        // `IN (…)` from INTEGERS cast above, never from the request.
+        $stmt = Database::getInstance()->query(
+            'SELECT * FROM product_variations WHERE post_id IN (' . implode(',', $ids) . ')
+          ORDER BY post_id ASC, sort_order ASC, id ASC'
+        );
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $out[(int) $row['post_id']][] = $row;
+        }
+
+        return $out;
     }
 
     public static function find(int $id): ?array
@@ -66,15 +123,54 @@ final class Variation
     }
 
     /**
-     * What one variant costs, in minor units.
+     * What one option costs: its regular price and what it sells for now.
      *
-     * `$productPrice` is what the product costs when the variant does not say.
+     * ── AN OPTION WITHOUT A PRICE TAKES THE PRODUCT'S, SALE AND ALL ─────────
+     * Three sizes priced once are three sizes put on sale once: a blank price
+     * means the product's regular price, and the product's sale price while
+     * its sale is on. An option with a price of its own has a sale of its own —
+     * `sale_price`, on the product's dates — because the product's sale price
+     * was set against the product's price, not against this one.
+     *
+     * A sale price that is not lower is not a sale, the same rule
+     * `Product::fromPost()` applies to the product.
+     *
+     * @param array<string, mixed> $product a row from `Product::fromPost()`
+     * @return array{0: int, 1: int} [regular, now], in minor units
      */
-    public static function priceOf(array $variation, int $productPrice): int
+    public static function prices(array $variation, array $product): array
     {
-        $own = $variation['price'];
+        $own = $variation['price'] ?? null;
+        if ($own === null || $own === '') {
+            return [(int) $product['regular_price'], (int) $product['price']];
+        }
 
-        return $own === null || $own === '' ? $productPrice : (int) $own;
+        $regular = (int) $own;
+        $sale    = $variation['sale_price'] ?? null;
+        $now     = !empty($product['sale_open']) && $sale !== null && $sale !== '' && (int) $sale < $regular
+            ? (int) $sale
+            : $regular;
+
+        return [$regular, $now];
+    }
+
+    /**
+     * The option's terms: taxonomy key => term id, `[]` for an option typed by hand.
+     *
+     * @return array<string, int>
+     */
+    public static function termsOf(array $variation): array
+    {
+        $raw = $variation['terms'] ?? null;
+        $map = is_array($raw) ? $raw : json_decode((string) $raw, true);
+        $out = [];
+        foreach (is_array($map) ? $map : [] as $tax => $term) {
+            if (is_string($tax) && (int) $term > 0) {
+                $out[$tax] = (int) $term;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -117,6 +213,7 @@ final class Variation
      */
     public static function take(int $id, int $quantity): bool
     {
+        self::$primed = [];
         if ($quantity <= 0) {
             return true;
         }
@@ -146,6 +243,7 @@ final class Variation
     /** Put `$quantity` back. */
     public static function give(int $id, int $quantity): void
     {
+        self::$primed = [];
         if ($quantity <= 0) {
             return;
         }
@@ -210,9 +308,12 @@ final class Variation
      */
     public static function sync(int $postId, array $rows): void
     {
-        $db   = Database::getInstance();
-        $keep = [];
-        $sort = 0;
+        $db      = Database::getInstance();
+        $keep    = [];
+        $sort    = 0;
+        $post    = \Cms\Models\Post::find($postId);
+        $allowed = array_keys(self::optionTaxonomies((string) ($post['post_type'] ?? '')));
+        self::$primed = [];
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -230,6 +331,9 @@ final class Variation
 
             $price = trim((string) ($row['price'] ?? ''));
             $price = $price === '' ? null : Money::parse($price);
+            $sale  = trim((string) ($row['sale_price'] ?? ''));
+            $sale  = $sale === '' ? null : Money::parse($sale);
+            $image = (int) ($row['image_id'] ?? 0);
 
             $data = [
                 ':post'   => $postId,
@@ -240,6 +344,12 @@ final class Variation
                 // cannot hold exactly, and a variant silently priced at nothing
                 // is a product given away.
                 ':price'  => $price,
+                ':sale'   => $sale,
+                // WHAT THE OPTION IS MADE OF, from this type's option
+                // taxonomies only — `cleanTerms()` drops anything else.
+                ':terms'  => self::cleanTerms($allowed, $row['terms'] ?? null),
+                // A PHOTO THAT IS NO FILE IS NO PHOTO, and is not stored.
+                ':image'  => $image > 0 && \Cms\Models\Media::find($image) !== null ? $image : null,
                 ':manage' => !empty($row['manage_stock']) ? 1 : 0,
                 ':qty'    => max(0, (int) ($row['stock_qty'] ?? 0)),
                 ':status' => in_array((string) ($row['stock_status'] ?? ''), [
@@ -253,9 +363,9 @@ final class Variation
                 $data[':id'] = $id;
                 $stmt = $db->prepare(
                     'UPDATE product_variations
-                        SET label = :label, sku = :sku, price = :price,
-                            manage_stock = :manage, stock_qty = :qty,
-                            stock_status = :status, sort_order = :sort
+                        SET label = :label, terms = :terms, sku = :sku, price = :price,
+                            sale_price = :sale, manage_stock = :manage, stock_qty = :qty,
+                            stock_status = :status, image_id = :image, sort_order = :sort
                       WHERE id = :id AND post_id = :post'
                 );
                 $stmt->execute($data);
@@ -265,8 +375,10 @@ final class Variation
 
             $stmt = $db->prepare(
                 'INSERT INTO product_variations
-                        (post_id, label, sku, price, manage_stock, stock_qty, stock_status, sort_order)
-                 VALUES (:post, :label, :sku, :price, :manage, :qty, :status, :sort)'
+                        (post_id, label, terms, sku, price, sale_price, manage_stock, stock_qty,
+                         stock_status, image_id, sort_order)
+                 VALUES (:post, :label, :terms, :sku, :price, :sale, :manage, :qty,
+                         :status, :image, :sort)'
             );
             $stmt->execute($data);
             $keep[] = (int) $db->lastInsertId();
@@ -290,44 +402,146 @@ final class Variation
     }
 
     /**
-     * The price range a product with variants shows: "$20.00 – $25.00".
+     * The Options panel as it was posted, in the shape `forProduct()` returns.
+     *
+     * ── A REFUSED SAVE KEEPS WHAT WAS TYPED ─────────────────────────────────
+     * The panel was always drawn from the database, so a save refused for any
+     * reason (a SKU another product has, a missing title) came back with the
+     * stored options and every row the owner had just added or changed gone.
+     * After a refusal the panel is drawn from this instead. A row left wholly
+     * blank is the repeater's empty one and is dropped; a price that will not
+     * parse comes back blank, as `sync()` would store it.
+     *
+     * @param array<int|string, mixed> $rows
+     * @return list<array<string, mixed>>
+     */
+    public static function fromPost(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $label = trim((string) ($row['label'] ?? ''));
+            $sku   = trim((string) ($row['sku'] ?? ''));
+            $price = trim((string) ($row['price'] ?? ''));
+            if ($label === '' && $sku === '' && $price === '') {
+                continue;
+            }
+            $status = (string) ($row['stock_status'] ?? '');
+            $out[] = [
+                'id'           => (int) ($row['id'] ?? 0),
+                'label'        => $label,
+                'sku'          => $sku,
+                'price'        => $price === '' ? null : Money::parse($price),
+                'sale_price'   => trim((string) ($row['sale_price'] ?? '')) === '' ? null
+                                  : Money::parse(trim((string) $row['sale_price'])),
+                'terms'        => is_array($row['terms'] ?? null) ? (string) json_encode($row['terms']) : null,
+                'image_id'     => (int) ($row['image_id'] ?? 0) ?: null,
+                'manage_stock' => !empty($row['manage_stock']) ? 1 : 0,
+                'stock_qty'    => max(0, (int) ($row['stock_qty'] ?? 0)),
+                'stock_status' => in_array($status, [Product::IN_STOCK, Product::OUT_OF_STOCK, Product::ON_BACKORDER], true)
+                                  ? $status : Product::IN_STOCK,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The cheapest and the dearest option, now and at their regular prices.
      *
      * ── A RANGE, BECAUSE ONE NUMBER WOULD BE A LIE ──────────────────────────
      * A shirt whose sizes cost £20 and £25 does not cost £20. Showing the
      * lowest is what most shops do and what most customers then query at the
-     * till; showing the range says what is true before anything is chosen.
+     * till; the range says what is true before anything is chosen.
+     * `Product::priceHtmlParts()` formats it, collapsing it to one figure when
+     * the ends meet, and strikes the regular range through when it differs.
      *
-     * When every variant costs the same it collapses to one figure, because
-     * "£20.00 – £20.00" reads as a system with a bug in it.
+     * Over EVERY option, sold out or not: the range is what the product costs,
+     * and a size that has run out has not changed its price.
+     *
+     * @param list<array<string, mixed>> $variations
+     * @param array<string, mixed>       $product a row from `Product::fromPost()`
+     * @return array{low: int, high: int, was_low: int, was_high: int}
      */
-    public static function priceRange(array $variations, int $productPrice): string
+    public static function bounds(array $variations, array $product): array
     {
-        [$low, $high] = self::priceBounds($variations, $productPrice);
+        if ($variations === []) {
+            return [
+                'low' => (int) $product['price'], 'high' => (int) $product['price'],
+                'was_low' => (int) $product['regular_price'], 'was_high' => (int) $product['regular_price'],
+            ];
+        }
 
-        return $low === $high
-            ? Money::format($low)
-            : Money::format($low) . ' – ' . Money::format($high);
+        $now = [];
+        $was = [];
+        foreach ($variations as $v) {
+            [$regular, $current] = self::prices($v, $product);
+            $was[] = $regular;
+            $now[] = $current;
+        }
+
+        return ['low' => min($now), 'high' => max($now), 'was_low' => min($was), 'was_high' => max($was)];
     }
 
     /**
-     * The cheapest and the dearest, as minor units.
+     * The taxonomies a customer chooses from on this type — Size, Colour — in
+     * the order their choosers are drawn, keyed by taxonomy key.
      *
-     * SPLIT OUT so the arithmetic needs no database: `Money::format()` reads
-     * the shop's currency, and formatting is `Money`'s job, not this one's.
+     * Marked on the taxonomy itself (`is_option`, migration 095) and attached
+     * to the type, as any taxonomy is. A category that only files a product is
+     * neither, and never becomes a chooser.
      *
-     * @return array{0: int, 1: int}
+     * IN THE ORDER THEY WERE MADE, which is the order the owner thinks of them
+     * in: a shop that set up Size before Colour names an option "M / Navy" and
+     * asks for the size first. The registry's own order is alphabetical, which
+     * would put Colour first in one shop and Size in another for no reason an
+     * owner could see or change.
+     *
+     * @return array<string, array<string, mixed>>
      */
-    public static function priceBounds(array $variations, int $productPrice): array
+    public static function optionTaxonomies(string $postType): array
     {
-        if ($variations === []) {
-            return [$productPrice, $productPrice];
+        if ($postType === '') {
+            return [];
         }
 
-        $prices = array_map(
-            static fn (array $v): int => self::priceOf($v, $productPrice),
-            $variations
+        $taxes = array_filter(
+            \Cms\ContentType\TaxonomyRegistry::getForContentType($postType),
+            static fn (array $tax): bool => !empty($tax['is_option'])
         );
+        uasort($taxes, static fn (array $a, array $b): int => (int) ($a['db_id'] ?? 0) <=> (int) ($b['db_id'] ?? 0));
 
-        return [min($prices), max($prices)];
+        return $taxes;
+    }
+
+    /**
+     * An option's posted terms, as stored: JSON of taxonomy key => term id, or
+     * null. Only taxonomies in `$allowed`, in its order, and only a term that
+     * belongs to the taxonomy it is filed under — a crafted POST naming a
+     * category's term as a size is dropped, not stored.
+     *
+     * @param list<string> $allowed
+     */
+    private static function cleanTerms(array $allowed, mixed $posted): ?string
+    {
+        if (!is_array($posted)) {
+            return null;
+        }
+
+        $out = [];
+        foreach ($allowed as $tax) {
+            $id = (int) ($posted[$tax] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $term = \Cms\Models\Term::find($id);
+            if ($term !== null && (string) $term['taxonomy_key'] === $tax) {
+                $out[$tax] = $id;
+            }
+        }
+
+        return $out === [] ? null : (string) json_encode($out);
     }
 }

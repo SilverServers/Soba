@@ -46,11 +46,7 @@ $saved  = $saved  ?? false;
 $targetId  = (int) $profile['id'];
 $pageTitle = $isSelf ? 'Your account' : (string) $profile['username'];
 
-$roleLabels = [
-    'admin'  => 'Administrator',
-    'editor' => 'Editor',
-    'author' => 'Author',
-];
+$roleLabels = \Cms\Auth\Auth::ROLE_LABELS;
 
 ob_start();
 ?>

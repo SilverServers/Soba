@@ -103,7 +103,7 @@ class UserController
             }
         }
 
-        if (!in_array($role, ['admin', 'editor', 'author'], true)) {
+        if (!isset(Auth::ROLE_LABELS[$role])) {
             $role = 'author';
         }
 
@@ -279,7 +279,7 @@ class UserController
                 $errors[] = 'A temporary account is never an administrator.';
                 $role = '';
             }
-            if ($role !== '' && $role !== $profile['role'] && in_array($role, ['admin', 'editor', 'author'], true)) {
+            if ($role !== '' && $role !== $profile['role'] && isset(Auth::ROLE_LABELS[$role])) {
                 User::update($targetId, ['role' => $role]);
             }
         }

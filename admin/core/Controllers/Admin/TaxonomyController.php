@@ -244,6 +244,7 @@ class TaxonomyController
         // `!empty()` reads the value, so it is correct for the radio pair
         // (`""` vs `"1"`) and for a plain checkbox (absent vs `"1"`) alike.
         $isHierarchical = !empty($post['is_hierarchical']) ? 1 : 0;
+        $isOption       = !empty($post['is_option']) ? 1 : 0;
         $isActive       = isset($post['is_active']) ? 1 : 0;
 
         // ── HOW MANY TERMS AN ENTRY TAKES (migration 056) ───────────────────
@@ -390,6 +391,7 @@ class TaxonomyController
             'is_hierarchical' => $isHierarchical,
             'min_terms'       => $minTerms,
             'max_terms'       => $maxTerms,
+            'is_option'       => $isOption,
             'is_active'       => $isActive,
         ];
 

@@ -145,11 +145,21 @@ final class OrderMail
             $body .= self::addressBlock($order, 'shipping', 'DELIVERY ADDRESS');
         }
 
+        // HOW IT REACHES THEM — "Delivery to Ontario", or where and when to
+        // collect it, in the words the order kept.
+        if ((string) ($order['shipping_method_title'] ?? '') !== '') {
+            $body .= ((string) $order['shipping_method'] === 'pickup' ? 'COLLECTION' : 'DELIVERY') . "\n"
+                   . (string) $order['shipping_method_title'] . "\n\n";
+        }
+
         if (trim((string) ($order['customer_note'] ?? '')) !== '') {
             $body .= 'YOUR NOTES' . "\n" . trim((string) $order['customer_note']) . "\n\n";
         }
 
-        $body .= self::siteName() . "\n";
+        // WHOSE RECEIPT IT IS: the business's name, address and GST/HST
+        // number when Settings → Shop has them, else the site's name.
+        $business = Business::lines();
+        $body .= ($business !== [] ? implode("\n", $business) : self::siteName()) . "\n";
 
         return $body;
     }
@@ -167,6 +177,15 @@ final class OrderMail
 
         if ((string) $order['shipping_line1'] !== '') {
             $body .= self::addressBlock($order, 'shipping', 'DELIVERY ADDRESS');
+        }
+        if ((string) ($order['shipping_method_title'] ?? '') !== '') {
+            $body .= 'How it goes: ' . (string) $order['shipping_method_title'] . "\n";
+        }
+        if ((string) ($order['terms_agreed'] ?? '') !== '') {
+            $body .= 'Agreed to: ' . (string) $order['terms_agreed'] . "\n";
+        }
+        if (!empty($order['marketing_opt_in'])) {
+            $body .= 'Asked for news and offers by email.' . "\n";
         }
 
         $body .= 'Email: ' . (string) $order['email'] . "\n";
@@ -262,9 +281,9 @@ final class OrderMail
 
     private static function stamp(string $datetime): string
     {
-        $time = strtotime($datetime);
-
-        return $time === false ? $datetime : date('l, j F Y \a\t g:i A', $time);
+        // IN THE SITE'S ZONE, as the order screen shows it: `date()` here is
+        // UTC, and an order placed at 9 pm in Vancouver read as the next day.
+        return \Cms\Helpers\Dates::format($datetime, 'l, j F Y \a\t g:i A');
     }
 
     private static function siteName(): string

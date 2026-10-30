@@ -234,10 +234,10 @@
        by the next index. Building the row in JS instead would be a second
        renderer for a shape FieldRenderer already owns — and the two would
        diverge the first time a field type gained an attribute. */
-    function repeaterAdd(repeater) {
+    function repeaterAdd(repeater, focus) {
         var rows = repeater.querySelector('[data-repeater-rows]');
         var tpl  = repeater.querySelector('[data-repeater-template]');
-        if (!rows || !tpl) { return; }
+        if (!rows || !tpl) { return null; }
 
         // The next index is one past the HIGHEST in use, not the row count:
         // removing row 0 of two and then adding would otherwise reuse index 1
@@ -255,8 +255,158 @@
         var row = wrap.firstElementChild;
         rows.appendChild(row);
 
-        var first = row.querySelector('input, select, textarea');
-        if (first) { first.focus(); }
+        // RETURNED, so "Make options" can fill the rows it adds. Focus only
+        // when a person pressed Add: making fifteen rows must not scroll the
+        // page fifteen times.
+        if (focus !== false) {
+            var first = row.querySelector('input, select, textarea');
+            if (first) { first.focus(); }
+        }
+        return row;
+    }
+
+    /* ═══ 3b. A PRODUCT'S OPTIONS, MADE AND SET IN ONE PRESS ═══════════════
+       "Make options" reads the sizes and colours ticked on this product — the
+       same `taxonomy_<key>[]` inputs the entry form posts, chips or tick boxes —
+       and adds a row for every combination not already in the panel, in the
+       taxonomy's own order, named "M / Navy" and carrying its terms in hidden
+       inputs. `Variation::sync()` keeps only terms of this type's option
+       taxonomies, so the inputs are a convenience and never a trust.
+
+       "Set" puts one price, sale price, count or photo into every row, or every
+       row of one colour. Both only fill the form: nothing is saved until Save,
+       which is the same contract every other control on this screen keeps. */
+    function optionRows(repeater) {
+        return repeater.querySelectorAll('[data-repeater-rows] > [data-repeater-row]');
+    }
+
+    function optionTerms(row) {
+        var map = {};
+        var hidden = row.querySelectorAll('input[data-option-term]');
+        for (var i = 0; i < hidden.length; i++) {
+            map[hidden[i].getAttribute('data-option-term')] = hidden[i].value;
+        }
+        return map;
+    }
+
+    function optionsMake(button) {
+        var panel    = closest(button, '[data-variations-panel]');
+        var repeater = panel && panel.querySelector('[data-variations]');
+        var spec;
+        try { spec = JSON.parse(button.getAttribute('data-options-make') || '[]'); } catch (err) { spec = []; }
+        if (!repeater || !spec.length) { return; }
+
+        var lists = [];
+        for (var t = 0; t < spec.length; t++) {
+            var ticked = {};
+            var inputs = doc.querySelectorAll('input[name="taxonomy_' + spec[t].tax + '[]"]');
+            for (var i = 0; i < inputs.length; i++) {
+                if (inputs[i].type !== 'checkbox' || inputs[i].checked) { ticked[inputs[i].value] = true; }
+            }
+            var chosen = spec[t].terms.filter(function (term) { return ticked[String(term.id)]; });
+            // A TAXONOMY WITH NOTHING TICKED IS ONE THIS PRODUCT IS NOT MADE
+            // IN: a tee sold in sizes alone has no colour to combine.
+            if (chosen.length) { lists.push({ tax: spec[t].tax, terms: chosen }); }
+        }
+        if (!lists.length) {
+            CMS.flash('Choose this product\'s ' + spec.map(function (x) { return x.label.toLowerCase(); }).join(' or ')
+                      + ' first, where it is filed.', 'error');
+            return;
+        }
+
+        var combos = [[]];
+        lists.forEach(function (list) {
+            var next = [];
+            combos.forEach(function (c) {
+                list.terms.forEach(function (term) { next.push(c.concat([{ tax: list.tax, term: term }])); });
+            });
+            combos = next;
+        });
+
+        // WHAT IS ALREADY HERE, by its terms and by its name, so pressing it
+        // twice, or after typing "M / Navy" by hand, adds nothing twice.
+        var have = {};
+        var rows = optionRows(repeater);
+        for (var r = 0; r < rows.length; r++) {
+            var terms = optionTerms(rows[r]);
+            var key = Object.keys(terms).sort().map(function (k) { return k + ':' + terms[k]; }).join('|');
+            if (key) { have[key] = true; }
+            var named = rows[r].querySelector('input[name$="[label]"]');
+            if (named && named.value.trim()) { have['label:' + named.value.trim().toLowerCase()] = true; }
+        }
+
+        var sku  = (doc.querySelector('[name="field_product_sku"]') || { value: '' }).value.trim();
+        var made = 0;
+        combos.forEach(function (c) {
+            var key = c.map(function (x) { return x.tax + ':' + x.term.id; }).sort().join('|');
+            var label = c.map(function (x) { return x.term.name; }).join(' / ');
+            if (have[key] || have['label:' + label.toLowerCase()]) { return; }
+
+            var row = repeaterAdd(repeater, false);
+            if (!row) { return; }
+            var labelBox = row.querySelector('input[name$="[label]"]');
+            var index = (/\[(\d+)\]/.exec(labelBox.name) || [])[1];
+            labelBox.value = label;
+            if (sku) {
+                row.querySelector('input[name$="[sku]"]').value = sku + '-' + c.map(function (x) { return x.term.slug.toUpperCase(); }).join('-');
+            }
+            c.forEach(function (x) {
+                var hidden = doc.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = 'variations[' + index + '][terms][' + x.tax + ']';
+                hidden.value = x.term.id;
+                hidden.setAttribute('data-option-term', x.tax);
+                row.appendChild(hidden);
+            });
+            made++;
+        });
+
+        CMS.flash(made ? made + (made === 1 ? ' option' : ' options') + ' added. Save to keep them.'
+                       : 'Every combination is already here.', made ? 'success' : 'info');
+    }
+
+    function optionsBulkField(tool) {
+        var field = tool.querySelector('[data-bulk-field]').value;
+        tool.querySelector('[data-bulk-value]').hidden = field === 'image_id';
+        tool.querySelector('[data-bulk-photo]').hidden = field !== 'image_id';
+    }
+
+    function optionsBulkApply(tool) {
+        var panel    = closest(tool, '[data-variations-panel]');
+        var repeater = panel && panel.querySelector('[data-variations]');
+        if (!repeater) { return; }
+
+        var field = tool.querySelector('[data-bulk-field]').value;
+        var scope = tool.querySelector('[data-bulk-scope]').value;     // '' or "tax:termId"
+        var value = tool.querySelector('[data-bulk-value]').value;
+        var photo = tool.querySelector('[data-bulk-photo]');
+        var photoId  = photo ? photo.querySelector('[data-media-value]').value : '0';
+        var photoImg = photo ? photo.querySelector('[data-media-preview] img') : null;
+
+        var set = 0;
+        var rows = optionRows(repeater);
+        for (var r = 0; r < rows.length; r++) {
+            if (scope) {
+                var cut = scope.split(':');
+                if (String(optionTerms(rows[r])[cut[0]] || '') !== cut[1]) { continue; }
+            }
+            if (field === 'image_id') {
+                var picker = rows[r].querySelector('[data-media-picker]');
+                if (picker) { mediaSet(picker, photoId, photoId !== '0' && photoImg ? photoImg.getAttribute('src') : null); }
+            } else {
+                var box = rows[r].querySelector('[name$="[' + field + ']"]');
+                if (box) { box.value = value; }
+                // A COUNT IS ONLY READ WHEN COUNTING IS ON, so setting one turns
+                // counting on — the count typed here would otherwise do nothing.
+                if (field === 'stock_qty') {
+                    var count = rows[r].querySelector('input[type=checkbox][name$="[manage_stock]"]');
+                    if (count) { count.checked = true; }
+                }
+            }
+            set++;
+        }
+        CMS.flash(set ? 'Set on ' + set + (set === 1 ? ' option' : ' options') + '. Save to keep it.'
+                      : 'No option matches.', set ? 'success' : 'info');
     }
 
     /* ═══ 4. THE CHIP-PICKER ══════════════════════════════════════════════
@@ -444,6 +594,12 @@
 
         var add = closest(e.target, '[data-repeater-add]');
         if (add) { repeaterAdd(closest(add, '[data-repeater]')); return; }
+
+        var makeOptions = closest(e.target, '[data-options-make]');
+        if (makeOptions) { optionsMake(makeOptions); return; }
+
+        var bulk = closest(e.target, '[data-bulk-apply]');
+        if (bulk) { optionsBulkApply(closest(bulk, '[data-options-bulk]')); return; }
 
         var remove = closest(e.target, '[data-repeater-remove]');
         if (remove) { closest(remove, '[data-repeater-row]').remove(); return; }
@@ -682,5 +838,12 @@
         if (!name) { return; }
         e.preventDefault();
         addTerm(name.closest('[data-term-add]').querySelector('[data-term-create]'));
+    });
+
+    // THE SET TOOL SHOWS THE BOX THE FIELD NEEDS: a number for a price or a
+    // count, the library's picker for a photo.
+    doc.addEventListener('change', function (e) {
+        var bulkField = closest(e.target, '[data-bulk-field]');
+        if (bulkField) { optionsBulkField(closest(bulkField, '[data-options-bulk]')); }
     });
 }());

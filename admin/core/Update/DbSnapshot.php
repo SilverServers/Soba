@@ -78,7 +78,9 @@ final class DbSnapshot
         if ($out === false) {
             throw new RuntimeException("Cannot write the database backup to {$file}.");
         }
-        @chmod($file, 0600);
+        // 0640, not 0600: the site's group (a backup job, say) must be able to
+        // read it. Nobody else can, and admin/updates/ is never served.
+        @chmod($file, 0640);
 
         $write = static function (string $line) use ($out, $file): void {
             if (gzwrite($out, $line . "\n") === false) {

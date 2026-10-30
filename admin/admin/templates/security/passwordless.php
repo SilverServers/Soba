@@ -25,7 +25,7 @@ use Cms\Security\Passwordless;
 
 $tabUrl     = static fn (string $key): string => Url::admin('security/passwordless') . '?tab=' . $key;
 // The same marks a role wears on the Users list.
-$roleGlyphs = ['admin' => 'shield-halved', 'editor' => 'pen-to-square', 'author' => 'pen'];
+$roleGlyphs = \Cms\Auth\Auth::ROLE_GLYPHS;
 $isCode     = $tab === 'code';
 ?>
 <div class="page">

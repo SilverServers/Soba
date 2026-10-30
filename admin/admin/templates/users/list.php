@@ -37,12 +37,8 @@ use Cms\Security\Csrf;
 
 $pageTitle = 'Users';
 
-/** The three roles the controller will actually accept — see handleCreate(). */
-$roleLabels = [
-    'admin'  => 'Administrator',
-    'editor' => 'Editor',
-    'author' => 'Author',
-];
+/** The roles the controller will actually accept — see handleCreate(). */
+$roleLabels = \Cms\Auth\Auth::ROLE_LABELS;
 
 /**
  * A GLYPH PER ROLE, because the word alone is not shown, it is said.
@@ -56,11 +52,7 @@ $roleLabels = [
  * form: it distinguishes without ranking, and it still reads with the text
  * muted.
  */
-$roleGlyphs = [
-    'admin'  => 'shield-halved',
-    'editor' => 'pen-to-square',
-    'author' => 'pen',
-];
+$roleGlyphs = \Cms\Auth\Auth::ROLE_GLYPHS;
 
 ob_start();
 ?>

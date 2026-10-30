@@ -8,7 +8,9 @@ use Cms\Auth\Auth;
 use Cms\Commerce\Countries;
 use Cms\Commerce\Money;
 use Cms\Commerce\PaymentMethods;
-use Cms\Commerce\Tax;
+use Cms\Commerce\Regions;
+use Cms\Commerce\Shipping;
+use Cms\Commerce\TaxRates;
 use Cms\ContentType\Registry;
 use Cms\Models\Option;
 
@@ -332,6 +334,12 @@ class SettingsController
         'commerce_word_basket'     => '',
         'commerce_word_add'        => '',
         'commerce_thanks'          => '',
+        // WHOSE RECEIPT IT IS, AND WHAT THE CUSTOMER AGREES TO.
+        'commerce_business_name'    => '',
+        'commerce_business_address' => '',
+        'commerce_tax_number'       => '',
+        'commerce_terms_page'       => '0',
+        'commerce_offer_signup'     => '0',
         // ── TAX DEFAULTS TO NONE ────────────────────────────────────────────
         // Not to a guess from the shop country. A rate this system invented is
         // a rate the owner never agreed to, charged to their customers, on a
@@ -341,16 +349,16 @@ class SettingsController
         //
         // 0 charges nothing and shows nothing, which is the only honest
         // starting point.
-        'commerce_tax_rate'        => '0',
-        'commerce_tax_label'       => '',
+        'commerce_region'          => '',
+        'commerce_tax_rates'       => '[]',
         'commerce_tax_inclusive'   => '0',
         // ── AND DELIVERY DEFAULTS TO FREE ───────────────────────────────────
         // Same reasoning as the tax rate: a shop that has not been told what
         // delivery costs must not invent a figure and add it to an order.
-        'commerce_ship_mode'       => 'none',
-        'commerce_ship_flat'       => '0',
-        'commerce_ship_free_over'  => '0',
+        'commerce_ship_rates'      => '[]',
         'commerce_ship_note'       => '',
+        'commerce_pickup'          => '0',
+        'commerce_pickup_where'    => '',
     ];
 
     /** COMMERCE_KEYS plus the per-method title and instruction overrides. */
@@ -412,33 +420,33 @@ class SettingsController
             $errors[] = 'The order notification address is not a valid email address.';
         }
 
-        // ── A RATE THIS SYSTEM CANNOT HOLD EXACTLY IS REFUSED ──────────────
-        // `Tax::parsePercent()` returns null for `8.875`, a negative, a word or
-        // anything over 100. Rounding it to 8.88 instead would leave the screen
-        // showing a rate the owner did not type and every receipt a fraction
-        // out — the same call `Money::parse()` makes about fractions of a cent.
-        $taxRate = Tax::parsePercent((string) ($_POST['commerce_tax_rate'] ?? ''));
-        if ($taxRate === null) {
-            $errors[] = 'The tax rate must be a percentage with at most two '
-                      . 'decimal places, between 0 and 100 — 5, 12.5, 8.88.';
+        // THE SHOP'S OWN PROVINCE, for a country the checkout lists them for:
+        // where a basket's tax is estimated and a collected order is taxed.
+        $typedRegion = trim((string) ($_POST['commerce_region'] ?? ''));
+        $region      = $country !== '' ? Regions::code($country, $typedRegion) : '';
+        if ($typedRegion !== '' && $region === '') {
+            $errors[] = 'Choose the shop\'s province or state from the list, one of its country\'s.';
         }
 
-        // ── BLANK IS NOTHING; A TYPO IS REFUSED ────────────────────────────
-        // `Money::parse()` returns null for anything it cannot hold exactly, so
-        // an owner who types `12.345` or `twelve` is told rather than having a
-        // delivery charge silently become zero — which is the failure that
-        // costs them money on every order and shows up nowhere.
-        $shipFlat = self::parseMoneyField($_POST['commerce_ship_flat'] ?? '');
-        if ($shipFlat === null) {
-            $errors[] = 'The delivery rate is not an amount of money.';
+        // ── THE RATES, ROW BY ROW ───────────────────────────────────────────
+        // A rate this system cannot hold exactly is refused, not rounded:
+        // `TaxRates::parse()` returns null for a fourth decimal place, a
+        // negative, a word or anything over 100. Each refusal names its row.
+        [$taxRates, $taxErrors] = self::postedTaxRates($_POST['tax_rates'] ?? []);
+        array_push($errors, ...$taxErrors);
+
+        // ── THE PAGE A CUSTOMER AGREES TO, if one is chosen: one that exists.
+        $termsPage = (int) ($_POST['commerce_terms_page'] ?? 0);
+        if ($termsPage > 0 && \Cms\Models\Page::find($termsPage) === null) {
+            $errors[] = 'Choose the page a customer agrees to from the list.';
         }
 
-        $shipFree = self::parseMoneyField($_POST['commerce_ship_free_over'] ?? '');
-        if ($shipFree === null) {
-            $errors[] = 'The free-delivery threshold is not an amount of money.';
-        }
-
-        $shipMode = (string) ($_POST['commerce_ship_mode'] ?? 'none') === 'flat' ? 'flat' : 'none';
+        // ── WHAT DELIVERY COSTS, ROW BY ROW ─────────────────────────────────
+        // An amount typed as `12.345` or `twelve` is told rather than having a
+        // delivery charge silently become zero — the failure that costs money
+        // on every order and shows up nowhere. Each refusal names its row.
+        [$shipRates, $shipErrors] = self::postedShipRates($_POST['ship_rates'] ?? []);
+        array_push($errors, ...$shipErrors);
 
         $methods = $_POST['methods'] ?? [];
         if (!is_array($methods)) {
@@ -451,13 +459,37 @@ class SettingsController
         // Refusing it would mean an owner who wants to stop taking orders has to
         // find some other way, and there is not one.
 
+        // "FILL IN CANADA'S GST AND HST" puts them in the list and saves
+        // nothing: the owner reads them, adds a province they are registered
+        // in, and saves. The rest of the form comes back as it was typed.
+        if ((string) ($_POST['tax_preset'] ?? '') === 'canada') {
+            $this->renderCommerce(
+                $this->postedCommerceOptions(),
+                false,
+                [],
+                $user,
+                self::taxRowsForForm(TaxRates::canada()),
+                self::typedShipRows($_POST['ship_rates'] ?? []),
+                'Canada\'s GST and HST are filled in below, in place of the rates that were there. Check them, '
+                . 'add any provincial tax you are registered for, and save.'
+            );
+            return;
+        }
+
         if ($errors !== []) {
             // WHAT WAS TYPED, HANDED BACK. Re-reading the stored options here
             // would throw away everything on the screen because one select was
             // wrong — including the instruction text, which is the longest thing
             // on it and the most annoying to lose.
             $options = $this->postedCommerceOptions();
-            $this->renderCommerce($options, false, $errors, $user);
+            $this->renderCommerce(
+                $options,
+                false,
+                $errors,
+                $user,
+                self::typedTaxRows($_POST['tax_rates'] ?? []),
+                self::typedShipRows($_POST['ship_rates'] ?? [])
+            );
             return;
         }
 
@@ -465,16 +497,15 @@ class SettingsController
             'commerce_currency'      => $currency,
             'commerce_country'       => $country,
             'commerce_admin_email'   => $adminEmail,
-            // STORED IN HUNDREDTHS OF A PERCENT, which is what `Tax::rate()`
-            // reads. The box takes a percentage because that is what a rate is
-            // called; nothing else in the system sees the percentage form.
-            'commerce_tax_rate'      => (string) $taxRate,
-            'commerce_tax_label'     => trim((string) ($_POST['commerce_tax_label'] ?? '')),
+            'commerce_region'        => $region,
+            // IN THOUSANDTHS OF A PERCENT, as `TaxRates` reads them. The boxes
+            // take percentages because that is what a rate is called.
+            'commerce_tax_rates'     => (string) json_encode(TaxRates::clean($taxRates)),
             'commerce_tax_inclusive' => !empty($_POST['commerce_tax_inclusive']) ? '1' : '0',
-            'commerce_ship_mode'     => $shipMode,
-            'commerce_ship_flat'     => (string) $shipFlat,
-            'commerce_ship_free_over' => (string) $shipFree,
+            'commerce_ship_rates'    => (string) json_encode(Shipping::clean($shipRates)),
             'commerce_ship_note'     => trim((string) ($_POST['commerce_ship_note'] ?? '')),
+            'commerce_pickup'        => !empty($_POST['commerce_pickup']) ? '1' : '0',
+            'commerce_pickup_where'  => trim((string) ($_POST['commerce_pickup_where'] ?? '')),
             // ── THE WORDING, AND WHY BLANK IS STORED AS BLANK ───────────────
             // `Commerce\Words` falls back to the built-in word when the option
             // is empty, so clearing the box has to WRITE an empty string rather
@@ -488,6 +519,11 @@ class SettingsController
             'commerce_word_basket'   => trim((string) ($_POST['commerce_word_basket'] ?? '')),
             'commerce_word_add'      => trim((string) ($_POST['commerce_word_add'] ?? '')),
             'commerce_thanks'        => trim((string) ($_POST['commerce_thanks'] ?? '')),
+            'commerce_business_name'    => trim((string) ($_POST['commerce_business_name'] ?? '')),
+            'commerce_business_address' => trim((string) ($_POST['commerce_business_address'] ?? '')),
+            'commerce_tax_number'       => trim((string) ($_POST['commerce_tax_number'] ?? '')),
+            'commerce_terms_page'       => (string) max(0, $termsPage),
+            'commerce_offer_signup'     => !empty($_POST['commerce_offer_signup']) ? '1' : '0',
         ];
 
         // `setEnabled()` drops ids that are not in METHODS rather than storing
@@ -532,28 +568,29 @@ class SettingsController
             'commerce_currency'    => (string) ($_POST['commerce_currency'] ?? ''),
             'commerce_country'     => (string) ($_POST['commerce_country'] ?? ''),
             'commerce_admin_email' => trim((string) ($_POST['commerce_admin_email'] ?? '')),
-            // ── THE RATE GOES BACK AS HUNDREDTHS, NOT AS WHAT WAS TYPED ─────
-            // The template renders it through `Tax::percent()`, so handing back
-            // the raw string would print `5` as `0.05%`. A rate that cannot be
-            // parsed has no hundredths — it goes back as 0 and the error
-            // message above the form says why, which is better than redrawing
-            // the unparseable text and letting a second save store it.
-            'commerce_tax_rate'    => (string) (Tax::parsePercent(
-                (string) ($_POST['commerce_tax_rate'] ?? '')
-            ) ?? 0),
-            'commerce_tax_label'   => trim((string) ($_POST['commerce_tax_label'] ?? '')),
+            // THE RATES GO BACK AS TYPED, through `typedTaxRows()`: each row's
+            // box shows what the owner wrote, and the message above the form
+            // names the row that cannot be stored.
+            'commerce_region'      => (string) ($_POST['commerce_region'] ?? ''),
             'commerce_tax_inclusive' => !empty($_POST['commerce_tax_inclusive']) ? '1' : '0',
-            'commerce_ship_mode'   => (string) ($_POST['commerce_ship_mode'] ?? 'none'),
-            // AS MINOR UNITS, because the template renders them through
-            // `Money::edit()`. Handing back the raw string would print `12` as
-            // `$0.12` on the redraw — the same trap the tax rate has.
-            'commerce_ship_flat'   => (string) (self::parseMoneyField(
-                $_POST['commerce_ship_flat'] ?? ''
-            ) ?? 0),
-            'commerce_ship_free_over' => (string) (self::parseMoneyField(
-                $_POST['commerce_ship_free_over'] ?? ''
-            ) ?? 0),
+            'commerce_pickup'      => !empty($_POST['commerce_pickup']) ? '1' : '0',
+            'commerce_pickup_where' => trim((string) ($_POST['commerce_pickup_where'] ?? '')),
             'commerce_ship_note'   => trim((string) ($_POST['commerce_ship_note'] ?? '')),
+            // AND THE REST AS TYPED. The wording boxes came back blank and the
+            // ticked methods as stored, so a refusal about a delivery rate
+            // undid changes the owner had made further down the form.
+            'commerce_word_basket' => trim((string) ($_POST['commerce_word_basket'] ?? '')),
+            'commerce_word_add'    => trim((string) ($_POST['commerce_word_add'] ?? '')),
+            'commerce_thanks'      => trim((string) ($_POST['commerce_thanks'] ?? '')),
+            'commerce_business_name'    => trim((string) ($_POST['commerce_business_name'] ?? '')),
+            'commerce_business_address' => trim((string) ($_POST['commerce_business_address'] ?? '')),
+            'commerce_tax_number'       => trim((string) ($_POST['commerce_tax_number'] ?? '')),
+            'commerce_terms_page'       => (string) (int) ($_POST['commerce_terms_page'] ?? 0),
+            'commerce_offer_signup'     => !empty($_POST['commerce_offer_signup']) ? '1' : '0',
+            'commerce_payment_methods' => implode(',', array_map(
+                'strval',
+                is_array($_POST['methods'] ?? null) ? $_POST['methods'] : []
+            )),
         ];
         foreach (array_keys(PaymentMethods::METHODS) as $id) {
             $options[PaymentMethods::titleOptionKey($id)] =
@@ -565,8 +602,178 @@ class SettingsController
         return $options;
     }
 
-    private function renderCommerce(array $options, bool $saved, array $errors, ?array $user): void
+    /**
+     * The rates as posted, read for saving: each row's rate parsed, and a
+     * sentence for each row that cannot be — numbered as the owner sees them,
+     * blank rows not counted.
+     *
+     * @return array{0: list<array{country: string, region: string, label: string, rate: int}>, 1: list<string>}
+     */
+    private static function postedTaxRates(mixed $posted): array
     {
+        $rows   = [];
+        $errors = [];
+        $n      = 0;
+        foreach (self::typedTaxRows($posted) as $row) {
+            if ($row['label'] === '' && $row['rate'] === '') {
+                continue;
+            }
+            $n++;
+            $rate = TaxRates::parse($row['rate']);
+            if ($rate === null) {
+                $errors[] = 'Tax rate ' . $n . ': the rate must be a percentage with at most three decimal '
+                          . 'places, between 0 and 100 — 5, 13, 9.975.';
+                continue;
+            }
+            if ($row['country'] !== '' && !Countries::isValid($row['country'])) {
+                $errors[] = 'Tax rate ' . $n . ': choose a country from the list.';
+                continue;
+            }
+            if ($row['region'] !== '' && Regions::code($row['country'], $row['region']) === '') {
+                $errors[] = 'Tax rate ' . $n . ': choose a province or state of the country it names, or none '
+                          . 'for all of it.';
+                continue;
+            }
+            $rows[] = ['country' => $row['country'], 'region' => $row['region'], 'label' => $row['label'], 'rate' => $rate];
+        }
+
+        return [$rows, $errors];
+    }
+
+    /**
+     * The rate rows exactly as typed, for redrawing a refused form.
+     *
+     * @return list<array{country: string, region: string, label: string, rate: string}>
+     */
+    private static function typedTaxRows(mixed $posted): array
+    {
+        $out = [];
+        foreach (is_array($posted) ? $posted : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $out[] = [
+                'country' => strtoupper(trim((string) ($row['country'] ?? ''))),
+                'region'  => strtoupper(trim((string) ($row['region'] ?? ''))),
+                'label'   => trim((string) ($row['label'] ?? '')),
+                'rate'    => trim((string) ($row['rate'] ?? '')),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Stored rows as the form shows them, each rate as it would be typed.
+     *
+     * @param  list<array{country: string, region: string, label: string, rate: int}> $rows
+     * @return list<array{country: string, region: string, label: string, rate: string}>
+     */
+    private static function taxRowsForForm(array $rows): array
+    {
+        return array_map(static fn (array $r): array => [
+            'country' => $r['country'],
+            'region'  => $r['region'],
+            'label'   => $r['label'],
+            'rate'    => TaxRates::percent($r['rate']),
+        ], TaxRates::clean($rows));
+    }
+
+    /**
+     * The delivery rows as posted, read for saving, each money box parsed and
+     * each refusal naming its row. A row with neither amount typed is a blank
+     * line on the form, and is dropped.
+     *
+     * @return array{0: list<array{country: string, region: string, rate: int, free_over: int}>, 1: list<string>}
+     */
+    private static function postedShipRates(mixed $posted): array
+    {
+        $rows   = [];
+        $errors = [];
+        $n      = 0;
+        foreach (self::typedShipRows($posted) as $row) {
+            if ($row['rate'] === '' && $row['free_over'] === '' && $row['country'] === '') {
+                continue;
+            }
+            $n++;
+            $rate = self::parseMoneyField($row['rate']);
+            $free = self::parseMoneyField($row['free_over']);
+            if ($rate === null || $free === null) {
+                $errors[] = 'Delivery rate ' . $n . ': ' . ($rate === null ? 'what delivery costs' : 'the free-delivery threshold')
+                          . ' is not an amount of money.';
+                continue;
+            }
+            if ($row['country'] !== '' && !Countries::isValid($row['country'])) {
+                $errors[] = 'Delivery rate ' . $n . ': choose a country from the list.';
+                continue;
+            }
+            if ($row['region'] !== '' && Regions::code($row['country'], $row['region']) === '') {
+                $errors[] = 'Delivery rate ' . $n . ': choose a province or state of the country it names, or none for all of it.';
+                continue;
+            }
+            $rows[] = ['country' => $row['country'], 'region' => $row['region'], 'rate' => $rate, 'free_over' => $free];
+        }
+
+        return [$rows, $errors];
+    }
+
+    /**
+     * The delivery rows exactly as typed, for redrawing a refused form.
+     *
+     * @return list<array{country: string, region: string, rate: string, free_over: string}>
+     */
+    private static function typedShipRows(mixed $posted): array
+    {
+        $out = [];
+        foreach (is_array($posted) ? $posted : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $out[] = [
+                'country'   => strtoupper(trim((string) ($row['country'] ?? ''))),
+                'region'    => strtoupper(trim((string) ($row['region'] ?? ''))),
+                'rate'      => trim((string) ($row['rate'] ?? '')),
+                'free_over' => trim((string) ($row['free_over'] ?? '')),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Stored delivery rows as the form shows them, amounts as they would be
+     * typed: "8.00", blank for no threshold.
+     *
+     * @return list<array{country: string, region: string, rate: string, free_over: string}>
+     */
+    private static function shipRowsForForm(array $rows): array
+    {
+        return array_map(static fn (array $r): array => [
+            'country'   => $r['country'],
+            'region'    => $r['region'],
+            'rate'      => Money::edit($r['rate']),
+            'free_over' => $r['free_over'] > 0 ? Money::edit($r['free_over']) : '',
+        ], Shipping::clean($rows));
+    }
+
+    /**
+     * @param list<array{country: string, region: string, label: string, rate: string}>|null $taxRows
+     *        the rate rows to draw: as typed after a refusal, filled in by the
+     *        Canada button, or null for the stored ones
+     * @param list<array{country: string, region: string, rate: string, free_over: string}>|null $shipRows
+     *        the delivery rows to draw, the same way
+     */
+    private function renderCommerce(
+        array $options,
+        bool $saved,
+        array $errors,
+        ?array $user,
+        ?array $taxRows = null,
+        ?array $shipRows = null,
+        string $notice = ''
+    ): void {
+        $taxRows  ??= self::taxRowsForForm(TaxRates::all());
+        $shipRows ??= self::shipRowsForForm(Shipping::rates());
         $pageTitle   = 'Shop Settings';
         $currentPage = 'settings-commerce';
 

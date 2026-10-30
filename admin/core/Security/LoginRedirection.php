@@ -52,7 +52,7 @@ final class LoginRedirection
     public const WHO = ['all' => 'All users', 'role' => 'A role', 'user' => 'Particular accounts'];
 
     /** The roles a rule may name, in the Users screen's order. */
-    public const ROLES = ['admin' => 'Administrators', 'editor' => 'Editors', 'author' => 'Authors'];
+    public const ROLES = ['admin' => 'Administrators', 'shop_manager' => 'Shop managers', 'editor' => 'Editors', 'author' => 'Authors'];
 
     /** Where to, after signing in; after signing out, also "none". */
     public const TARGETS = ['page' => 'A page', 'url' => 'An address on this site'];

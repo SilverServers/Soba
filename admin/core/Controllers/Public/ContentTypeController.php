@@ -126,6 +126,33 @@ class ContentTypeController
         }
         unset($row);
 
+        // ── A SHOP'S LIST: EVERY CARD PRICED IN ONE MORE QUERY ───────────────
+        // Each card asks `Commerce\Product` what its product costs, which reads
+        // its options; primed here, a page of cards reads them once.
+        $shopTools = null;
+        $shopQuery = '';
+        if (\Cms\Commerce\Product::isSellableType($this->contentTypeKey)) {
+            \Cms\Commerce\Variation::prime(array_map(static fn (array $r): int => (int) $r['id'], $posts));
+            $shopTools = $this->shopTools();
+
+            // ── SORTED OR FILTERED: THE WHOLE TYPE, THEN THE PAGE ────────────
+            // What a product costs NOW (its sale, its dates, its options) and
+            // whether a size is still to be had are decided in PHP, by the same
+            // door the product page uses, not in SQL over meta strings. So a
+            // sorted or filtered list reads every live product of the type,
+            // keeps and orders them here, and cuts the same page window the
+            // SQL would have. A shop's catalogue is hundreds, not millions.
+            if ($shopTools['active']) {
+                $shopQuery = $shopTools['query'];
+                [$posts, $total] = $this->shopList($shopTools, $order, $limit, $offset);
+                $totalPages = Paging::pages($total, $perPage, $extra);
+                if ($page > $totalPages) {
+                    Template::notFound($this->contentTypeKey);
+                    return;
+                }
+            }
+        }
+
         // Event archives read chronologically, not by publish date — nobody wants
         // next week's webinar listed above tomorrow's. Sorted here rather than in
         // SQL because the date lives in post_meta, not a column.
@@ -158,6 +185,15 @@ class ContentTypeController
         // links and these cannot disagree.
         $pageBase = \Cms\Helpers\Url::page($publicSlug);
         $paged    = Paging::head($pageBase, $page, $totalPages);
+
+        // A SORTED OR FILTERED VIEW IS THE SAME LIST, to a search engine: its
+        // canonical is the list itself and it names no neighbours, so the
+        // shop is not indexed once per size and colour. Its own pager keeps
+        // the choice — `Paging::url()` adds `&page=` to an address with a query.
+        if ($shopQuery !== '') {
+            $paged    = ['canonical' => $pageBase, 'prev' => null, 'next' => null];
+            $pageBase = $pageBase . $shopQuery;
+        }
 
         $breadcrumbItems = [
             ['label' => 'Home',    'url' => BASE_URL . '/'],
@@ -205,5 +241,149 @@ class ContentTypeController
         require Template::locate(...Template::forType('archive', $this->contentTypeKey));
         $pageContent = ob_get_clean();
         require Template::locate('base.php');
+    }
+
+    /** How a shop's list can be ordered, and the word for each. '' is the owner's own order. */
+    private const SORTS = [
+        ''           => 'Featured',
+        'price'      => 'Price, low to high',
+        'price-desc' => 'Price, high to low',
+        'newest'     => 'Newest',
+    ];
+
+    /**
+     * The sort and the size and colour filters a shop's list offers, with what
+     * this request chose. A filter is one of the type's option taxonomies
+     * (`Variation::optionTaxonomies()`), named by its key in the address and
+     * by a term's slug as its value — `?size=m&colour=navy` — and anything else
+     * in the address is ignored rather than trusted.
+     *
+     * @return array{active: bool, query: string, sort: string, sorts: array<string, string>,
+     *               filters: array<string, array{label: string, terms: array<string, string>, current: string, id: int}>}
+     */
+    private function shopTools(): array
+    {
+        $sort = is_string($_GET['sort'] ?? null) && isset(self::SORTS[$_GET['sort']]) ? $_GET['sort'] : '';
+        $query = $sort !== '' ? ['sort' => $sort] : [];
+
+        $filters = [];
+        foreach (\Cms\Commerce\Variation::optionTaxonomies($this->contentTypeKey) as $taxKey => $tax) {
+            $terms = [];
+            $ids   = [];
+            foreach (\Cms\Models\Term::allForTaxonomy((string) $taxKey) as $t) {
+                $terms[(string) $t['slug']] = (string) $t['name'];
+                $ids[(string) $t['slug']]   = (int) $t['id'];
+            }
+            $asked   = is_string($_GET[$taxKey] ?? null) ? (string) $_GET[$taxKey] : '';
+            $current = isset($terms[$asked]) ? $asked : '';
+            if ($current !== '') {
+                $query[(string) $taxKey] = $current;
+            }
+            $filters[(string) $taxKey] = [
+                'label'   => (string) ($tax['label_single'] ?? $tax['label'] ?? $taxKey),
+                'terms'   => $terms,
+                'current' => $current,
+                'id'      => $current !== '' ? $ids[$current] : 0,
+            ];
+        }
+
+        return [
+            'active'  => $query !== [],
+            'query'   => $query !== [] ? '?' . http_build_query($query) : '',
+            'sort'    => $sort,
+            'sorts'   => self::SORTS,
+            'filters' => $filters,
+        ];
+    }
+
+    /**
+     * The type's live products, filtered and ordered as asked, cut to one page.
+     *
+     * A filter keeps a product with an option it can still sell in that size
+     * AND that colour — one option matching both, so "M" and "Navy" do not
+     * keep a tee whose only medium is Oat. A product not sold in options has
+     * no size to match, and a filter leaves it out.
+     *
+     * @return array{0: list<array<string, mixed>>, 1: int} the page's rows, and how many in all
+     */
+    private function shopList(array $tools, string $order, int $limit, int $offset): array
+    {
+        $stmt = Database::getInstance()->prepare(
+            'SELECT p.*, ' . \Cms\Models\User::bylineSql('u') . ' AS author_name
+             FROM posts p
+             JOIN users u ON u.id = p.author_id
+             WHERE p.post_type = :pt AND ' . \Cms\Models\Post::live('p') . '
+             ORDER BY ' . $order
+        );
+        $stmt->execute([':pt' => $this->contentTypeKey]);
+        $all = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $ids  = array_map(static fn (array $r): int => (int) $r['id'], $all);
+        $meta = \Cms\Models\Meta::getAllFor($ids);
+        \Cms\Commerce\Variation::prime($ids);
+
+        $want = array_filter(array_map(static fn (array $f): int => $f['id'], $tools['filters']));
+        $kept = [];
+        foreach ($all as $position => $row) {
+            $row['meta'] = $meta[(int) $row['id']] ?? [];
+            $product = \Cms\Commerce\Product::fromPost($row, null, $row['meta']);
+            if ($product === null) {
+                continue;
+            }
+            if ($want !== [] && !self::hasOption($product, $want)) {
+                continue;
+            }
+            $kept[] = [
+                'row'      => $row,
+                'position' => $position,
+                'price'    => \Cms\Commerce\Variation::bounds($product['variations'], $product)['low'],
+                'date'     => (string) ($row['published_at'] ?? ''),
+            ];
+        }
+
+        // THE OWNER'S ORDER BREAKS EVERY TIE, so two products at one price
+        // keep the places the owner gave them, page after page.
+        $by = $tools['sort'];
+        usort($kept, static function (array $a, array $b) use ($by): int {
+            $cmp = match ($by) {
+                'price'      => $a['price'] <=> $b['price'],
+                'price-desc' => $b['price'] <=> $a['price'],
+                'newest'     => strcmp($b['date'], $a['date']),
+                default      => 0,
+            };
+            return $cmp !== 0 ? $cmp : $a['position'] <=> $b['position'];
+        });
+
+        $page = $limit > 0 ? array_slice($kept, $offset, $limit) : $kept;
+
+        return [array_map(static fn (array $k): array => $k['row'], $page), count($kept)];
+    }
+
+    /**
+     * Does this product have an option it can still sell, made of every one of
+     * these terms?
+     *
+     * @param array<string, int> $want taxonomy key => term id
+     */
+    private static function hasOption(array $product, array $want): bool
+    {
+        foreach ((array) $product['variations'] as $v) {
+            if (!\Cms\Commerce\Variation::isPurchasable($v)) {
+                continue;
+            }
+            $terms = \Cms\Commerce\Variation::termsOf($v);
+            $all   = true;
+            foreach ($want as $tax => $term) {
+                if (($terms[$tax] ?? 0) !== $term) {
+                    $all = false;
+                    break;
+                }
+            }
+            if ($all) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

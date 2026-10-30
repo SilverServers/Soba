@@ -51,6 +51,15 @@ $minShown = $posted['min_raw'] ?? (
     $isNew || (int) $coupon['min_spend'] === 0 ? '' : Money::edit((int) $coupon['min_spend'])
 );
 
+// WHAT IT REACHES, as ids: posted after a refusal, else the stored lists.
+$picked = static function (string $key) use ($coupon, $posted): array {
+    if ($posted !== [] && array_key_exists($key, $posted)) {
+        return array_map('intval', (array) $posted[$key]);
+    }
+
+    return Coupon::ids($coupon[$key] ?? null);
+};
+
 $action = $isNew
     ? Url::admin('coupons/new')
     : Url::admin('coupons/' . (int) $coupon['id'] . '/edit');
@@ -136,7 +145,7 @@ ob_start();
                             <div class="field">
                                 <label class="label" for="f-amount">How much</label>
                                 <input class="input" type="text" id="f-amount" name="amount"
-                                       value="<?= h((string) $amountShown) ?>" required
+                                       value="<?= h((string) $amountShown) ?>"
                                        autocomplete="off" spellcheck="false"
                                        inputmode="decimal">
                                 <p class="form-help">
@@ -146,6 +155,19 @@ ob_start();
                                     whichever the box beside it says.
                                 </p>
                             </div>
+                        </div>
+
+                        <div class="field">
+                            <label class="check-list__row" for="f-free-shipping">
+                                <input type="checkbox" id="f-free-shipping" name="free_shipping" value="1"
+                                       <?= $val('free_shipping', '0') === '1' ? 'checked' : '' ?>>
+                                <span>Makes delivery free</span>
+                            </label>
+                            <p class="form-help">
+                                Delivery costs nothing while the code applies, on
+                                top of what it takes off. Leave <strong>How much</strong>
+                                blank for a code that only makes delivery free.
+                            </p>
                         </div>
 
                         <?php // A DISCOUNT COMES OFF BEFORE TAX, which is what a
@@ -158,6 +180,51 @@ ob_start();
                             delivery, so a percentage reduces the tax with it. It
                             can never take off more than the basket is worth.
                         </p>
+                    </div>
+
+                    <div class="form-card__section">
+                        <?= panel_title('What it takes off', 'coupons') ?>
+
+                        <?php // NAMED, OR EVERYTHING. The pickers are the entry
+                              // form's own; a code naming none takes off the
+                              // whole basket, as it always has. ?>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <span class="label">Only these products</span>
+                                <?= \Cms\ContentType\FieldRenderer::chipPicker(
+                                    'product_ids',
+                                    \Cms\Controllers\Admin\CouponController::productChoices(),
+                                    $picked('product_ids'),
+                                    'product'
+                                ) ?>
+                            </div>
+                            <div class="field">
+                                <span class="label">Only these categories</span>
+                                <?= \Cms\ContentType\FieldRenderer::chipPicker(
+                                    'category_ids',
+                                    \Cms\Controllers\Admin\CouponController::termChoices(),
+                                    $picked('category_ids'),
+                                    'category'
+                                ) ?>
+                            </div>
+                        </div>
+                        <p class="form-help">
+                            Blank for the whole basket. With either, the code takes
+                            off only what is in them, and a basket with none of it
+                            is told the code does not apply.
+                        </p>
+
+                        <div class="field">
+                            <label class="check-list__row" for="f-exclude-sale">
+                                <input type="checkbox" id="f-exclude-sale" name="exclude_sale" value="1"
+                                       <?= $val('exclude_sale', '0') === '1' ? 'checked' : '' ?>>
+                                <span>Leaves items on sale alone</span>
+                            </label>
+                            <p class="form-help">
+                                Anything already on sale is left out of what the
+                                code takes off.
+                            </p>
+                        </div>
                     </div>
 
                     <div class="form-card__section">
@@ -191,6 +258,28 @@ ob_start();
                                         <?= (int) $coupon['times_used'] === 1 ? 'time' : 'times' ?>
                                         so far.
                                     <?php endif; ?>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-per-customer">Uses per customer</label>
+                                <input class="input" type="number" id="f-per-customer" name="per_customer"
+                                       min="0" step="1"
+                                       value="<?= h($val('per_customer', '0')) ?>">
+                                <p class="form-help">
+                                    How many orders one email address may use it on.
+                                    0 for no limit of its own.
+                                </p>
+                            </div>
+
+                            <div class="field">
+                                <label class="label" for="f-starts">First day it works</label>
+                                <input class="input" type="date" id="f-starts" name="starts_at"
+                                       value="<?= h($val('starts_at')) ?>">
+                                <p class="form-help">
+                                    In this site's own days. Blank for straight away.
                                 </p>
                             </div>
                         </div>
@@ -233,6 +322,7 @@ ob_start();
         </div>
     </form>
 </div>
+<script src="<?= h(\Cms\Helpers\Asset::admin('js/entry-form.js')) ?>"></script>
 <?php
 $pageContent = ob_get_clean();
 require ROOT_PATH . '/admin/templates/layout.php';

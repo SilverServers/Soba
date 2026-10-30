@@ -14,7 +14,8 @@ use PDO;
  * Sitemap — generates XML sitemaps dynamically.
  *
  * Routes:
- *   /sitemap.xml          → sitemap index
+ *   /sitemap.xml          → sitemap index — or, while there is only one map,
+ *                           that map itself (`root()`)
  *   /sitemap-pages.xml    → pages sitemap
  *   /sitemap-{type}.xml   → per-Content Type sitemap
  *   /sitemap-{tax}.xml    → a public taxonomy's term archives (same route:
@@ -25,9 +26,38 @@ use PDO;
 class Sitemap
 {
     /**
+     * What `/sitemap.xml` serves: the index of every map — or, while the site
+     * has only one, that map itself.
+     *
+     * ── ONE MAP IS SERVED AS ITSELF ─────────────────────────────────────────
+     * A site with nothing to map but its pages had an index naming one child,
+     * `sitemap-pages.xml`, so its sitemap opened in a browser, an SEO tool or
+     * Search Console before Google read the child looked empty. Both shapes
+     * are valid at this address (sitemaps.org), so a single map is served
+     * whole, and the index comes back by itself once there is a second map.
+     * Decided by how many maps there are, never by which one it is.
+     */
+    public static function root(): string
+    {
+        $maps = self::maps();
+
+        return count($maps) === 1 ? ($maps[0]['render'])() : self::indexOf($maps);
+    }
+
+    /**
      * Render the sitemap index XML.
      */
     public static function index(): string
+    {
+        return self::indexOf(self::maps());
+    }
+
+    /**
+     * Every map the site has, with how to draw it.
+     *
+     * @return list<array{loc: string, lastmod: ?string, render: callable(): string}>
+     */
+    private static function maps(): array
     {
         $siteUrl    = defined('BASE_URL') ? BASE_URL : '';
         $sitemaps   = [];
@@ -40,6 +70,7 @@ class Sitemap
             $sitemaps[] = [
                 'loc'     => $siteUrl . '/sitemap-pages.xml',
                 'lastmod' => $pagesLastmod,
+                'render'  => static fn (): string => self::pages(),
             ];
         }
 
@@ -56,6 +87,7 @@ class Sitemap
                 $sitemaps[] = [
                     'loc'     => $siteUrl . '/sitemap-' . $publicSlug . '.xml',
                     'lastmod' => $lastmod,
+                    'render'  => static fn (): string => self::contentType((string) $key),
                 ];
             }
         }
@@ -73,10 +105,21 @@ class Sitemap
                 $sitemaps[] = [
                     'loc'     => $siteUrl . '/sitemap-' . self::fileSlug($publicSlug) . '.xml',
                     'lastmod' => date('Y-m-d', strtotime(max(array_column($rows, 'lastmod')))),
+                    'render'  => static fn (): string => self::taxonomy((string) $key),
                 ];
             }
         }
 
+        return $sitemaps;
+    }
+
+    /**
+     * An index naming these maps.
+     *
+     * @param list<array{loc: string, lastmod: ?string}> $sitemaps
+     */
+    private static function indexOf(array $sitemaps): string
+    {
         $xml  = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
         $xml .= '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
 

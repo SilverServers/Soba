@@ -41,7 +41,7 @@ use PDO;
 final class TemporaryAccess
 {
     /** The roles it may have, in the Users screen's order. Never an administrator — see above. */
-    public const ROLES = ['editor' => 'Editor', 'author' => 'Author'];
+    public const ROLES = ['shop_manager' => 'Shop manager', 'editor' => 'Editor', 'author' => 'Author'];
 
     /** @var array<string, int> each unit in seconds */
     public const UNITS = ['hours' => 3600, 'days' => 86400];

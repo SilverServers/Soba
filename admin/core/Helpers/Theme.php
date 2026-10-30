@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Helpers;
 
 use Cms\Models\Option;
+use Cms\Update\Release;
 
 /**
  * A SITE'S THEME — its own templates and its own chrome, chosen in the admin
@@ -128,7 +129,7 @@ final class Theme
             'key'         => self::DEFAULT_KEY,
             'name'        => 'Default',
             'description' => 'The templates and frame the CMS ships with.',
-            'version'     => self::coreVersion(),
+            'version'     => Release::version(),
             'author'      => '',
             'mode'        => 'framed',
             'dir'         => null,
@@ -496,11 +497,5 @@ final class Theme
         }
 
         return self::$configured !== '' ? self::$configured : null;
-    }
-
-    private static function coreVersion(): string
-    {
-        $file = ROOT_PATH . '/VERSION';
-        return is_file($file) ? trim((string) file_get_contents($file)) : '';
     }
 }

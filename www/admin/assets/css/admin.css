@@ -1969,6 +1969,20 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 @media (max-width: 1080px) { .nav-top__group:has(.nav-top__tool) { display: none; } }
 @media (max-width: 720px)  { .nav-top__tool { display: none; } }
 
+
+/* ═══ 11a. THE VERSION AT THE FOOT ════════════════════════════════════════ */
+
+/* Which release this copy runs, where an admin who is about to update or report
+   a problem looks for it. One line of meta text after the page, right-aligned,
+   with no band, rule or background of its own: it is not chrome, and nothing
+   on the page should line up with it. */
+.main__foot {
+  margin-top: var(--sp-6);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  text-align: right;
+}
+
 /* The status chip sits ON THE PANEL'S HEADING LINE, not stacked above the Status
    control. Stacked, the chip read "Published" and the select 40px below it read
    "Published" — the same word twice in a column. On the heading line it is the

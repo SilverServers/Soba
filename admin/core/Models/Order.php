@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cms\Models;
 
 use Cms\Commerce\Money;
-use Cms\Commerce\Tax;
 use Cms\Commerce\Totals;
 use Cms\Database\Database;
 use PDO;
@@ -146,6 +145,49 @@ final class Order
     // ── Writing ─────────────────────────────────────────────────────────────
 
     /**
+     * Where an order is taxed: the place the checkout handed in, else the
+     * delivery address when there is one, else the billing address.
+     *
+     * @param  array<string, mixed> $fields
+     * @return array{country: string, region: string}
+     */
+    private static function taxPlace(array $fields): array
+    {
+        if (isset($fields['tax_country'])) {
+            $country = strtoupper(trim((string) $fields['tax_country']));
+            $region  = (string) ($fields['tax_region'] ?? '');
+        } elseif (trim((string) ($fields['shipping_country'] ?? '')) !== '') {
+            $country = strtoupper(trim((string) $fields['shipping_country']));
+            $region  = (string) ($fields['shipping_region'] ?? '');
+        } else {
+            $country = strtoupper(trim((string) ($fields['billing_country'] ?? '')));
+            $region  = (string) ($fields['billing_region'] ?? '');
+        }
+
+        return ['country' => $country, 'region' => \Cms\Commerce\Regions::code($country, $region)];
+    }
+
+    /**
+     * An order's tax lines, in the order they were charged.
+     *
+     * @return list<array{label: string, rate: int, amount: int}>
+     */
+    public static function taxLines(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return [];
+        }
+        $stmt = Database::getInstance()->prepare(
+            'SELECT label, rate, amount FROM order_tax_lines WHERE order_id = :id ORDER BY position, id'
+        );
+        $stmt->execute([':id' => $orderId]);
+
+        return array_map(static fn (array $r): array => [
+            'label' => (string) $r['label'], 'rate' => (int) $r['rate'], 'amount' => (int) $r['amount'],
+        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Write an order and its lines, or write neither.
      *
      * ── ONE TRANSACTION, AND THE REASON IS NOT TIDINESS ────────────────────
@@ -190,10 +232,16 @@ final class Order
         // email all ask it, so they cannot disagree about what an order comes
         // to. Shipping and discount still arrive from the caller because they
         // are decided AT the checkout; the tax on them is computed here.
+        // TAXED FOR WHERE IT GOES. The checkout says where — the delivery
+        // address, the billing one, or the shop's own for an order collected
+        // in person; a caller that does not is read from the addresses.
+        $place = self::taxPlace($fields);
         $totals   = Totals::of(
             $subtotal,
             (int) ($fields['shipping_total'] ?? 0),
-            (int) ($fields['discount_total'] ?? 0)
+            (int) ($fields['discount_total'] ?? 0),
+            '',
+            $place
         );
         $shipping = $totals['shipping'];
         $tax      = $totals['tax'];
@@ -211,6 +259,8 @@ final class Order
             'currency'             => Money::currency(),
             'subtotal'             => $subtotal,
             'shipping_total'       => $shipping,
+            'shipping_method'      => (string) ($fields['shipping_method'] ?? ''),
+            'shipping_method_title' => mb_substr((string) ($fields['shipping_method_title'] ?? ''), 0, 255),
             'tax_total'            => $tax,
             // ── THE RATE AND ITS NAME, AS THEY READ TODAY ──────────────────
             // Copied onto the row for the same reason `payment_method_title`
@@ -218,9 +268,13 @@ final class Order
             // rather than a view of what is currently configured. An owner
             // raising their rate in April must not silently restate every
             // receipt they issued in March. Migration 044 has the reasoning.
-            'tax_rate'             => Tax::rate(),
-            'tax_label'            => Tax::label(),
-            'tax_inclusive'        => Tax::isInclusive() ? 1 : 0,
+            // ITS TAX IS ON ITS OWN LINES (`order_tax_lines`, below); the one
+            // rate and name these two held before migration 096 stay empty.
+            'tax_rate'             => 0,
+            'tax_label'            => '',
+            'tax_inclusive'        => $totals['taxIncluded'] ? 1 : 0,
+            'tax_country'          => $place['country'],
+            'tax_region'           => $place['region'],
             // WHICH CODE, not which coupon id — the fourth time this subsystem
             // makes that call. A coupon renamed or deleted next year must not
             // rewrite a receipt issued today, and `discount_total` on its own is
@@ -248,6 +302,8 @@ final class Order
             'shipping_post'        => (string) ($fields['shipping_post'] ?? ''),
             'shipping_country'     => (string) ($fields['shipping_country'] ?? ''),
             'customer_note'        => (string) ($fields['customer_note'] ?? ''),
+            'terms_agreed'         => mb_substr((string) ($fields['terms_agreed'] ?? ''), 0, 255),
+            'marketing_opt_in'     => !empty($fields['marketing_opt_in']) ? 1 : 0,
         ];
 
         $db->beginTransaction();
@@ -292,6 +348,22 @@ final class Order
                     ':unit_price' => $unit,
                     ':line_total' => $unit * $qty,
                     ':position'   => $i,
+                ]);
+            }
+
+            // EACH TAX ON ITS OWN LINE — GST and QST are two figures on a
+            // Quebec receipt, and each government is owed its own.
+            $taxStmt = $db->prepare(
+                'INSERT INTO order_tax_lines (order_id, label, rate, amount, position)
+                 VALUES (:order_id, :label, :rate, :amount, :position)'
+            );
+            foreach ($totals['taxLines'] as $i => $taxLine) {
+                $taxStmt->execute([
+                    ':order_id' => $orderId,
+                    ':label'    => (string) $taxLine['label'],
+                    ':rate'     => (int) $taxLine['rate'],
+                    ':amount'   => (int) $taxLine['amount'],
+                    ':position' => $i,
                 ]);
             }
 
@@ -443,10 +515,51 @@ final class Order
         ]);
     }
 
+    /**
+     * Delete an order, and put back whatever it was holding.
+     *
+     * ── A DELETED ORDER WILL NEVER BE FILLED, SO ITS STOCK GOES BACK ────────
+     * This took the rows and nothing else, so an unpaid order cleared out by
+     * deleting rather than cancelling kept its goods off the shelf for ever:
+     * the shop audit deleted an unpaid tote order and the count never came
+     * back. `stock_reduced` and `coupon_redeemed` say what the order holds
+     * RIGHT NOW, exactly as `setStatus()` reads them, so an order cancelled
+     * first gives nothing back twice.
+     */
     public static function delete(int $id): void
     {
-        $stmt = Database::getInstance()->prepare('DELETE FROM orders WHERE id = :id');
-        $stmt->execute([':id' => $id]);
+        $db    = Database::getInstance();
+        $order = self::find($id);
+        if ($order === null) {
+            return;
+        }
+
+        // Joined to a caller's transaction when there is one — PDO cannot
+        // nest them (see `Term::setPostTerms()`).
+        $own = !$db->inTransaction();
+        if ($own) {
+            $db->beginTransaction();
+        }
+        try {
+            if (!empty($order['stock_reduced'])) {
+                \Cms\Commerce\Stock::giveForOrder(self::items($id));
+            }
+            $code = trim((string) ($order['coupon_code'] ?? ''));
+            if ($code !== '' && !empty($order['coupon_redeemed'])) {
+                \Cms\Commerce\Coupon::release($code);
+            }
+
+            $stmt = $db->prepare('DELETE FROM orders WHERE id = :id');
+            $stmt->execute([':id' => $id]);
+            if ($own) {
+                $db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($own) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /**

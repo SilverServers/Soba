@@ -640,6 +640,13 @@ body {
   color: var(--ink-3);
   text-align: center;
 }
+/* The way back from a shop's list narrowed to nothing: a link, so it looks
+   like one, as a link in the product panel does. */
+.post-list-empty a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 /* ── Pagination ─────────────────────────────────────────────────────────────
    These are controls, so they take the control radius and the control height. */
@@ -785,6 +792,10 @@ body {
   color: var(--ink-3);
   margin-right: var(--sp-2);
 }
+/* THE PRICE PAID, in the price's own ink. `.entry-meta strong` gives a label
+   in the panel its quieter colour, and the sale price is the one figure there
+   a customer pays: it must not be paler than the price struck out beside it. */
+.product-price strong { color: inherit; }
 
 /* Utilities post.php already emits. Two only — this is not a utility layer. */
 .u-text-muted { color: var(--ink-3); }
@@ -1924,6 +1935,7 @@ body {
 /* ── Add to basket, on a product page ────────────────────────────────────── */
 .shop-add {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-3);
   margin-top: var(--sp-4);
@@ -1937,6 +1949,67 @@ body {
   margin: var(--sp-2) 0 0;
   font-size: var(--fs-sm);
   color: var(--ink-2);
+}
+
+/* ── A chooser for each thing a customer picks ───────────────────────────────
+   Size and Colour, each a `.shop-variant` select in the same row as the
+   quantity box and the button, so the row reads as one control group whatever
+   the product is sold in. `display: contents` lets the wrappers' selects take
+   their places in the `.shop-add` row; each wrapper has to restate `[hidden]`,
+   because an author's `display` outranks the browser's own rule for it. The
+   note — "Only 2 left.", "Sold out." — takes a line of its own after the
+   button, in the quiet register: a fact, not an alarm. */
+.shop-variant-wrap,
+.shop-choosers { display: contents; }
+.shop-variant-wrap[hidden],
+.shop-choosers[hidden],
+.shop-choosers__note[hidden] { display: none; }
+.shop-choosers__note {
+  order: 1;
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* ── More photos ─────────────────────────────────────────────────────────────
+   Small squares under the main photo, each a link to the full picture. Square
+   and sharp, as the photo above them is: they are the page's substance, not a
+   floating control. The current one carries the accent edge. */
+/* The strip belongs to the photo above it, so the photo's own gap below
+   shrinks to the strip's gap when one follows. */
+.post-featured:has(+ .product-thumbs) { margin-bottom: var(--sp-2); }
+.product-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-5);
+}
+.product-thumbs__item {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.product-thumbs__item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.product-thumbs__item[aria-current="true"] { border-color: var(--accent); }
+.product-thumbs__item:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* ── A shop's list, ordered and narrowed ─────────────────────────────────────
+   One row of `.shop-variant` selects and a quiet button, wrapping on a phone.
+   It sits between the heading and the list it changes. */
+.shop-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-5);
 }
 
 /* ── Checkout layout ─────────────────────────────────────────────────────── */
@@ -1998,6 +2071,29 @@ textarea.shop-field__input { min-height: 0; padding: var(--sp-3); line-height: v
   color: var(--ink);
   cursor: pointer;
 }
+
+/* Delivered or collected: two of the same rows, under the panel's own label,
+   with the owner's where-and-when below them in the quiet register. */
+.shop-choice {
+  margin: 0 0 var(--sp-4);
+  padding: 0;
+  border: 0;
+}
+.shop-choice .shop-check { margin-bottom: var(--sp-2); }
+.shop-choice__where { margin: 0 0 0 var(--sp-5); }
+
+/* What the customer agrees to: its link reads as one, inside the label, and a
+   label that wraps to two lines keeps its box beside the first. */
+.shop-check a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.shop-check--agree { align-items: flex-start; }
+
+/* Whose receipt it is, at its foot: the business's name, address and GST/HST
+   number, in the quiet register of a letterhead's small print. */
+.shop-business { margin: var(--sp-5) 0; }
 
 /* ── Payment method choice ───────────────────────────────────────────────── */
 .shop-pay {

@@ -70,7 +70,7 @@ final class TwoStep
     /** The choices for "Remember this browser", in days. */
     public const REMEMBER_CHOICES = [7, 30, 90];
 
-    public const ROLE_NAMES = ['admin' => 'Administrators', 'editor' => 'Editors', 'author' => 'Authors'];
+    public const ROLE_NAMES = ['admin' => 'Administrators', 'shop_manager' => 'Shop managers', 'editor' => 'Editors', 'author' => 'Authors'];
 
     public const GRACE_RANGE        = [0, 90];
     public const CODE_MINUTES_RANGE = [2, 60];

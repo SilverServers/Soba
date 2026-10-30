@@ -49,9 +49,11 @@ final class Checkout
     /**
      * key => [label, required?]
      *
-     * `billing_region` is not required because plenty of countries do not have
-     * one, and a required field a customer cannot fill is a checkout they
-     * abandon. `billing_post` IS required: it is what a courier routes on.
+     * `billing_region` is not required here because plenty of countries do not
+     * have one, and a required field a customer cannot fill is a checkout they
+     * abandon; `validate()` requires it for a country `Regions` lists, where it
+     * decides the tax. `billing_post` IS required: it is what a courier routes
+     * on.
      */
     public const FIELDS = [
         'email'           => ['Email address',   true],
@@ -110,11 +112,110 @@ final class Checkout
             $out[$key] = trim((string) ($post[$key] ?? ''));
         }
 
+        // ── A PROVINCE FROM ITS LIST WHERE THE COUNTRY HAS ONE ─────────────
+        // Canada and the United States get a select (`Regions`), whose code
+        // is what the order keeps and what decides its tax; anywhere else
+        // keeps the free-text box, posted under its own name so the hidden
+        // one of the two never overwrites the other.
+        foreach (['billing', 'shipping'] as $who) {
+            $country = strtoupper($out[$who . '_country']);
+            $out[$who . '_region'] = Regions::listed($country)
+                ? Regions::code($country, (string) ($post[$who . '_region'] ?? ''))
+                : trim((string) ($post[$who . '_region_text'] ?? ''));
+        }
+
+        // DELIVERED OR COLLECTED. Anything but "pickup" is delivery, which is
+        // what a checkout without the choice has always meant.
+        $out['delivery_method'] = (string) ($post['delivery_method'] ?? '') === Shipping::PICKUP
+            ? Shipping::PICKUP : Shipping::DELIVERY;
+
+        // WHAT THE CUSTOMER AGREED TO AND ASKED FOR, each a tick.
+        $out['accept_terms']     = !empty($post['accept_terms']) ? '1' : '';
+        $out['marketing_opt_in'] = !empty($post['marketing_opt_in']) ? '1' : '';
+
         $out['payment_method'] = trim((string) ($post['payment_method'] ?? ''));
         $out['customer_note']  = trim((string) ($post['customer_note'] ?? ''));
         $out['ship_elsewhere'] = !empty($post['ship_elsewhere']) ? '1' : '';
 
         return $out;
+    }
+
+    /**
+     * The page a customer agrees to at the checkout — Settings → Shop's choice,
+     * if it still exists and is published.
+     *
+     * @return array{id: int, title: string, url: string}|null
+     */
+    public static function termsPage(): ?array
+    {
+        $id = (int) (\Cms\Models\Option::get('commerce_terms_page', '0') ?? 0);
+        $page = $id > 0 ? \Cms\Models\Page::find($id) : null;
+        if ($page === null || (string) ($page['status'] ?? '') !== 'published') {
+            return null;
+        }
+
+        return [
+            'id'    => (int) $page['id'],
+            'title' => (string) $page['title'],
+            'url'   => \Cms\Helpers\Url::page((string) $page['slug']),
+        ];
+    }
+
+    /** Does the checkout offer a box for news and offers? */
+    public static function offersSignup(): bool
+    {
+        return \Cms\Models\Option::get('commerce_offer_signup', '0') === '1';
+    }
+
+    /**
+     * Delivered or collected. Collected only when the shop offers it and the
+     * basket has something to collect; a basket of memberships is neither.
+     *
+     * @param array<string, string> $form from `readForm()`
+     */
+    public static function method(array $form): string
+    {
+        return ($form['delivery_method'] ?? '') === Shipping::PICKUP && Shipping::pickup() && Cart::hasDeliverable()
+            ? Shipping::PICKUP : Shipping::DELIVERY;
+    }
+
+    /**
+     * Where this order is taxed: where the shop is, for an order collected
+     * there; otherwise where it is delivered (`deliveryPlace()`).
+     *
+     * @param  array<string, string> $form from `readForm()`
+     * @return array{country: string, region: string}|null
+     */
+    public static function taxPlace(array $form): ?array
+    {
+        return self::method($form) === Shipping::PICKUP ? TaxRates::home() : self::deliveryPlace($form);
+    }
+
+    /**
+     * Where this order goes: the delivery address when the customer gave one,
+     * else the billing address. Null while a country that needs a province has
+     * none chosen yet, which the checkout shows as an estimate for the shop's
+     * own place.
+     *
+     * @param  array<string, string> $form from `readForm()`
+     * @return array{country: string, region: string}|null
+     */
+    public static function deliveryPlace(array $form): ?array
+    {
+        $who     = ($form['ship_elsewhere'] ?? '') === '1' ? 'shipping' : 'billing';
+        $country = strtoupper(trim((string) ($form[$who . '_country'] ?? '')));
+        if ($country === '' || !Countries::isValid($country)) {
+            return null;
+        }
+        $region = Regions::code($country, (string) ($form[$who . '_region'] ?? ''));
+        // NO PROVINCE YET MATTERS ONLY WHERE A PROVINCE CHANGES THE RATES: an
+        // American address before its state is chosen is already known to be
+        // charged what the United States is.
+        if ($region === '' && TaxRates::dependOnRegion(TaxRates::all(), $country)) {
+            return null;
+        }
+
+        return ['country' => $country, 'region' => $region];
     }
 
     /**
@@ -155,6 +256,11 @@ final class Checkout
         if ($country !== '' && !Countries::isValid($country)) {
             $errors['billing_country'] = 'Please choose a country.';
         }
+        // REQUIRED WHERE IT DECIDES THE TAX: a Canadian or American address
+        // without its province cannot be charged the right rate.
+        if (Regions::listed($country) && ($form['billing_region'] ?? '') === '') {
+            $errors['billing_region'] = 'Please choose a ' . strtolower(Regions::word($country)) . '.';
+        }
 
         // A DELIVERY ADDRESS THAT IS HALF FILLED IN IS THE DANGEROUS ONE. Left
         // blank entirely it means "same as billing" and is fine; a street with
@@ -169,6 +275,39 @@ final class Checkout
             $sc = $form['shipping_country'] ?? '';
             if ($sc !== '' && !Countries::isValid($sc)) {
                 $errors['shipping_country'] = 'Please choose a country.';
+            }
+            if (Regions::listed($sc) && ($form['shipping_region'] ?? '') === '') {
+                $errors['shipping_region'] = 'Please choose a ' . strtolower(Regions::word($sc))
+                                           . ' for the delivery address.';
+            }
+        }
+
+        // ── DELIVERED WHERE THE SHOP DELIVERS, OR COLLECTED WHERE IT OFFERS ──
+        if (Cart::hasDeliverable()) {
+            $place = self::deliveryPlace($form);
+            if (($form['delivery_method'] ?? '') === Shipping::PICKUP && !Shipping::pickup()) {
+                $errors['delivery_method'] = 'Collecting an order is not offered. Please choose delivery.';
+            } elseif (self::method($form) === Shipping::DELIVERY && $place !== null
+                      && !Shipping::deliversTo($place['country'], $place['region'])) {
+                $errors['delivery_method'] = Shipping::notDelivered($place['country'], $place['region']);
+            }
+        }
+
+        // ── THE SHOP'S TERMS, AGREED TO ─────────────────────────────────────
+        $terms = self::termsPage();
+        if ($terms !== null && ($form['accept_terms'] ?? '') !== '1') {
+            $errors['accept_terms'] = 'Please tick to agree to the ' . $terms['title'] . '.';
+        }
+
+        // ── A CODE THIS CUSTOMER HAS ALREADY SPENT ──────────────────────────
+        // Known only now, with the email: refused with its reason rather than
+        // dropped from the order without a word.
+        $code = Cart::coupon();
+        if ($code !== '' && filter_var($form['email'] ?? '', FILTER_VALIDATE_EMAIL)) {
+            $coupon = Coupon::find($code);
+            if ($coupon !== null && (int) ($coupon['per_customer'] ?? 0) > 0
+                && Coupon::usedBy($code, (string) $form['email']) >= (int) $coupon['per_customer']) {
+                $errors['coupon'] = 'You have already used the code ' . $code . '. Remove it from your basket to go on.';
             }
         }
 
@@ -279,13 +418,25 @@ final class Checkout
         $fields['billing_country']  = Countries::code($form['billing_country'] ?? '');
         $fields['shipping_country'] = Countries::code($fields['shipping_country'] ?? '');
 
+        // ── TAXED WHERE IT GOES ────────────────────────────────────────────
+        // The delivery address when there is one, else the billing address:
+        // the place `Order::place()` charges the rates of, and keeps.
+        $place = self::taxPlace($form) ?? ['country' => $fields['billing_country'], 'region' => ''];
+        $fields['tax_country'] = $place['country'];
+        $fields['tax_region']  = $place['region'];
+
         // ── DELIVERY IS RE-READ TOO, NOT CARRIED FROM THE FORM ─────────────
         // Same reasoning as the prices above: between the checkout rendering
         // and the button being pressed the owner can change the rate, or the
         // customer can open a second tab and empty the basket of the one
         // deliverable thing in it. What goes on the order is what is true at
         // THIS moment, and `Order::place()` recomputes the tax on top of it.
-        $fields['shipping_total'] = Shipping::forCart();
+        // ── AND HOW IT REACHES THEM, with what it cost ──────────────────────
+        $how      = self::method($form);
+        $delivery = self::deliveryPlace($form) ?? $place;
+        $fields['shipping_total']        = Totals::cartShipping($delivery, $how, (string) ($form['email'] ?? ''));
+        $fields['shipping_method']       = Cart::hasDeliverable() ? $how : '';
+        $fields['shipping_method_title'] = Cart::hasDeliverable() ? Shipping::methodTitle($how, $delivery) : '';
 
         // ── THE CODE IS SPENT BEFORE THE ORDER IS WRITTEN ──────────────────
         // Same order and the same reason as the stock above: a code counted
@@ -303,8 +454,11 @@ final class Checkout
         $code   = Cart::coupon();
         $coupon = $code !== '' ? Coupon::find($code) : null;
         $subtotalNow = Cart::subtotal();
+        $cartLines   = Coupon::cartLines();
+        $usedBy      = $coupon !== null ? Coupon::usedBy((string) $coupon['code'], (string) ($form['email'] ?? '')) : 0;
 
-        if ($coupon !== null && Coupon::discountOn($coupon, $subtotalNow) > 0) {
+        // SPENT WHEN IT DOES ANYTHING — money off, or free delivery.
+        if ($coupon !== null && Coupon::applies($coupon, $subtotalNow, $cartLines, $usedBy)) {
             if (!Coupon::redeem((int) $coupon['id'])) {
                 Stock::giveForOrder(array_map(
                     static fn (array $l): array => ['post_id' => $l['post_id'], 'quantity' => $l['quantity']],
@@ -318,7 +472,7 @@ final class Checkout
                 return null;
             }
 
-            $fields['discount_total']  = Coupon::discountOn($coupon, $subtotalNow);
+            $fields['discount_total']  = Coupon::discountOn($coupon, $subtotalNow, null, $cartLines, $usedBy);
             $fields['coupon_code']     = (string) $coupon['code'];
             $fields['coupon_redeemed'] = 1;
         } elseif ($code !== '') {
@@ -328,6 +482,11 @@ final class Checkout
             // showed them, which already had no discount on it.
             Cart::clearCoupon();
         }
+
+        // WHAT WAS AGREED TO, by the title it had, and what was asked for.
+        $terms = self::termsPage();
+        $fields['terms_agreed']     = $terms !== null && ($form['accept_terms'] ?? '') === '1' ? $terms['title'] : '';
+        $fields['marketing_opt_in'] = self::offersSignup() && ($form['marketing_opt_in'] ?? '') === '1' ? 1 : 0;
 
         $fields['payment_method'] = $method;
         // The TITLE as it reads today, copied onto the order. Renaming the

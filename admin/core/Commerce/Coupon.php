@@ -40,6 +40,9 @@ final class Coupon
     public const EXPIRED    = 'expired';
     public const SPENT      = 'spent';
     public const TOO_SMALL  = 'too_small';
+    public const NOT_STARTED = 'not_started';
+    public const USED_BY_YOU = 'used_by_you';
+    public const NOTHING_TO_TAKE = 'nothing_applies';
 
     /**
      * Normalise a typed code.
@@ -107,8 +110,13 @@ final class Coupon
      * @param array<string, mixed> $coupon a row from `find()`
      * @param string               $today  'Y-m-d'; passed in so this is testable
      */
-    public static function refusalFor(array $coupon, int $subtotal, string $today): string
-    {
+    public static function refusalFor(
+        array $coupon,
+        int $subtotal,
+        string $today,
+        ?int $eligible = null,
+        int $usedByCustomer = 0
+    ): string {
         if (empty($coupon['is_active'])) {
             return self::INACTIVE;
         }
@@ -117,6 +125,12 @@ final class Coupon
         // A coupon that expires on the 30th works ON the 30th. Anything else
         // means an owner who types the last day of a sale ends it a day early,
         // and nobody reads a date field as "the day before this".
+        // ITS FIRST DAY WORKS, as its last does: both are the site's days.
+        $starts = (string) ($coupon['starts_at'] ?? '');
+        if ($starts !== '' && $starts > $today) {
+            return self::NOT_STARTED;
+        }
+
         $expires = (string) ($coupon['expires_at'] ?? '');
         if ($expires !== '' && $expires < $today) {
             return self::EXPIRED;
@@ -131,9 +145,24 @@ final class Coupon
         // customer could reach a $50 minimum by choosing a more expensive
         // postage option, which is not what "spend $50" means. Measured after
         // tax, the same basket qualifies in one province and not another.
+        // ONCE EACH, by the email an order is placed with: the count is of
+        // this customer's orders that spent it, which the checkout reads.
+        $each = (int) ($coupon['per_customer'] ?? 0);
+        if ($each > 0 && $usedByCustomer >= $each) {
+            return self::USED_BY_YOU;
+        }
+
         $min = (int) ($coupon['min_spend'] ?? 0);
         if ($min > 0 && $subtotal < $min) {
             return self::TOO_SMALL;
+        }
+
+        // NOTHING IN THE BASKET IT REACHES: a code for the outerwear on a
+        // basket of tees, or one that leaves sale items alone on a basket of
+        // them. Said, rather than accepted for nothing. A code that makes
+        // delivery free still does that.
+        if ($eligible !== null && $eligible <= 0 && (int) ($coupon['amount'] ?? 0) > 0 && empty($coupon['free_shipping'])) {
+            return self::NOTHING_TO_TAKE;
         }
 
         return '';
@@ -158,6 +187,11 @@ final class Coupon
             self::SPENT     => 'That code has already been used as many times as it can be.',
             self::TOO_SMALL => 'That code needs a basket of at least '
                              . Money::format((int) ($coupon['min_spend'] ?? 0)) . '.',
+            self::NOT_STARTED => 'That code works from '
+                             . \Cms\Helpers\Dates::format((string) ($coupon['starts_at'] ?? ''), 'F j') . '.',
+            self::USED_BY_YOU => 'You have already used that code.',
+            self::NOTHING_TO_TAKE => 'That code does not apply to anything in your basket'
+                             . (!empty($coupon['exclude_sale']) ? ', and it leaves items on sale alone' : '') . '.',
             default         => '',
         };
     }
@@ -190,18 +224,167 @@ final class Coupon
     }
 
     /** The discount this row gives on this basket, or 0 if it cannot be used. */
-    public static function discountOn(array $coupon, int $subtotal, ?string $today = null): int
-    {
-        $today = $today ?? date('Y-m-d');
-        if (self::refusalFor($coupon, $subtotal, $today) !== '') {
+    public static function discountOn(
+        array $coupon,
+        int $subtotal,
+        ?string $today = null,
+        ?array $lines = null,
+        int $usedByCustomer = 0
+    ): int {
+        $today    = $today ?? \Cms\Helpers\Dates::today();
+        $eligible = $lines === null ? $subtotal : self::eligible($coupon, $lines);
+        if (self::refusalFor($coupon, $subtotal, $today, $eligible, $usedByCustomer) !== '') {
             return 0;
         }
 
-        return self::discountFor(
+        // OF WHAT IT REACHES, and never more than that: $20 off a code for
+        // the accessories takes at most what the accessories cost.
+        return min($eligible, self::discountFor(
             (string) $coupon['kind'],
             (int) $coupon['amount'],
-            $subtotal
+            $eligible
+        ));
+    }
+
+    /**
+     * What in the basket a code takes off: the lines of the products and the
+     * terms it names — every line when it names none — less any on sale when
+     * it leaves sale items alone.
+     *
+     * @param list<array{post_id: int, line_total: int, on_sale: bool, term_ids: list<int>}> $lines
+     */
+    public static function eligible(array $coupon, array $lines): int
+    {
+        $products = self::ids($coupon['product_ids'] ?? null);
+        $terms    = self::ids($coupon['category_ids'] ?? null);
+        $sum      = 0;
+        foreach ($lines as $line) {
+            $named = ($products === [] && $terms === [])
+                || in_array((int) $line['post_id'], $products, true)
+                || array_intersect(array_map('intval', (array) $line['term_ids']), $terms) !== [];
+            if (!$named || (!empty($coupon['exclude_sale']) && !empty($line['on_sale']))) {
+                continue;
+            }
+            $sum += (int) $line['line_total'];
+        }
+
+        return $sum;
+    }
+
+    /** @return list<int> ids from a stored JSON list */
+    public static function ids(mixed $stored): array
+    {
+        $list = is_array($stored) ? $stored : json_decode((string) $stored, true);
+
+        return array_values(array_unique(array_filter(array_map('intval', is_array($list) ? $list : []))));
+    }
+
+    /**
+     * Does the code do anything to this basket — money off, or free delivery?
+     *
+     * @param list<array{post_id: int, line_total: int, on_sale: bool, term_ids: list<int>}> $lines
+     */
+    public static function applies(array $coupon, int $subtotal, array $lines, int $usedByCustomer = 0): bool
+    {
+        $refusal = self::refusalFor(
+            $coupon,
+            $subtotal,
+            \Cms\Helpers\Dates::today(),
+            self::eligible($coupon, $lines),
+            $usedByCustomer
         );
+        if ($refusal !== '') {
+            return false;
+        }
+
+        return !empty($coupon['free_shipping'])
+            || self::discountOn($coupon, $subtotal, null, $lines, $usedByCustomer) > 0;
+    }
+
+    /** Does the basket's code make its delivery free? */
+    public static function freeDeliveryOnCart(string $email = ''): bool
+    {
+        $code   = Cart::coupon();
+        $coupon = $code !== '' ? self::find($code) : null;
+        if ($coupon === null || empty($coupon['free_shipping'])) {
+            return false;
+        }
+        $lines = self::cartLines();
+
+        return self::refusalFor(
+            $coupon,
+            Cart::subtotal(),
+            \Cms\Helpers\Dates::today(),
+            self::eligible($coupon, $lines),
+            $email !== '' ? self::usedBy((string) $coupon['code'], $email) : 0
+        ) === '';
+    }
+
+    /**
+     * The basket's lines as a code reads them: which product, what it comes
+     * to, whether it is on sale now, and every term it is filed under.
+     *
+     * @return list<array{post_id: int, line_total: int, on_sale: bool, term_ids: list<int>}>
+     */
+    public static function cartLines(): array
+    {
+        $items = Cart::items();
+        $terms = self::termIdsOf(array_map(static fn (array $l): int => (int) $l['product']['id'], $items));
+        $out   = [];
+        foreach ($items as $line) {
+            $product   = $line['product'];
+            $variation = $line['variation'];
+            [$regular, $now] = $variation !== null
+                ? Variation::prices($variation, $product)
+                : [(int) $product['regular_price'], (int) $product['price']];
+            $out[] = [
+                'post_id'    => (int) $product['id'],
+                'line_total' => (int) $line['line_total'],
+                'on_sale'    => $now < $regular,
+                'term_ids'   => $terms[(int) $product['id']] ?? [],
+            ];
+        }
+
+        return $out;
+    }
+
+    /** How many orders this email address has spent the code on. */
+    public static function usedBy(string $code, string $email): int
+    {
+        $email = trim($email);
+        if ($email === '' || self::normalise($code) === '') {
+            return 0;
+        }
+        $stmt = Database::getInstance()->prepare(
+            'SELECT COUNT(*) FROM orders
+              WHERE coupon_code = :code AND coupon_redeemed = 1 AND LOWER(email) = LOWER(:email)'
+        );
+        $stmt->execute([':code' => self::normalise($code), ':email' => $email]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @param  list<int> $postIds
+     * @return array<int, list<int>> post id => every term id it is filed under
+     */
+    private static function termIdsOf(array $postIds): array
+    {
+        $postIds = array_values(array_unique(array_filter(array_map('intval', $postIds))));
+        if ($postIds === []) {
+            return [];
+        }
+        $marks = implode(',', array_fill(0, count($postIds), '?'));
+        $stmt  = Database::getInstance()->prepare(
+            'SELECT post_id, term_id FROM post_term_relationships WHERE post_id IN (' . $marks . ')'
+        );
+        $stmt->execute($postIds);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $out[(int) $row['post_id']][] = (int) $row['term_id'];
+        }
+
+        return $out;
     }
 
     /**
@@ -249,12 +432,13 @@ final class Coupon
     }
 
     /** "10% off" / "$5.00 off" — how the row reads on a screen. */
-    public static function describe(string $kind, int $amount): string
+    public static function describe(string $kind, int $amount, bool $freeDelivery = false): string
     {
-        if ($kind === self::FIXED) {
-            return Money::format($amount) . ' off';
+        $off = $amount <= 0 ? '' : ($kind === self::FIXED ? Money::format($amount) . ' off' : Tax::percent($amount) . '% off');
+        if ($freeDelivery) {
+            return $off === '' ? 'Free delivery' : $off . ' and free delivery';
         }
 
-        return Tax::percent($amount) . '% off';
+        return $off;
     }
 }

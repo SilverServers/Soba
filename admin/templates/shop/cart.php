@@ -53,7 +53,7 @@ use Cms\Security\Csrf;
               // Closing this form early and putting the button in a form of
               // its own would post nothing at all. ?>
         <form id="cart-form" method="post"
-              action="<?= htmlspecialchars(\Cms\Helpers\Url::page('cart/update')) ?>" class="shop-cart">
+              action="<?= htmlspecialchars(\Cms\Helpers\Url::page('cart/update')) ?>" class="shop-cart"><?php /* audit-ok: a route on this site, not words a shop owner would rewrite */ ?>
             <?= Csrf::field() ?>
 
             <table class="shop-table">
@@ -150,7 +150,7 @@ use Cms\Security\Csrf;
                       // this system, and it is here because the alternative — a
                       // delivery charge with no explanation of how to avoid it
                       // — is worse for the customer, not just for the shop. ?>
-                <?php $freeNote = Shipping::freeOverNote($totals['subtotal']); ?>
+                <?php $freeNote = (string) ($totals['deliveryNote'] ?? ''); ?>
                 <?php if ($freeNote !== ''): ?>
                     <p class="shop-totals__note u-text-muted u-text-sm"><?= htmlspecialchars($freeNote) ?></p>
                 <?php endif; ?>
@@ -169,7 +169,7 @@ use Cms\Security\Csrf;
               // a code box inside the basket form would mean pressing Enter in
               // it ran "Update basket" instead of applying the code. ?>
         <form class="shop-coupon" method="post"
-              action="<?= htmlspecialchars(\Cms\Helpers\Url::page('cart/coupon')) ?>">
+              action="<?= htmlspecialchars(\Cms\Helpers\Url::page('cart/coupon')) ?>"><?php /* audit-ok: a route on this site, not words a shop owner would rewrite */ ?>
             <?= Csrf::field() ?>
             <?php if (Cart::coupon() !== ''): ?>
                 <p class="shop-coupon__applied">

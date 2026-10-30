@@ -464,6 +464,9 @@ class FormController
             $error = 'That signature could not be stored.';
             return null;
         }
+        // tempnam() made it 0600 and rename() kept that, which leaves the
+        // site's group (a backup job, say) unable to read it.
+        @chmod($dir . '/' . $stored, 0640);
 
         $size = @getimagesize($dir . '/' . $stored);
 

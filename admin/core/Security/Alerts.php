@@ -10,6 +10,7 @@ use Cms\Helpers\Dates;
 use Cms\Mail\Mailer;
 use Cms\Models\Option;
 use Cms\SEO\Head;
+use Cms\Update\Release;
 use PDO;
 
 /**
@@ -494,7 +495,7 @@ final class Alerts
 
         return (string) json_encode([
             'source'  => 'security-notifications',
-            'version' => self::version(),
+            'version' => Release::version(),
             'event'   => $test ? 'test' : (count($counts) === 1 ? (string) array_key_first($counts) : 'digest'),
             'time'    => gmdate('c'),
             'site'    => ['name' => (string) Head::globalTokens()['site_name'], 'url' => rtrim(\Cms\Helpers\Url::public(), '/')],
@@ -605,7 +606,7 @@ final class Alerts
             return (self::$wire)('POST', $url, $body, $headers);
         }
 
-        $head = "Content-Type: application/json; charset=utf-8\r\nUser-Agent: Security-Notifications/" . self::version() . "\r\n";
+        $head = "Content-Type: application/json; charset=utf-8\r\nUser-Agent: Security-Notifications/" . Release::version() . "\r\n";
         foreach ($headers as $name => $value) {
             $head .= $name . ': ' . $value . "\r\n";
         }
@@ -637,13 +638,6 @@ final class Alerts
     public static function useWire(?callable $wire): void
     {
         self::$wire = $wire;
-    }
-
-    private static function version(): string
-    {
-        $file = dirname(__DIR__, 2) . '/VERSION';
-
-        return is_file($file) ? trim((string) file_get_contents($file)) : '';
     }
 
     // ── A new browser, a new place ──────────────────────────────────────────

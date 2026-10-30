@@ -28,7 +28,7 @@ final class CouponController
 {
     public function index(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireRole('shop_manager');
         $user    = Auth::user();
         $coupons = Coupon::all();
 
@@ -47,13 +47,13 @@ final class CouponController
 
     public function create(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireRole('shop_manager');
         $this->form(null, [], []);
     }
 
     public function edit(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireRole('shop_manager');
 
         $coupon = Coupon::findById((int) ($vars['id'] ?? 0));
         if ($coupon === null) {
@@ -75,7 +75,7 @@ final class CouponController
      */
     public function save(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireRole('shop_manager');
         $this->requireCsrf();
 
         $id      = (int) ($vars['id'] ?? 0);
@@ -95,7 +95,21 @@ final class CouponController
             'min_raw'     => trim((string) ($_POST['min_spend'] ?? '')),
             'usage_limit' => max(0, (int) ($_POST['usage_limit'] ?? 0)),
             'expires_at'  => trim((string) ($_POST['expires_at'] ?? '')),
+            'starts_at'   => trim((string) ($_POST['starts_at'] ?? '')),
             'is_active'   => !empty($_POST['is_active']) ? 1 : 0,
+            'free_shipping' => !empty($_POST['free_shipping']) ? 1 : 0,
+            'exclude_sale'  => !empty($_POST['exclude_sale']) ? 1 : 0,
+            'per_customer'  => max(0, (int) ($_POST['per_customer'] ?? 0)),
+            // WHAT IT REACHES: products and terms by id, kept only if they
+            // exist as a product of this shop or a term of one of its types.
+            'product_ids'   => array_values(array_intersect(
+                array_map('intval', is_array($_POST['product_ids'] ?? null) ? $_POST['product_ids'] : []),
+                array_keys(self::productChoices())
+            )),
+            'category_ids'  => array_values(array_intersect(
+                array_map('intval', is_array($_POST['category_ids'] ?? null) ? $_POST['category_ids'] : []),
+                array_keys(self::termChoices())
+            )),
         ];
 
         if ($form['code'] === '') {
@@ -125,7 +139,11 @@ final class CouponController
             ? Money::parse($form['amount_raw'])
             : Tax::parsePercent($form['amount_raw']);
 
-        if ($amount === null || $amount <= 0) {
+        // A CODE THAT ONLY MAKES DELIVERY FREE takes nothing off, and says so
+        // with a blank box; any other has to take something.
+        if ($form['free_shipping'] && ($form['amount_raw'] === '' || $amount === 0)) {
+            $amount = 0;
+        } elseif ($amount === null || $amount <= 0) {
             $errors[] = $form['kind'] === Coupon::FIXED
                 ? 'The amount off is not an amount of money.'
                 : 'The percentage off must be a number between 0 and 100, with at '
@@ -149,6 +167,17 @@ final class CouponController
             }
         }
 
+        if ($form['starts_at'] !== '') {
+            $parts = explode('-', $form['starts_at']);
+            $ok = count($parts) === 3
+                && checkdate((int) $parts[1], (int) $parts[2], (int) $parts[0]);
+            if (!$ok) {
+                $errors[] = 'The first day is not a date.';
+            } elseif ($form['expires_at'] !== '' && $form['expires_at'] < $form['starts_at']) {
+                $errors[] = 'The last day it works comes before its first day.';
+            }
+        }
+
         if ($errors !== []) {
             $this->form($current, $form, $errors);
 
@@ -163,7 +192,13 @@ final class CouponController
             ':min'     => (int) $min,
             ':limit'   => $form['usage_limit'],
             ':expires' => $form['expires_at'] !== '' ? $form['expires_at'] : null,
+            ':starts'  => $form['starts_at'] !== '' ? $form['starts_at'] : null,
             ':active'  => $form['is_active'],
+            ':free'    => $form['free_shipping'],
+            ':nosale'  => $form['exclude_sale'],
+            ':each'    => $form['per_customer'],
+            ':products'   => $form['product_ids'] !== [] ? (string) json_encode($form['product_ids']) : null,
+            ':categories' => $form['category_ids'] !== [] ? (string) json_encode($form['category_ids']) : null,
         ];
 
         if ($id > 0) {
@@ -173,7 +208,9 @@ final class CouponController
             $stmt = $db->prepare(
                 'UPDATE coupons SET code = :code, kind = :kind, amount = :amount,
                         min_spend = :min, usage_limit = :limit,
-                        expires_at = :expires, is_active = :active
+                        expires_at = :expires, starts_at = :starts, is_active = :active,
+                        free_shipping = :free, exclude_sale = :nosale, per_customer = :each,
+                        product_ids = :products, category_ids = :categories
                   WHERE id = :id'
             );
             $columns[':id'] = $id;
@@ -181,8 +218,10 @@ final class CouponController
         } else {
             $stmt = $db->prepare(
                 'INSERT INTO coupons (code, kind, amount, min_spend, usage_limit,
-                                      expires_at, is_active)
-                 VALUES (:code, :kind, :amount, :min, :limit, :expires, :active)'
+                                      expires_at, starts_at, is_active, free_shipping,
+                                      exclude_sale, per_customer, product_ids, category_ids)
+                 VALUES (:code, :kind, :amount, :min, :limit, :expires, :starts, :active, :free,
+                         :nosale, :each, :products, :categories)'
             );
             $stmt->execute($columns);
         }
@@ -192,7 +231,7 @@ final class CouponController
 
     public function delete(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireRole('shop_manager');
         $this->requireCsrf();
 
         Coupon::delete((int) ($vars['id'] ?? 0));
@@ -201,6 +240,53 @@ final class CouponController
     }
 
     /** @param array<string, mixed>|null $coupon */
+    /**
+     * The shop's products a code can be limited to: every entry of a type
+     * that sells, by title, the type named when there is more than one.
+     *
+     * @return array<int, string> id => label
+     */
+    public static function productChoices(): array
+    {
+        $types = \Cms\Commerce\Product::sellableTypes();
+        if ($types === []) {
+            return [];
+        }
+        $marks = implode(',', array_fill(0, count($types), '?'));
+        $stmt  = Database::getInstance()->prepare(
+            "SELECT id, title, post_type FROM posts WHERE post_type IN ($marks) AND status <> 'trash' ORDER BY title, id"
+        );
+        $stmt->execute($types);
+        $out = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $type = \Cms\ContentType\Registry::get((string) $row['post_type']);
+            $out[(int) $row['id']] = (string) $row['title']
+                . (count($types) > 1 && $type !== null ? ' (' . (string) ($type['label_single'] ?? $type['label']) . ')' : '');
+        }
+
+        return $out;
+    }
+
+    /**
+     * The terms a code can be limited to: every term of every taxonomy the
+     * shop's types are filed under — a category, a collection, a colour.
+     *
+     * @return array<int, string> id => "Outerwear (Product categories)"
+     */
+    public static function termChoices(): array
+    {
+        $out = [];
+        foreach (\Cms\Commerce\Product::sellableTypes() as $type) {
+            foreach (\Cms\ContentType\TaxonomyRegistry::getForContentType($type) as $key => $tax) {
+                foreach (\Cms\Models\Term::allForTaxonomy((string) $key) as $term) {
+                    $out[(int) $term['id']] = (string) $term['name'] . ' (' . (string) ($tax['label'] ?? $key) . ')';
+                }
+            }
+        }
+
+        return $out;
+    }
+
     private function form(?array $coupon, array $posted, array $errors): void
     {
         $user = Auth::user();

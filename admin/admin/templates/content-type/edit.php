@@ -424,10 +424,10 @@ ob_start();
                           // panel drawn on a new entry would be a table that
                           // silently throws away whatever was typed into it.
                           //
-                          // ROWS, NOT A MATRIX. Migration 046's header has the
-                          // argument: the shops this system is for sell four
-                          // variants, not sixty, and typing four is faster than
-                          // configuring two attribute sets and filling a grid.
+                          // ROWS, TYPED OR MADE. Three options are quicker
+                          // typed; fifteen sizes and colours are made from the
+                          // terms ticked on the product ("Make options" below).
+                          // Either way each is a row, with its own count.
                           //
                           // IT IS A REPEATER, in markup and in hooks.
                           // `entry-form.js` already listens for
@@ -441,9 +441,34 @@ ob_start();
                           // and still save; only "Add an option" stops working,
                           // which is the degraded state this admin asks for
                           // rather than a panel that does nothing at all. ?>
-                    <?php if (in_array('product', $archetypes, true) && !$isNew): ?>
-                        <?php $variants = \Cms\Commerce\Variation::forProduct($id); ?>
-                        <div class="form-card__section">
+                    <?php // ON A NEW PRODUCT TOO. It appeared only after the first
+                          // save, so a product sold in sizes was saved once without
+                          // them; `handleCreate()` keeps the rows now as
+                          // `handleUpdate()` does. ?>
+                    <?php if (in_array('product', $archetypes, true)): ?>
+                        <?php // AFTER A REFUSED SAVE, THE ROWS AS TYPED — see
+                              // `Variation::fromPost()`. Otherwise the stored ones. ?>
+                        <?php $variants = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['variations_panel'])
+                            ? \Cms\Commerce\Variation::fromPost(is_array($_POST['variations'] ?? null) ? $_POST['variations'] : [])
+                            : ($isNew ? [] : \Cms\Commerce\Variation::forProduct($id)); ?>
+                        <?php
+                        // ── WHAT "MAKE OPTIONS" MAKES THEM FROM ─────────────────
+                        // This type's option taxonomies — Size, Colour — each with
+                        // every term in its own order. `entry-form.js` keeps the
+                        // ones ticked on this product and adds a row for every
+                        // combination not already here.
+                        $optionSpec = [];
+                        foreach (\Cms\Commerce\Variation::optionTaxonomies((string) $contentType['key']) as $taxKey => $tax) {
+                            $optionSpec[] = [
+                                'tax'   => (string) $taxKey,
+                                'label' => (string) ($tax['label'] ?? $taxKey),
+                                'terms' => array_map(static fn (array $t): array => [
+                                    'id' => (int) $t['id'], 'name' => (string) $t['name'], 'slug' => (string) $t['slug'],
+                                ], \Cms\Models\Term::allForTaxonomy((string) $taxKey)),
+                            ];
+                        }
+                        ?>
+                        <div class="form-card__section" data-variations-panel>
                             <h2 class="form-card__title">
                                 <?= icon(\Cms\Ui\Sections::glyphFor('variants'), 'icon icon--sm') ?>Options
                             </h2>
@@ -453,8 +478,23 @@ ob_start();
                                 more than one of. Leave it empty and the entry is
                                 sold as one thing at the price above.
                                 <strong>A blank price means the price above</strong>,
-                                so three sizes at the same money need it typed once.
+                                and its sale price too, so three sizes at the same
+                                money need it typed once.
                             </p>
+
+                            <?php if ($optionSpec !== []): ?>
+                                <?php // MADE, NOT TYPED. A tee in five sizes and
+                                      // three colours was fifteen rows typed one at
+                                      // a time. Tick its sizes and colours where
+                                      // they are filed, press this, and every
+                                      // combination not already here is added. ?>
+                                <div class="form-actions form-actions--bare">
+                                    <button type="button" class="btn"
+                                            data-options-make="<?= h((string) json_encode($optionSpec)) ?>">
+                                        <?= icon('table-cells', 'icon icon--sm') ?>Make options from <?= h(implode(' × ', array_column($optionSpec, 'label'))) ?>
+                                    </button>
+                                </div>
+                            <?php endif; ?>
 
                             <?php // `data-variations` NAMES THIS ONE. The
                                   // repeater hooks are shared with every
@@ -491,14 +531,45 @@ ob_start();
                                 <template data-repeater-template><?= variation_row('__ROW__', null) ?></template>
                             </div>
 
-                            <?php // THE LIMIT, AND WHAT TO DO INSTEAD. An owner
-                                  // who needs an attribute matrix should find out
-                                  // here rather than after typing sixty rows. ?>
+                            <?php // ── ONE VALUE INTO MANY ROWS ────────────────────
+                                  // A price, a sale price, a count or a photo, into
+                                  // every option or every option of one colour —
+                                  // the photo for Navy set once rather than five
+                                  // times. It fills the rows; Save keeps them.
+                                  //
+                                  // ITS LABELS ARE SHOWN, and read as the sentence
+                                  // the row is: what to set, to what, on which. ?>
+                            <div class="form-actions form-actions--bare options-bulk" data-options-bulk>
+                                <label for="bulk-field">What to set</label>
+                                <select class="select" id="bulk-field" data-bulk-field>
+                                    <option value="price">Price</option>
+                                    <option value="sale_price">Sale price</option>
+                                    <option value="stock_qty">In stock</option>
+                                    <option value="image_id">Photo</option>
+                                </select>
+                                <label for="bulk-value">to</label>
+                                <input class="input" type="text" id="bulk-value" data-bulk-value
+                                       inputmode="decimal" autocomplete="off">
+                                <div class="options-bulk__photo" data-bulk-photo hidden>
+                                    <?= \Cms\ContentType\FieldRenderer::renderImage('bulk_photo', null) ?>
+                                </div>
+                                <label for="bulk-scope">on</label>
+                                <select class="select" id="bulk-scope" data-bulk-scope>
+                                    <option value="">Every option</option>
+                                    <?php foreach ($optionSpec as $spec): ?>
+                                        <optgroup label="<?= h($spec['label']) ?>">
+                                            <?php foreach ($spec['terms'] as $term): ?>
+                                                <option value="<?= h($spec['tax'] . ':' . $term['id']) ?>"><?= h($term['name']) ?></option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="button" class="btn" data-bulk-apply>Set</button>
+                            </div>
+
                             <p class="form-help">
                                 Each option counts its own stock and can have its
-                                own code. This site does not build combinations for
-                                you — if you sell four colours in five sizes,
-                                write out the ones you actually stock.
+                                own code, sale price and photo.
                             </p>
                         </div>
                     <?php endif; ?>

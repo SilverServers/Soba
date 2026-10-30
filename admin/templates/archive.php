@@ -31,7 +31,44 @@ $isEvent    = in_array('event', $archetypes, true);
     <h1><?= htmlspecialchars($contentType['label'] ?? 'Archive') ?></h1>
 </div>
 
-<?php if (empty($posts)): ?>
+<?php
+/* A SHOP'S LIST CAN BE ORDERED AND NARROWED — by price or newest, and by each
+   thing a customer chooses when buying (Size, Colour). A plain GET form: the
+   address carries the choice, so a filtered list can be bookmarked and sent,
+   and its pager keeps it. The controller hands `$shopTools` to a product type
+   only. */
+$shopTools = $shopTools ?? null;
+?>
+<?php if ($shopTools !== null): ?>
+    <form class="shop-sort" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::page((string) ($contentType['public_slug'] ?? ''))) ?>">
+        <label class="u-visually-hidden" for="shop-sort">Sort</label><?php /* audit-ok: the field's own label */ ?>
+        <select class="shop-variant" id="shop-sort" name="sort">
+            <?php foreach ($shopTools['sorts'] as $key => $word): ?>
+                <option value="<?= htmlspecialchars($key) ?>"<?= $shopTools['sort'] === $key ? ' selected' : '' ?>><?= htmlspecialchars($word) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php foreach ($shopTools['filters'] as $taxKey => $filter): ?>
+            <label class="u-visually-hidden" for="shop-<?= htmlspecialchars($taxKey) ?>"><?= htmlspecialchars($filter['label']) ?></label>
+            <select class="shop-variant" id="shop-<?= htmlspecialchars($taxKey) ?>" name="<?= htmlspecialchars($taxKey) ?>">
+                <option value="">Any <?= htmlspecialchars(mb_strtolower($filter['label'])) ?></option><?php /* audit-ok: the choice that narrows nothing, naming what it is a choice of */ ?>
+                <?php foreach ($filter['terms'] as $slug => $name): ?>
+                    <option value="<?= htmlspecialchars($slug) ?>"<?= $filter['current'] === $slug ? ' selected' : '' ?>><?= htmlspecialchars($name) ?></option>
+                <?php endforeach; ?>
+            </select>
+        <?php endforeach; ?>
+        <button type="submit" class="shop-btn shop-btn--quiet">Show</button><?php /* audit-ok: the form's one verb */ ?>
+    </form>
+<?php endif; ?>
+
+<?php if (empty($posts) && $shopTools !== null && $shopTools['active']): ?>
+
+    <p class="post-list-empty">
+        <?php // audit-ok: what a list narrowed to nothing says — the system's state, with the way back. ?>
+        Nothing here matches that.
+        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::page((string) ($contentType['public_slug'] ?? ''))) ?>">Show everything</a>
+    </p>
+
+<?php elseif (empty($posts)): ?>
 
     <?php // audit-ok: what an EMPTY list says. There is no entry to carry it. ?>
     <p class="post-list-empty">No entries published yet.</p>

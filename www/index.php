@@ -263,6 +263,7 @@ $router->addRoute('POST', '/cart/update',             [ShopController::class, 'u
 $router->addRoute('POST', '/cart/coupon',             [ShopController::class, 'applyCoupon']);
 $router->addRoute('GET',  '/checkout',                [ShopController::class, 'checkout']);
 $router->addRoute('POST', '/checkout',                [ShopController::class, 'placeOrder']);
+$router->addRoute('GET',  '/checkout/totals',         [ShopController::class, 'checkoutTotals']);
 // `[a-f0-9]+` and not `[a-f0-9]{32}`: FastRoute parses the braces itself, so a
 // quantifier inside one is a pattern it has to be trusted to read correctly.
 // The exact length is asserted in `Order::findByKey()`, which is where it has

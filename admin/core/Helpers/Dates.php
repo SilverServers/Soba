@@ -90,6 +90,18 @@ final class Dates
         return self::render($when, $format);
     }
 
+    /**
+     * Today, as the site counts days: `Y-m-d` in Settings → General's zone.
+     *
+     * NOT `date('Y-m-d')`: PHP runs in UTC here (`Database::init()`), so in
+     * Vancouver a code whose last day is the 30th stopped working at 5 pm on
+     * the 30th, and a sale started at 4 pm the evening before.
+     */
+    public static function today(): string
+    {
+        return (new \DateTimeImmutable('now', self::zone()))->format('Y-m-d');
+    }
+
     /** The site's zone: Settings → General → Timezone. */
     public static function zone(): \DateTimeZone
     {

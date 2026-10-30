@@ -42,11 +42,7 @@ $pageTitle = 'Add user';
 
 $old = static fn (string $k): string => (string) ($_POST[$k] ?? '');
 
-$roleLabels = [
-    'admin'  => 'Administrator',
-    'editor' => 'Editor',
-    'author' => 'Author',
-];
+$roleLabels = \Cms\Auth\Auth::ROLE_LABELS;
 
 /**
  * WHAT EACH ROLE ACTUALLY DOES, read off the call sites rather than assumed.
@@ -64,9 +60,12 @@ $roleLabels = [
  * behaviour is the thing that moves.
  */
 $roleHints = [
-    'admin'  => 'Everything, including users, settings and content types.',
-    'editor' => 'Pages, all entries, files and revisions.',
-    'author' => 'Their own entries only. No pages, files or settings.',
+    'admin'        => 'Everything, including users, settings and content types.',
+    // `OrderController` and `CouponController` are `requireRole('shop_manager')`;
+    // Settings → Shop stays `requireRole('admin')` in `SettingsController`.
+    'shop_manager' => 'An editor who also runs the shop: orders and discount codes. Not the shop\'s settings.',
+    'editor'       => 'Pages, all entries, files and revisions.',
+    'author'       => 'Their own entries only. No pages, files or settings.',
 ];
 
 $selectedRole = $old('role') !== '' ? $old('role') : 'author';

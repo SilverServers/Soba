@@ -70,15 +70,43 @@ $linkText = static function (string $url): string {
        leads to does too — a visitor who clicks a photo must not arrive at a page
        without it. Its alt text is the one typed in the media library. */
     $cover = \Cms\Models\Media::find((int) ($post['featured_image_id'] ?? 0));
+
+    /* A PRODUCT, READ ONCE for the photo and the buy block below: its options
+       can carry photos of their own, and `product.js` puts one here when the
+       option is chosen. */
+    $shopProduct = in_array('product', $archetypes, true) ? \Cms\Commerce\Product::fromPost($post) : null;
     ?>
     <?php if ($cover !== null): ?>
-        <figure class="post-featured">
+        <figure class="post-featured"<?= $shopProduct !== null ? ' data-product-photo' : '' ?>>
             <img src="<?= htmlspecialchars(\Cms\Models\Media::getUrl((int) $cover['id'])) ?>"
                  alt="<?= htmlspecialchars((string) ($cover['alt_text'] ?? '')) ?>"
                  <?php if ((int) ($cover['width'] ?? 0) > 0 && (int) ($cover['height'] ?? 0) > 0): ?>
                      width="<?= (int) $cover['width'] ?>" height="<?= (int) $cover['height'] ?>"
                  <?php endif; ?>>
         </figure>
+    <?php endif; ?>
+
+    <?php
+    /* MORE PHOTOS — the featured one first, then the product's own, in its
+       order. LINKS, so each opens without `product.js`; with it, a click puts
+       the photo in the frame above instead. */
+    $morePhotos = $shopProduct !== null && $cover !== null && $shopProduct['gallery'] !== []
+        ? array_values(array_filter(array_map(
+            static fn (int $id): ?array => \Cms\Models\Media::find($id),
+            array_merge([(int) $cover['id']], $shopProduct['gallery'])
+        )))
+        : [];
+    ?>
+    <?php if (count($morePhotos) > 1): ?>
+        <div class="product-thumbs">
+            <?php foreach ($morePhotos as $n => $shot): ?>
+                <?php $shotUrl = \Cms\Models\Media::getUrl((int) $shot['id']); ?>
+                <a class="product-thumbs__item" href="<?= htmlspecialchars($shotUrl) ?>"
+                   data-photo-thumb data-full="<?= htmlspecialchars($shotUrl) ?>"<?= $n === 0 ? ' aria-current="true"' : '' ?>>
+                    <img src="<?= htmlspecialchars($shotUrl) ?>" alt="<?= htmlspecialchars((string) ($shot['alt_text'] ?? '')) ?>" loading="lazy">
+                </a>
+            <?php endforeach; ?>
+        </div>
     <?php endif; ?>
 
     <?php if (in_array('event', $archetypes, true)): ?>
@@ -152,46 +180,65 @@ $linkText = static function (string $url): string {
         $stock  = $val('product_stock_status');
         $states = (array) (\Cms\ContentType\ContentTypeSchema::field(
             (string) $post['post_type'], 'product_stock_status')['options'] ?? []);
-        ?>
-        <?php
+
         /* THE PRICE COMES THROUGH `Commerce\Product`, NOT OFF THE META STRING.
            A `$` followed by `$val('product_price')` raw hard-codes a dollar sign
            and a template's own way of formatting money: an install set to GBP
            would show pounds priced in dollars, and `19.9` typed by the owner
            would render as "$19.9".
 
-           `Product::fromPost()` is also the thing that decides what "on sale"
-           means: a sale price ABOVE the regular price is not a sale, and the
-           struck-through markup below would otherwise show the higher figure as
-           a saving while charging it.
+           `Product::fromPost()` (read once, above the photo) also decides what
+           "on sale" means — a sale price ABOVE the regular price is not a sale,
+           nor is one outside its days — and `priceHtmlParts()` turns a product
+           sold in options into the range its options cost, with the regular
+           range struck through when any of them is on sale.
 
-           It returns null when the entry is not sellable — no readable price,
-           or not published — and then the price block is simply absent. Stock
-           and SKU still render, because those are facts about the thing even
-           when it has no price yet. */
-        $product = \Cms\Commerce\Product::fromPost($post);
-        $price   = $product !== null ? \Cms\Commerce\Product::priceHtmlParts($product) : null;
-
-        // ── A PRODUCT SOLD IN SEVERAL FORMS SHOWS A RANGE ──────────────────
-        // A shirt whose sizes cost $20 and $25 does not cost $20. Showing the
-        // lowest is what most shops do and what most customers then query at
-        // the till; the range says what is true before anything is chosen, and
-        // collapses to one figure when every variant costs the same.
+           Null when the entry is not sellable — no readable price, or not
+           published — and then the price block is simply absent. Stock and SKU
+           still render, because those are facts about the thing even when it
+           has no price yet. */
+        $product  = $shopProduct;
+        $price    = $product !== null ? \Cms\Commerce\Product::priceHtmlParts($product) : null;
         $variants = $product !== null ? $product['variations'] : [];
         $buyable  = array_values(array_filter(
             $variants,
             static fn (array $v): bool => \Cms\Commerce\Variation::isPurchasable($v)
         ));
+
+        // ── A CHOOSER FOR EACH THING A CUSTOMER PICKS ───────────────────────
+        // Size and Colour, when the options are made of them: the terms the
+        // options use, in the taxonomy's own order. `product.js` shows these
+        // and hides the combined select; without it the combined select is the
+        // whole form, and still names a sold-out option rather than hiding it.
+        $choosers = [];
+        if ($product !== null && $variants !== []) {
+            foreach (\Cms\Commerce\Variation::optionTaxonomies((string) $product['post_type']) as $taxKey => $tax) {
+                $used = [];
+                foreach ($variants as $v) {
+                    $id = \Cms\Commerce\Variation::termsOf($v)[$taxKey] ?? 0;
+                    if ($id > 0) {
+                        $used[$id] = true;
+                    }
+                }
+                if ($used === []) {
+                    continue;
+                }
+                $terms = array_values(array_filter(
+                    \Cms\Models\Term::allForTaxonomy((string) $taxKey),
+                    static fn (array $t): bool => isset($used[(int) $t['id']])
+                ));
+                $choosers[(string) $taxKey] = [
+                    'label' => (string) ($tax['label_single'] ?? $tax['label'] ?? $taxKey),
+                    'terms' => $terms,
+                ];
+            }
+        }
         ?>
         <?php if ($price !== null || isset($states[$stock]) || $val('product_sku') !== ''): ?>
             <div class="entry-meta entry-meta--product">
                 <?php if ($price !== null): ?>
-                    <p class="product-price">
-                        <?php if ($variants !== []): ?>
-                            <?= htmlspecialchars(\Cms\Commerce\Variation::priceRange(
-                                $variants, (int) $product['price']
-                            )) ?>
-                        <?php elseif ($price['was'] !== null): ?>
+                    <p class="product-price" data-product-price>
+                        <?php if ($price['was'] !== null): ?>
                             <del><?= htmlspecialchars($price['was']) ?></del>
                             <strong><?= htmlspecialchars($price['now']) ?></strong>
                         <?php else: ?>
@@ -218,7 +265,8 @@ $linkText = static function (string $url): string {
                 // nobody changes is a screen nobody needed.
                 //
                 // Null means this product does not count stock at all — a
-                // membership, a ticket — and says nothing.
+                // membership, a ticket — and says nothing. An option's own
+                // count is told by `product.js` once that option is chosen.
                 $left = $product['stock_left'] ?? null;
                 ?>
                 <?php if ($left !== null && $left > 0 && $left <= 5): ?>
@@ -242,11 +290,11 @@ $linkText = static function (string $url): string {
                              `ShopController` answers 303 so a refresh does not
                              add a second one. */ ?>
                     <form class="shop-add" method="post"
-                          action="<?= htmlspecialchars(\Cms\Helpers\Url::page('cart/add')) ?>">
+                          action="<?= htmlspecialchars(\Cms\Helpers\Url::page('cart/add')) ?>"><?php /* audit-ok: a route on this site, not words a shop owner would rewrite */ ?>
                         <?= \Cms\Security\Csrf::field() ?>
                         <input type="hidden" name="product_id" value="<?= (int) $product['id'] ?>">
 
-                        <?php if ($buyable !== []): ?>
+                        <?php if ($variants !== []): ?>
                             <?php // ── THE CHOICE IS REQUIRED AND HAS NO DEFAULT
                                   // A select that opens on "Small" sells smalls
                                   // to everybody who did not read it. The first
@@ -255,34 +303,75 @@ $linkText = static function (string $url): string {
                                   // `ShopController` refusing the POST as well,
                                   // because a browser is not a guarantee.
                                   //
-                                  // THE PRICE IS IN THE OPTION when the variants
-                                  // differ. Without it a customer picks Large
-                                  // and finds out it costs more on the basket
-                                  // page, which is the surprise a price range
-                                  // exists to prevent. ?>
+                                  // EVERY OPTION IS LISTED, a sold-out one
+                                  // disabled and saying so. Left out, it read as
+                                  // never having been made, and a customer
+                                  // looking for XL in Moss could not tell.
+                                  //
+                                  // THE PRICE IS IN THE OPTION when the options
+                                  // differ. Without it a customer picks Large and
+                                  // finds out it costs more on the basket page,
+                                  // which is the surprise a price range exists to
+                                  // prevent.
+                                  //
+                                  // Each option also carries what `product.js`
+                                  // needs to keep the choosers in step: its
+                                  // terms, whether it can be bought, its prices
+                                  // as the shop formats them, its count, and its
+                                  // photo. ?>
                             <?php
                             $variantPrices = array_map(
-                                static fn (array $v): int => \Cms\Commerce\Variation::priceOf(
-                                    $v, (int) $product['price']
-                                ),
-                                $buyable
+                                static fn (array $v): array => \Cms\Commerce\Variation::prices($v, $product),
+                                $variants
                             );
-                            $variedPricing = count(array_unique($variantPrices)) > 1;
+                            $variedPricing = count(array_unique(array_column($variantPrices, 1))) > 1;
                             ?>
-                            <label class="u-visually-hidden" for="add-variation">Option</label><?php /* audit-ok: the field's own label, mirroring the select below it */ ?>
-                            <select class="shop-variant" id="add-variation" name="variation_id" required>
-                                <option value="">Choose an option…</option><?php /* audit-ok: the prompt a select opens on, so it cannot open on a real option */ ?>
-                                <?php foreach ($buyable as $i => $v): ?>
-                                    <option value="<?= (int) $v['id'] ?>">
-                                        <?= htmlspecialchars((string) $v['label']) ?><?php
-                                        if ($variedPricing) {
-                                            echo ' — ' . htmlspecialchars(
-                                                \Cms\Commerce\Money::format($variantPrices[$i])
-                                            );
-                                        } ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <span class="shop-variant-wrap" data-variant-wrap>
+                                <label class="u-visually-hidden" for="add-variation">Option</label><?php /* audit-ok: the field's own label, mirroring the select below it */ ?>
+                                <select class="shop-variant" id="add-variation" name="variation_id" required data-variant-select>
+                                    <option value="">Choose an option…</option><?php /* audit-ok: the prompt a select opens on, so it cannot open on a real option */ ?>
+                                    <?php foreach ($variants as $i => $v): ?>
+                                        <?php
+                                        [$vWas, $vNow] = $variantPrices[$i];
+                                        $vBuy   = \Cms\Commerce\Variation::isPurchasable($v);
+                                        $vLeft  = \Cms\Commerce\Variation::available($v);
+                                        $vImage = (int) ($v['image_id'] ?? 0) > 0
+                                            ? \Cms\Models\Media::getUrl((int) $v['image_id']) : '';
+                                        ?>
+                                        <option value="<?= (int) $v['id'] ?>"<?= $vBuy ? '' : ' disabled' ?>
+                                                data-terms="<?= htmlspecialchars((string) json_encode(\Cms\Commerce\Variation::termsOf($v))) ?>"
+                                                data-buy="<?= $vBuy ? '1' : '0' ?>"
+                                                data-price="<?= htmlspecialchars(\Cms\Commerce\Money::format($vNow)) ?>"
+                                                data-was="<?= $vNow < $vWas ? htmlspecialchars(\Cms\Commerce\Money::format($vWas)) : '' ?>"
+                                                data-left="<?= $vLeft !== null ? (int) $vLeft : '' ?>"
+                                                data-image="<?= htmlspecialchars($vImage) ?>">
+                                            <?= htmlspecialchars((string) $v['label']) ?><?php
+                                            if ($variedPricing) {
+                                                echo ' — ' . htmlspecialchars(\Cms\Commerce\Money::format($vNow));
+                                            }
+                                            if (!$vBuy) {
+                                                echo ' — sold out';   // audit-ok: the system describing stock, as the line below the form does
+                                            } ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </span>
+
+                            <?php if ($choosers !== []): ?>
+                                <span class="shop-choosers" data-choosers hidden>
+                                    <?php foreach ($choosers as $taxKey => $chooser): ?>
+                                        <label class="u-visually-hidden" for="choose-<?= htmlspecialchars($taxKey) ?>"><?= htmlspecialchars($chooser['label']) ?></label>
+                                        <select class="shop-variant" id="choose-<?= htmlspecialchars($taxKey) ?>"
+                                                data-chooser="<?= htmlspecialchars($taxKey) ?>">
+                                            <option value="">Choose a <?= htmlspecialchars(mb_strtolower($chooser['label'])) ?>…</option><?php /* audit-ok: the prompt a select opens on, naming what is being chosen */ ?>
+                                            <?php foreach ($chooser['terms'] as $term): ?>
+                                                <option value="<?= (int) $term['id'] ?>"><?= htmlspecialchars((string) $term['name']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    <?php endforeach; ?>
+                                    <span class="shop-choosers__note" data-chooser-note aria-live="polite" hidden></span>
+                                </span>
+                            <?php endif; ?>
                         <?php endif; ?>
 
                         <label class="u-visually-hidden" for="add-qty">Quantity</label><?php /* audit-ok: the number field's label */ ?>
@@ -308,6 +397,9 @@ $linkText = static function (string $url): string {
                     </p>
                 <?php endif; ?>
             </div>
+        <?php endif; ?>
+        <?php if ($variants !== [] || ($product['gallery'] ?? []) !== []): ?>
+            <script src="<?= htmlspecialchars(\Cms\Helpers\Asset::site('assets/js/product.js')) ?>" defer></script><?php /* audit-ok: an asset path on this site */ ?>
         <?php endif; ?>
     <?php endif; ?>
 

@@ -481,9 +481,15 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                                       // chosen — rather than a bare `<label>` with a
                                       // pointer cursor and no response of any kind. ?>
                                 <label class="arch__head">
+                                    <?php // WHAT IT BRINGS TO THE ENTRY FORM, which
+                                          // `type-form.js` ticks below when this is
+                                          // ticked. A Products type made without it had
+                                          // no Featured image: a product screen with no
+                                          // photo box until the owner found the switch. ?>
                                     <input type="checkbox" name="archetypes[]" value="<?= h($archetype) ?>"
                                            <?= $isOn ? 'checked' : '' ?>
-                                           data-archetype="<?= h($archetype) ?>">
+                                           data-archetype="<?= h($archetype) ?>"
+                                           data-archetype-supports="<?= h(implode(' ', ArchetypeDefaults::getSupports($archetype))) ?>">
                                     <?php // NAME AND MEANING ON ONE LINE. Two stacked
                                           // lines inside a wrapper span would be a line
                                           // of height bought for nothing — the name is
