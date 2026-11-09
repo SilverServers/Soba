@@ -23,7 +23,7 @@ final class Tool
      * @param string               $description What it does and when to use it — the model reads this
      * @param array<string, mixed> $inputSchema JSON Schema (object) for the tool's input
      * @param \Closure             $run         fn(array $input, ToolContext $ctx): mixed
-     * @param string               $minimumRole 'author' | 'editor' | 'admin'
+     * @param string               $minimumRole 'author' | 'editor' | 'shop_manager' | 'admin'
      * @param bool                 $strict      Enforce exact schema validation at the API
      * @param string               $label       What the site owner is told this is — see label()
      */

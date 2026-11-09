@@ -48,7 +48,18 @@
         var all     = document.querySelector('[data-bulk-all]');
 
         // The rows' boxes join this form by `form=`, from outside it.
-        function boxes() { return document.querySelectorAll('input[data-bulk-row][form="' + id + '"]'); }
+        //
+        // ONLY THE ROWS ON SHOW. A list filtered in the browser
+        // (`list-filter.js`) hides rows rather than dropping them, and select
+        // all on a view of Processing orders must not reach the Pending ones
+        // it is hiding. A row the server left out is not in the page at all.
+        function rowOf(el) {
+            while (el && !(el.classList && el.classList.contains('list__row'))) { el = el.parentNode; }
+            return el;
+        }
+        function shown(box) { var row = rowOf(box); return !row || !row.hidden; }
+        function every() { return document.querySelectorAll('input[data-bulk-row][form="' + id + '"]'); }
+        function boxes() { return Array.prototype.filter.call(every(), shown); }
         function ticked() {
             return Array.prototype.filter.call(boxes(), function (b) { return b.checked; });
         }
@@ -177,6 +188,7 @@
             each(panel.querySelectorAll('[data-bulk-changed]'), function (m) { m.value = ''; });
             each(panel.querySelectorAll('input[type=radio][value=""]'), function (r) { r.checked = true; });
             each(panel.querySelectorAll('select'), function (s) { s.value = ''; });
+            each(panel.querySelectorAll('input[type=text]'), function (t) { t.value = ''; });
             if (action) { action.value = ''; }
             refresh();
         }
@@ -212,6 +224,13 @@
         // THIS FORM'S OWN LISTENER RUNS BEFORE confirm.js's, which listens on
         // the document — so the question can be written here, per action and
         // per count, and confirm.js then asks it.
+        // A TICK LEFT ON A ROW THE FILTER HAS SINCE HIDDEN is not sent: what
+        // is acted on is what is ticked on the screen. Captured, so it runs
+        // before the question below and before confirm.js.
+        form.addEventListener('submit', function () {
+            each(every(), function (b) { if (!shown(b)) { b.checked = false; } });
+        }, true);
+
         form.addEventListener('submit', function (e) {
             var n    = ticked().length;
             var verb = action ? action.value : '';

@@ -68,6 +68,8 @@ final class Editor
             // which is fewer controls and one less thing to explain.
             'code'    => 'terminal',
             'image'   => 'image',
+            // Import Markdown, beside Add image: a file coming in.
+            'markdown' => 'file-arrow-up',
 
             // ── TEXT ALIGNMENT ──────────────────────────────────────────────
             // The SAME three silhouettes the image bar uses, under different

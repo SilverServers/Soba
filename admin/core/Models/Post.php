@@ -308,6 +308,29 @@ class Post
             $params += [':s1' => $like, ':s2' => $like, ':s3' => $like, ':s4' => $like];
         }
 
+        // ── SOLD OUT, OR RUNNING LOW: a product type's list ────────────────
+        // A product with options is sold out, or running low, where any of
+        // its options is; one without, where its own count is. Sold out is a
+        // count used up or the word set by hand; running low is a count above
+        // nothing and at or below the shop's low mark (`Stock::lowAt()`).
+        $stock = (string) ($q['stock'] ?? '');
+        if ($stock === 'out' || $stock === 'low') {
+            $own = "NOT EXISTS (SELECT 1 FROM product_variations v0 WHERE v0.post_id = p.id) AND ";
+            $qty = "(SELECT CAST(mq.meta_value AS SIGNED) FROM post_meta mq WHERE mq.post_id = p.id AND mq.meta_key = 'product_stock_qty' LIMIT 1)";
+            $managed = "EXISTS (SELECT 1 FROM post_meta mm WHERE mm.post_id = p.id AND mm.meta_key = 'product_manage_stock' AND mm.meta_value = '1')";
+            if ($stock === 'out') {
+                $where[] = "(($own(($managed AND $qty <= 0) OR EXISTS (SELECT 1 FROM post_meta ms WHERE ms.post_id = p.id
+                              AND ms.meta_key = 'product_stock_status' AND ms.meta_value = 'out_of_stock')))
+                            OR EXISTS (SELECT 1 FROM product_variations v WHERE v.post_id = p.id
+                              AND ((v.manage_stock = 1 AND v.stock_qty <= 0) OR v.stock_status = 'out_of_stock')))";
+            } else {
+                $where[] = "(($own$managed AND $qty BETWEEN 1 AND :low_a)
+                            OR EXISTS (SELECT 1 FROM product_variations v WHERE v.post_id = p.id
+                              AND v.manage_stock = 1 AND v.stock_qty BETWEEN 1 AND :low_b))";
+                $params += [':low_a' => (int) ($q['low_at'] ?? 2), ':low_b' => (int) ($q['low_at'] ?? 2)];
+            }
+        }
+
         $range = self::monthRange((string) ($q['month'] ?? ''));
         if ($range !== null) {
             $date    = self::listDateSql('p');

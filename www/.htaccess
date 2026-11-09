@@ -7,6 +7,11 @@
 RewriteEngine On
 RewriteBase /
 
+# A program sending its API key as a bearer token: some servers keep the
+# Authorization header from PHP unless it is handed over here.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Admin routes: route through PHP, but serve real static files (css, js) directly.
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteRule ^admin(/.*)?$ index.php [QSA,L]

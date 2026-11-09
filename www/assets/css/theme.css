@@ -523,6 +523,11 @@ body {
   margin-top: var(--sp-4);
 }
 
+/* AN EMBED is printed as its provider's code wrote it, at the size the code
+   gave it (`Html\Embed`), and no wider than the column, so a phone does not
+   scroll sideways to see a video or a post. */
+.post-content iframe, .page-content iframe { max-width: 100%; }
+
 .post-content hr, .page-content hr {
   border: none;
   border-top: 1px solid var(--border);
@@ -1942,6 +1947,24 @@ body {
 }
 .shop-add__unavailable { margin-top: var(--sp-4); }
 
+/* "Email me" under a sold-out size: the same row of controls as the basket
+   form above it, led by the line that says what the address is for. The quiet
+   button, because the basket's is the page's action. The address box is sized
+   to an address, as the code box is to a code. */
+.shop-waitlist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+.shop-waitlist__lead {
+  flex-basis: 100%;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.shop-waitlist .shop-field__input { flex: 0 1 18rem; min-width: 0; }
+
 /* "Only 2 left." — the reason somebody buys today rather than next week. It is
    a FACT the page is telling, not an alarm, so it takes the quiet register and
    no alert colour: alert colour is a surface and never a state. */
@@ -2140,6 +2163,14 @@ textarea.shop-field__input { min-height: 0; padding: var(--sp-3); line-height: v
 .shop-address { font-style: normal; color: var(--ink); line-height: var(--lh); }
 
 /* ── The basket link in the site header ──────────────────────────────────── */
+/* "Your orders", beside the basket and in its register: the two are the
+   shop's own corner of the header. */
+.site-header__account { color: var(--ink); }
+.shop-account__ask { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3); }
+.shop-account__ask .shop-field { flex: 0 1 22rem; margin: 0; }
+.shop-account__note { color: var(--ink-2); font-size: var(--fs-sm); }
+.shop-account__places { display: flex; flex-wrap: wrap; gap: var(--sp-6); }
+.shop-account__place-title { margin: 0 0 var(--sp-1); font-size: var(--fs-sm); color: var(--ink-2); }
 .site-header__cart {
   display: inline-flex;
   align-items: center;

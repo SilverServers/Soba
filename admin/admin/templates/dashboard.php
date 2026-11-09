@@ -92,6 +92,20 @@ ob_start();
           // and open-in-new-tab for free. `data-row-href` would need a delegated
           // handler, and no such handler ships in this package. ?>
     <div class="card-grid">
+        <?php // THIS MONTH'S SALES, first, on a site that sells: the figure a
+              // shop opens its admin for, linking to the report it is read from. ?>
+        <?php if (\Cms\Helpers\Modules::enabled('commerce') && \Cms\ContentType\Registry::withArchetype('product') !== []): ?>
+            <?php [$monthFrom, $monthTo] = \Cms\Commerce\Reports::named('this-month');
+                  $month = \Cms\Commerce\Reports::summary($monthFrom, $monthTo); ?>
+            <a class="card stat" href="<?= h(Url::admin('reports')) ?>" data-dashboard-sales>
+                <div class="card__head">
+                    <?= icon(Sidebar::iconFor('reports'), 'card__glyph icon icon--lg') ?>
+                    <strong>Sales this month</strong>
+                </div>
+                <p class="stat__n"><?= h(\Cms\Commerce\Money::format($month['net'])) ?></p>
+                <p class="stat__sub"><?= (int) $month['orders'] ?> <?= (int) $month['orders'] === 1 ? 'order' : 'orders' ?></p>
+            </a>
+        <?php endif; ?>
         <?php foreach ($stats as $stat): ?>
             <a class="card stat" href="<?= h(Url::admin((string) $stat['admin_slug'])) ?>">
                 <div class="card__head">

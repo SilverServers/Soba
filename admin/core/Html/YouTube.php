@@ -12,9 +12,10 @@ namespace Cms\Html;
  *
  * This says which `<iframe>` is one (`isEmbed()`), and which of its
  * attributes stay (`ATTRIBUTES`) — the ones YouTube's embed code writes.
- * `Html\Sanitizer` keeps such a frame and removes every other.
+ * `Html\Sanitizer` keeps such a frame, as it keeps the other providers'
+ * (`Html\Embed`), and removes every other.
  */
-final class YouTube
+final class YouTube implements EmbedFrame
 {
     /** The attributes YouTube's embed code writes on its <iframe>. Nothing else is kept. */
     public const ATTRIBUTES = ['width', 'height', 'src', 'title', 'frameborder', 'allow', 'referrerpolicy', 'allowfullscreen'];
@@ -32,18 +33,29 @@ final class YouTube
      */
     public static function isEmbed(string $src): bool
     {
-        $src = trim(html_entity_decode($src, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        if ($src === '' || preg_match('/[\s"\'<>\\\\]/', $src) === 1) {
-            return false;
-        }
-        $parts = parse_url($src);
-        if (!is_array($parts) || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
-            return false;
-        }
+        return Embed::address($src, self::HOSTS, '#^/embed/[A-Za-z0-9_-]+/?$#');
+    }
 
-        return strtolower((string) ($parts['scheme'] ?? '')) === 'https'
-            && in_array(strtolower((string) ($parts['host'] ?? '')), self::HOSTS, true)
-            && preg_match('#^/embed/[A-Za-z0-9_-]+/?$#', (string) ($parts['path'] ?? '')) === 1;
+    public static function attributes(): array
+    {
+        return self::ATTRIBUTES;
+    }
+
+    /** YouTube's code writes no style, on its frame or round it. */
+    public static function frameStyle(string $style, bool $wrapped): bool
+    {
+        return false;
+    }
+
+    public static function boxStyle(string $style): bool
+    {
+        return false;
+    }
+
+    /** Nor a script: the frame is the whole of it. */
+    public static function scripts(): array
+    {
+        return [];
     }
 
     /**

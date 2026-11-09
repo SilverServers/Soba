@@ -340,6 +340,21 @@ class SettingsController
         'commerce_tax_number'       => '',
         'commerce_terms_page'       => '0',
         'commerce_offer_signup'     => '0',
+        // THE EMAILS AN ORDER SENDS ITS CUSTOMER AS IT MOVES: on, as a
+        // customer who paid expects to hear that it arrived, that the parcel
+        // went, and that money came back. `OrderMail` reads them.
+        'commerce_mail_paid'        => '1',
+        'commerce_mail_sent'        => '1',
+        'commerce_mail_refunded'    => '1',
+        // RUNNING LOW at 2 or fewer, and the shop told when anything does or
+        // sells out (`StockAlert`).
+        'commerce_low_stock'        => '2',
+        'commerce_mail_low'         => '1',
+        // UNPAID ORDERS ARE KEPT until somebody cancels them, unless the shop
+        // gives them days (`Commerce\Lapse`).
+        'commerce_lapse_days'       => '0',
+        // AND THE DAY BEFORE, a reminder to pay, once.
+        'commerce_lapse_remind'     => '1',
         // ── TAX DEFAULTS TO NONE ────────────────────────────────────────────
         // Not to a guess from the shop country. A rate this system invented is
         // a rate the owner never agreed to, charged to their customers, on a
@@ -435,6 +450,18 @@ class SettingsController
         [$taxRates, $taxErrors] = self::postedTaxRates($_POST['tax_rates'] ?? []);
         array_push($errors, ...$taxErrors);
 
+        // ── RUNNING LOW: a whole number, so a count can be compared with it.
+        $lowStock = trim((string) ($_POST['commerce_low_stock'] ?? '2'));
+        if (!preg_match('/^\d{1,4}$/', $lowStock)) {
+            $errors[] = 'Running low is a whole number of items, 0 or more.';
+        }
+
+        // ── THE DAYS AN UNPAID ORDER IS KEPT: whole days, 0 for always.
+        $lapseDays = trim((string) ($_POST['commerce_lapse_days'] ?? '0'));
+        if (!preg_match('/^\d{1,3}$/', $lapseDays === '' ? '0' : $lapseDays)) {
+            $errors[] = 'The days an unpaid order is kept are a whole number, 0 to keep it until cancelled.';
+        }
+
         // ── THE PAGE A CUSTOMER AGREES TO, if one is chosen: one that exists.
         $termsPage = (int) ($_POST['commerce_terms_page'] ?? 0);
         if ($termsPage > 0 && \Cms\Models\Page::find($termsPage) === null) {
@@ -524,6 +551,13 @@ class SettingsController
             'commerce_tax_number'       => trim((string) ($_POST['commerce_tax_number'] ?? '')),
             'commerce_terms_page'       => (string) max(0, $termsPage),
             'commerce_offer_signup'     => !empty($_POST['commerce_offer_signup']) ? '1' : '0',
+            'commerce_mail_paid'        => !empty($_POST['commerce_mail_paid']) ? '1' : '0',
+            'commerce_mail_sent'        => !empty($_POST['commerce_mail_sent']) ? '1' : '0',
+            'commerce_mail_refunded'    => !empty($_POST['commerce_mail_refunded']) ? '1' : '0',
+            'commerce_low_stock'        => (string) (int) $lowStock,
+            'commerce_mail_low'         => !empty($_POST['commerce_mail_low']) ? '1' : '0',
+            'commerce_lapse_days'       => (string) (int) $lapseDays,
+            'commerce_lapse_remind'     => !empty($_POST['commerce_lapse_remind']) ? '1' : '0',
         ];
 
         // `setEnabled()` drops ids that are not in METHODS rather than storing
@@ -587,6 +621,13 @@ class SettingsController
             'commerce_tax_number'       => trim((string) ($_POST['commerce_tax_number'] ?? '')),
             'commerce_terms_page'       => (string) (int) ($_POST['commerce_terms_page'] ?? 0),
             'commerce_offer_signup'     => !empty($_POST['commerce_offer_signup']) ? '1' : '0',
+            'commerce_mail_paid'        => !empty($_POST['commerce_mail_paid']) ? '1' : '0',
+            'commerce_mail_sent'        => !empty($_POST['commerce_mail_sent']) ? '1' : '0',
+            'commerce_mail_refunded'    => !empty($_POST['commerce_mail_refunded']) ? '1' : '0',
+            'commerce_low_stock'        => trim((string) ($_POST['commerce_low_stock'] ?? '')),
+            'commerce_mail_low'         => !empty($_POST['commerce_mail_low']) ? '1' : '0',
+            'commerce_lapse_days'       => trim((string) ($_POST['commerce_lapse_days'] ?? '')),
+            'commerce_lapse_remind'     => !empty($_POST['commerce_lapse_remind']) ? '1' : '0',
             'commerce_payment_methods' => implode(',', array_map(
                 'strval',
                 is_array($_POST['methods'] ?? null) ? $_POST['methods'] : []

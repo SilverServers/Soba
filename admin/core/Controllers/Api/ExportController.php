@@ -93,6 +93,31 @@ class ExportController
     }
 
     /**
+     * GET /api/v1/export/products/{key} — a type that sells, as a spreadsheet:
+     * a row for each product and one for each of its options
+     * (`Commerce\ProductSheet`), the file the import reads back. It starts
+     * with the byte-order mark that tells a spreadsheet the file is UTF-8, so
+     * "Café — M / Navy" opens as it was written.
+     */
+    public function products(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+
+        $key = (string) ($vars['key'] ?? '');
+        if (Registry::get($key) === null || !\Cms\Commerce\Product::isSellableType($key)) {
+            http_response_code(404);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'No content type that sells is called that']);
+            return;
+        }
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $key . '-products-' . date('Y-m-d') . '.csv"');
+        header('Cache-Control: no-store');
+        echo "\xEF\xBB\xBF" . \Cms\Commerce\ProductSheet::export($key);
+    }
+
+    /**
      * GET /api/v1/export/settings — options table dump.
      */
     public function settings(array $vars = []): void

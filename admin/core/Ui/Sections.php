@@ -269,6 +269,22 @@ final class Sections
             // to agree to. `print`, because a receipt is the thing printed;
             // no other section wears it.
             'receipts'        => 'print',
+            // WHERE THE PARCEL IS: the carrier and number an order went with.
+            // `location-crosshairs`, a position being followed — NOT
+            // `location-dot`, which is an event's place and a blocked address.
+            'tracking'        => 'location-crosshairs',
+            // AN ORDER'S EMAILS TO ITS CUSTOMER, sent again from the order and
+            // turned off or on in Settings → Shop. `envelope`, the mark every
+            // other section about an email wears.
+            'customer-mail'   => 'envelope',
+            // WHAT IS ON THE SHELF, counted: the number sign, as How many
+            // wears it, and the same mark the sidebar's Stock row wears.
+            'stock'           => 'hashtag',
+            // THE PRODUCTS SENT ON, to Google Shopping and Instagram: shared
+            // out of this site. NOT `tower-broadcast`, the sending server's.
+            'feed'            => 'share-from-square',
+            // A WEBHOOK PASSES AN ORDER ON to another program as it moves.
+            'webhooks'        => 'retweet',
             // A product sold in several forms. `clone` is one thing drawn
             // twice, which is exactly what a size run is — NOT `tags`, which is
             // one mark away from `tag` on Discount codes and would read as the

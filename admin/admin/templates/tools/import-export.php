@@ -12,10 +12,11 @@ use Cms\Ui\Sidebar;
  * TOOLS → IMPORT / EXPORT.
  *
  * ── EXPORT ──────────────────────────────────────────────────────────────────
- * Four export endpoints: `/api/v1/export/all`, `/pages`, `/settings` and
- * `/content-type/{key}`. Each sends `Content-Disposition: attachment`, so a
- * plain link downloads a file — no JavaScript, no form, no button that
- * "prepares" anything.
+ * Five export endpoints: `/api/v1/export/all`, `/pages`, `/settings`,
+ * `/content-type/{key}`, and `/products/{key}` for a type that sells, as a
+ * spreadsheet (`Commerce\ProductSheet`). Each sends `Content-Disposition:
+ * attachment`, so a plain link downloads a file — no JavaScript, no form, no
+ * button that "prepares" anything.
  *
  * ── THE PER-TYPE EXPORTS COME FROM THE REGISTRY ─────────────────────────────
  * Not from a hardcoded list, and not from `ContentTypeDefinition::all()` —
@@ -35,6 +36,9 @@ use Cms\Ui\Sidebar;
 
 $pageTitle    = 'Import / Export';
 $contentTypes = Registry::all();
+// THE TYPES THAT SELL, whose products also go out and come in as a spreadsheet.
+$sellingTypes = array_filter($contentTypes, static fn (array $ct, string $key): bool => \Cms\Commerce\Product::isSellableType($key),
+    ARRAY_FILTER_USE_BOTH);
 
 ob_start();
 ?>
@@ -122,6 +126,17 @@ ob_start();
                             'count' => $counts['types'][(string) $key] ?? 0,
                             'href'  => Url::public('api/v1/export/content-type/' . rawurlencode((string) $key)),
                         ];
+                        // AND AS A SPREADSHEET, a type that sells: a row for each
+                        // product and each option, the file the import reads back.
+                        if (isset($sellingTypes[$key])) {
+                            $rows[] = [
+                                'label' => (string) ($ct['label'] ?? $key) . ' as a spreadsheet',
+                                'sub'   => 'CSV: a row for each product and each of its options',
+                                'icon'  => 'file-excel',
+                                'count' => null,
+                                'href'  => Url::public('api/v1/export/products/' . rawurlencode((string) $key)),
+                            ];
+                        }
                     }
                     ?>
                     <?php foreach ($rows as $row): ?>
@@ -186,10 +201,14 @@ ob_start();
                           // counts come back from the applier, and the log is
                           // every row it touched. ?>
                     <div class="flashes">
-                        <div class="flash flash--success">
+                        <div class="flash flash--success" data-import-done>
                             Imported:
                             <?= (int) $importDone['created'] ?> created,
-                            <?= (int) $importDone['overwritten'] ?> overwritten,
+                            <?php if (!empty($importDone['sheet'])): ?>
+                                <?= (int) $importDone['updated'] ?> updated,
+                            <?php else: ?>
+                                <?= (int) $importDone['overwritten'] ?> overwritten,
+                            <?php endif; ?>
                             <?= (int) $importDone['skipped'] ?> skipped<?php
                             if ((int) $importDone['settings'] > 0): ?>,
                                 <?= (int) $importDone['settings'] ?> setting(s) written<?php
@@ -218,10 +237,17 @@ ob_start();
                           // that stops the support call. A file that published
                           // fifty pages on upload would not be a recoverable
                           // mistake. ?>
-                    <p class="form-help">
-                        Everything imported is <strong>Private</strong> — it is on the
-                        site for you and 404s for visitors until you publish it.
-                    </p>
+                    <?php if (!empty($importDone['sheet'])): ?>
+                        <p class="form-help">
+                            New products are <strong>Private</strong> — on the site for you and
+                            404s for visitors until you publish them. Products updated keep their status.
+                        </p>
+                    <?php else: ?>
+                        <p class="form-help">
+                            Everything imported is <strong>Private</strong> — it is on the
+                            site for you and 404s for visitors until you publish it.
+                        </p>
+                    <?php endif; ?>
                 <?php endif; ?>
 
                 <?php if ($importPlan !== null): ?>
@@ -229,7 +255,7 @@ ob_start();
                     $planCount = count($importPlan['pages']) + count($importPlan['entries']);
                     $overwrites = count(array_filter(
                         array_merge($importPlan['pages'], $importPlan['entries']),
-                        static fn (array $r): bool => $r['action'] === 'overwrite'
+                        static fn (array $r): bool => in_array($r['action'], ['overwrite', 'update'], true)
                     ));
                     ?>
                     <?php // THE PLAN. Nothing has been written at this point —
@@ -244,7 +270,7 @@ ob_start();
                             <p class="alert__text">
                                 <?= $planCount ?> item<?= $planCount === 1 ? '' : 's' ?> to import<?php
                                 if ($overwrites > 0): ?>, <strong><?= $overwrites ?> of which would
-                                overwrite something already here</strong><?php endif; ?>.
+                                <?= !empty($importPlan['sheet']) ? 'update' : 'overwrite' ?> something already here</strong><?php endif; ?>.
                             </p>
                         </div>
                     </div>
@@ -265,6 +291,8 @@ ob_start();
                                         <div class="list__row-title"><?= h((string) $row['title']) ?></div>
                                         <div class="list__row-sub">/<?= h((string) $row['slug']) ?><?php
                                             if (isset($row['type'])): ?> · <?= h((string) $row['type']) ?><?php
+                                            endif; ?><?php
+                                            if (($row['detail'] ?? '') !== ''): ?> · <?= h((string) $row['detail']) ?><?php
                                             endif; ?></div>
                                     </div>
                                     <div class="list__row-meta">
@@ -279,14 +307,34 @@ ob_start();
                                               // colour on its own, and there is
                                               // no `status--warn` in this
                                               // system. ?>
-                                        <span class="status status--phrase">
-                                            <?= $row['action'] === 'overwrite' ? 'Overwrites what is here' : 'New' ?>
+                                        <span class="status status--phrase" data-import-action="<?= h((string) $row['action']) ?>">
+                                            <?= match ((string) $row['action']) {
+                                                'overwrite' => 'Overwrites what is here',
+                                                'update'    => 'Updates what is here',
+                                                default     => 'New',
+                                            } ?>
                                         </span>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
                         </div>
                     <?php endforeach; ?>
+
+                    <?php if (($importPlan['notes'] ?? []) !== []): ?>
+                        <?php // WHAT THE FILE HAD THAT IS NOT READ, said before
+                              // anything is written: a column that is not
+                              // imported, an image that is not fetched. ?>
+                        <div class="alert alert--info" data-import-notes>
+                            <?= icon('circle-info', 'alert__icon icon', '', 18) ?>
+                            <div class="alert__body">
+                                <ul class="alert__text">
+                                    <?php foreach ($importPlan['notes'] as $note): ?>
+                                        <li><?= h((string) $note) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        </div>
+                    <?php endif; ?>
 
                     <?php if ($importPlan['skipped'] !== []): ?>
                         <?php // SKIPPED IS NOT SILENT. Dropping half a file and
@@ -302,7 +350,7 @@ ob_start();
                               // one screen is how a palette drifts. What
                               // will be skipped is information; the title
                               // counts it and the glyph is the alert's. ?>
-                        <div class="alert alert--info">
+                        <div class="alert alert--info" data-import-skipped>
                             <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
                             <div class="alert__body">
                                 <p class="alert__title">
@@ -370,9 +418,9 @@ ob_start();
                           enctype="multipart/form-data">
                         <?= Csrf::field() ?>
                         <div class="field">
-                            <label class="label" for="f-import">Export file</label>
+                            <label class="label" for="f-import"><?= $sellingTypes !== [] ? 'Export file, or a spreadsheet of products' : 'Export file' ?></label>
                             <input class="input" type="file" id="f-import" name="import_file"
-                                   accept="application/json,.json">
+                                   accept="<?= $sellingTypes !== [] ? 'application/json,.json,text/csv,.csv' : 'application/json,.json' ?>">
                             <?php // WHAT IT MATCHES ON, said before the upload
                                   // rather than discovered after it. An import
                                   // that matches on the ids in the file would
@@ -386,6 +434,30 @@ ob_start();
                                 before you decide.
                             </p>
                         </div>
+                        <?php if ($sellingTypes !== []): ?>
+                            <?php // A SPREADSHEET IS PRODUCTS, of one type that sells:
+                                  // which, chosen here, and only read for a .csv. ?>
+                            <div class="field">
+                                <label class="label" for="f-import-into">A spreadsheet's products go into</label>
+                                <select class="select" id="f-import-into" name="import_into">
+                                    <?php // NO GUESS WHEN THERE IS A CHOICE: a file of
+                                          // merch read as events would plan every row
+                                          // as a new event. ?>
+                                    <?php if (count($sellingTypes) > 1): ?>
+                                        <option value="">Choose one</option>
+                                    <?php endif; ?>
+                                    <?php foreach ($sellingTypes as $key => $ct): ?>
+                                        <option value="<?= h((string) $key) ?>"><?= h((string) ($ct['label'] ?? $key)) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="form-help">
+                                    A <code>.csv</code> with a row for each product and each of its options, under
+                                    columns such as Type, SKU, Name, Regular price, Sale price, Stock, Categories, and
+                                    Attribute 1 name and value, as the spreadsheet download above writes them. A row
+                                    whose SKU a product here has updates it; any other is a new product.
+                                </p>
+                            </div>
+                        <?php endif; ?>
                         <div class="form-actions form-actions--bare">
                             <button type="submit" class="btn btn--primary">
                                 <?= icon('upload', 'icon icon--sm') ?>Read the file

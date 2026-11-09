@@ -252,6 +252,19 @@ final class Sidebar
             // group wearing one mark is how a reader learns the marks mean
             // nothing.
             'coupons'        => 'tag',
+            // A CUSTOMER, the mark the order's Customer panel wears: one person,
+            // NOT `user-group`, which is the staff on Users.
+            'customers'      => 'user',
+            // SALES GOING UP: the mark the dashboard's sales card wears. NOT
+            // `arrow-trend-down`, which marks a size running low.
+            'reports'        => 'arrow-trend-up',
+            // WHAT PASSES BETWEEN THE SHOP AND ANOTHER PROGRAM, both ways. NOT
+            // `link`, which is Permalinks in the same group.
+            'api'            => 'arrows-left-right',
+            // WHAT IS ON THE SHELF, counted: the number sign, as a count wears
+            // it in Settings. NOT `box-open`, which is Orders two rows up, and
+            // NOT `layer-group`, which is Content types.
+            'stock'          => 'hashtag',
             'commerce'       => 'box-open',
             'import-export'  => 'arrow-right-arrow-left',
             'redirects'      => 'share',

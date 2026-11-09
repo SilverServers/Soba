@@ -193,7 +193,7 @@ ob_start();
                                 <span class="label">Only these products</span>
                                 <?= \Cms\ContentType\FieldRenderer::chipPicker(
                                     'product_ids',
-                                    \Cms\Controllers\Admin\CouponController::productChoices(),
+                                    \Cms\Commerce\Coupon::productChoices(),
                                     $picked('product_ids'),
                                     'product'
                                 ) ?>
@@ -202,7 +202,7 @@ ob_start();
                                 <span class="label">Only these categories</span>
                                 <?= \Cms\ContentType\FieldRenderer::chipPicker(
                                     'category_ids',
-                                    \Cms\Controllers\Admin\CouponController::termChoices(),
+                                    \Cms\Commerce\Coupon::termChoices(),
                                     $picked('category_ids'),
                                     'category'
                                 ) ?>

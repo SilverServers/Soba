@@ -66,10 +66,11 @@ return [
         'admin/config/config.example.php',
         // The operator scripts, by name: nothing else in admin/bin/ ships.
         // security.php is the way back in when the sign-in page has been moved
-        // and nobody remembers where.
+        // and nobody remembers where. run-due.php is what a host's cron runs.
         'admin/bin/migrate.php',
         'admin/bin/update.php',
         'admin/bin/security.php',
+        'admin/bin/run-due.php',
         '@admin',
         'www/assets/',
         'www/uploads/.htaccess',

@@ -216,6 +216,9 @@ $router->addRoute('GET', '/',             [HomeController::class,    'index']);
 // Public — SEO routes (sitemaps + robots.txt)
 // -----------------------------------------------------------------------
 $router->addRoute('GET', '/sitemap.xml',          [PublicSeoController::class, 'sitemapIndex']);
+// THE PRODUCTS, for Google Merchant Center and Meta's catalogue to fetch
+// (`Commerce\ProductFeed`).
+$router->addRoute('GET', '/feed/products.xml',    [\Cms\Controllers\Public\FeedController::class, 'products']);
 $router->addRoute('GET', '/sitemap-pages.xml',    [PublicSeoController::class, 'sitemapPages']);
 $router->addRoute('GET', '/sitemap-{slug}.xml',   [PublicSeoController::class, 'sitemapContentType']);
 $router->addRoute('GET', '/robots.txt',           [PublicSeoController::class, 'robotsTxt']);
@@ -259,6 +262,13 @@ $router->addRoute('GET', '/assets/theme/{key:[a-z0-9][a-z0-9_-]*}/{path:.+}', [T
 use Cms\Controllers\Public\ShopController;
 $router->addRoute('GET',  '/cart',                    [ShopController::class, 'cart']);
 $router->addRoute('POST', '/cart/add',                [ShopController::class, 'addToCart']);
+$router->addRoute('POST', '/shop/notify',             [ShopController::class, 'notifyWhenBack']);
+// A CUSTOMER'S ORDERS, behind a link to their inbox (`Commerce\CustomerAccount`).
+$router->addRoute('GET',  '/account',                          [\Cms\Controllers\Public\AccountController::class, 'show']);
+$router->addRoute('POST', '/account',                          [\Cms\Controllers\Public\AccountController::class, 'requestLink']);
+$router->addRoute('GET',  '/account/enter/{token:[a-f0-9]{64}}', [\Cms\Controllers\Public\AccountController::class, 'enterPage']);
+$router->addRoute('POST', '/account/enter/{token:[a-f0-9]{64}}', [\Cms\Controllers\Public\AccountController::class, 'enter']);
+$router->addRoute('POST', '/account/leave',                    [\Cms\Controllers\Public\AccountController::class, 'leave']);
 $router->addRoute('POST', '/cart/update',             [ShopController::class, 'updateCart']);
 $router->addRoute('POST', '/cart/coupon',             [ShopController::class, 'applyCoupon']);
 $router->addRoute('GET',  '/checkout',                [ShopController::class, 'checkout']);
@@ -366,9 +376,31 @@ $router->addRoute('POST', '/admin/galleries/{id:\d+}/delete',  [GalleryControlle
 // -----------------------------------------------------------------------
 use Cms\Controllers\Admin\OrderController;
 $router->addRoute('GET',  '/admin/orders',                  [OrderController::class, 'index']);
+$router->addRoute('GET',  '/admin/orders/new',              [OrderController::class, 'create']);
+$router->addRoute('POST', '/admin/orders/new',              [OrderController::class, 'handleCreate']);
+$router->addRoute('POST', '/admin/orders/bulk',             [OrderController::class, 'handleBulk']);
+$router->addRoute('GET',  '/admin/reports',                 [\Cms\Controllers\Admin\ReportController::class, 'index']);
+$router->addRoute('GET',  '/admin/reports/export',          [\Cms\Controllers\Admin\ReportController::class, 'export']);
+$router->addRoute('GET',  '/admin/customers',               [\Cms\Controllers\Admin\CustomerController::class, 'index']);
+$router->addRoute('GET',  '/admin/customers/{key:[0-9a-f]{16}}', [\Cms\Controllers\Admin\CustomerController::class, 'show']);
+$router->addRoute('GET',  '/admin/customers/{key:[0-9a-f]{16}}/data',  [\Cms\Controllers\Admin\CustomerController::class, 'data']);
+$router->addRoute('POST', '/admin/customers/{key:[0-9a-f]{16}}/erase', [\Cms\Controllers\Admin\CustomerController::class, 'erase']);
+$router->addRoute('GET',  '/admin/stock',                   [\Cms\Controllers\Admin\StockController::class, 'index']);
+$router->addRoute('POST', '/admin/stock',                   [\Cms\Controllers\Admin\StockController::class, 'handleSave']);
+$router->addRoute('GET',  '/admin/stock/{id:\d+}',          [\Cms\Controllers\Admin\StockController::class, 'history']);
+$router->addRoute('GET',  '/admin/orders/export.csv',       [OrderController::class, 'export']);
+$router->addRoute('GET',  '/admin/orders/print',            [OrderController::class, 'printMany']);
+$router->addRoute('GET',  '/admin/orders/{id:\d+}/print',   [OrderController::class, 'printOne']);
 $router->addRoute('GET',  '/admin/orders/{id:\d+}',          [OrderController::class, 'show']);
 $router->addRoute('POST', '/admin/orders/{id:\d+}/status',   [OrderController::class, 'handleStatus']);
 $router->addRoute('POST', '/admin/orders/{id:\d+}/note',     [OrderController::class, 'handleNote']);
+$router->addRoute('POST', '/admin/orders/{id:\d+}/payment',  [OrderController::class, 'handlePayment']);
+$router->addRoute('POST', '/admin/orders/{id:\d+}/tracking', [OrderController::class, 'handleTracking']);
+$router->addRoute('POST', '/admin/orders/{id:\d+}/email',    [OrderController::class, 'handleEmail']);
+$router->addRoute('POST', '/admin/orders/{id:\d+}/refund',   [OrderController::class, 'handleRefund']);
+$router->addRoute('POST', '/admin/orders/{id:\d+}/addresses', [OrderController::class, 'handleAddresses']);
+$router->addRoute('POST', '/admin/orders/{id:\d+}/exchange', [OrderController::class, 'handleExchange']);
+$router->addRoute('GET',  '/admin/orders/{id:\d+}/refund/quote', [OrderController::class, 'refundQuote']);
 $router->addRoute('POST', '/admin/orders/{id:\d+}/delete',   [OrderController::class, 'handleDelete']);
 
 // ── DISCOUNT CODES ──────────────────────────────────────────────────────
@@ -458,6 +490,8 @@ $router->addRoute('POST', '/admin/users/{id:\d+}/delete',   [UserController::cla
 // -----------------------------------------------------------------------
 // Admin — Assistant (chat; reads and proposes, applying requires approval)
 // -----------------------------------------------------------------------
+// THE EDITOR'S IMPORT MARKDOWN: a document in, the body it makes out. Saves nothing.
+$router->addRoute('POST', '/admin/markdown', [\Cms\Controllers\Admin\MarkdownController::class, 'convert']);
 $router->addRoute('GET',  '/admin/assistant',                        [\Cms\Controllers\Admin\AssistantController::class, 'index']);
 $router->addRoute('GET',  '/admin/assistant/{id:\d+}',               [\Cms\Controllers\Admin\AssistantController::class, 'index']);
 $router->addRoute('POST', '/admin/assistant/new',                    [\Cms\Controllers\Admin\AssistantController::class, 'create']);
@@ -543,6 +577,11 @@ $router->addRoute('GET',  '/admin/settings/email',      [SettingsController::cla
 $router->addRoute('POST', '/admin/settings/email',      [SettingsController::class, 'handleEmail']);
 $router->addRoute('GET',  '/admin/settings/commerce',   [SettingsController::class, 'showCommerce']);
 $router->addRoute('POST', '/admin/settings/commerce',   [SettingsController::class, 'handleCommerce']);
+$router->addRoute('GET',  '/admin/settings/api',                       [\Cms\Controllers\Admin\ApiSettingsController::class, 'show']);
+$router->addRoute('POST', '/admin/settings/api/keys',                  [\Cms\Controllers\Admin\ApiSettingsController::class, 'makeKey']);
+$router->addRoute('POST', '/admin/settings/api/keys/{id:\d+}/revoke',  [\Cms\Controllers\Admin\ApiSettingsController::class, 'revokeKey']);
+$router->addRoute('POST', '/admin/settings/api/webhooks',              [\Cms\Controllers\Admin\ApiSettingsController::class, 'addHook']);
+$router->addRoute('POST', '/admin/settings/api/webhooks/{id:\d+}/remove', [\Cms\Controllers\Admin\ApiSettingsController::class, 'removeHook']);
 
 // -----------------------------------------------------------------------
 // API — media
@@ -565,6 +604,13 @@ $router->addRoute('GET', '/api/v1/export/all',                  [ExportControlle
 $router->addRoute('GET', '/api/v1/export/pages',                [ExportController::class, 'pages']);
 $router->addRoute('GET', '/api/v1/export/settings',             [ExportController::class, 'settings']);
 $router->addRoute('GET', '/api/v1/export/content-type/{key}',   [ExportController::class, 'contentType']);
+$router->addRoute('GET', '/api/v1/export/products/{key}',       [ExportController::class, 'products']);
+// THE SHOP'S API, for another program with a key (`Controllers\Api\ShopApiController`).
+$router->addRoute('GET',  '/api/v1/products',                 [\Cms\Controllers\Api\ShopApiController::class, 'products']);
+$router->addRoute('GET',  '/api/v1/orders',                   [\Cms\Controllers\Api\ShopApiController::class, 'orders']);
+$router->addRoute('GET',  '/api/v1/orders/{id:\d+}',         [\Cms\Controllers\Api\ShopApiController::class, 'order']);
+$router->addRoute('POST', '/api/v1/orders/{id:\d+}/status',  [\Cms\Controllers\Api\ShopApiController::class, 'setStatus']);
+$router->addRoute('POST', '/api/v1/stock',                    [\Cms\Controllers\Api\ShopApiController::class, 'setStock']);
 
 // -----------------------------------------------------------------------
 // API — menus
@@ -682,6 +728,7 @@ foreach (Registry::all() as $contentTypeKey => $contentType) {
     $router->addRoute('GET',  "/admin/{$s}/{id:\\d+}/edit",   [ContentTypeController::class, 'showEdit',      $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/edit",   [ContentTypeController::class, 'handleUpdate',  $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/trash",  [ContentTypeController::class, 'handleTrash',   $contentTypeKey]);
+    $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/copy",   [ContentTypeController::class, 'handleCopy',    $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/restore",[ContentTypeController::class, 'handleRestore', $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/delete", [ContentTypeController::class, 'handleDelete',  $contentTypeKey]);
     // One action on the entries ticked in the list or the trash.
@@ -827,6 +874,12 @@ if (!$isAdminPath($requestPath)) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfExempt = ['/admin/login', '/forms/'];
     $needsCsrf  = str_starts_with($requestPath, '/admin/') || str_starts_with($requestPath, '/api/');
+    // A PROGRAM SENDING AN API KEY carries no cookie for another site's form to
+    // ride on, and no form can send that header: its write is its key's, and
+    // the controller checks the key (`Security\ApiKeys`).
+    if (str_starts_with($requestPath, '/api/v1/') && \Cms\Security\ApiKeys::sent() !== null) {
+        $needsCsrf = false;
+    }
 
     foreach ($csrfExempt as $exempt) {
         if (str_starts_with($requestPath, $exempt)) {
@@ -864,6 +917,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ----------------------------------------------------------------
 // Dispatch
 // ----------------------------------------------------------------
+
+// ── DUE WORK, ON A VISIT ─────────────────────────────────────────────
+// Unpaid orders past the shop's days are cancelled at most every ten
+// minutes, whoever's visit it is, after their page (`Commerce\Lapse`):
+// shared hosting has no cron to rely on.
+\Cms\Commerce\Lapse::onVisit();
 
 $result = $router->dispatch($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI']);
 

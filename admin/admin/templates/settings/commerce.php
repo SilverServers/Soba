@@ -645,6 +645,42 @@ $shopCountry = Countries::isValid($opt('commerce_country')) ? strtoupper($opt('c
                     <?php endforeach; ?>
                 </div>
 
+                <?php // ── AN ORDER NOBODY PAYS FOR ───────────────────────────
+                      // It holds its goods until cancelled; given days, it is
+                      // cancelled for the shop, its goods go back, and its
+                      // customer is told why (`Commerce\Lapse`). ?>
+                <div class="form-card__section">
+                    <?= panel_title('Unpaid orders', 'order-status') ?>
+                    <div class="form-grid form-grid--2">
+                        <div class="field">
+                            <label class="label" for="f-lapse-days">Cancel an unpaid order after</label>
+                            <input class="input" type="number" id="f-lapse-days" name="commerce_lapse_days" min="0" step="1"
+                                   value="<?= h($opt('commerce_lapse_days', '0')) ?>">
+                            <p class="form-help">Days still Pending payment. 0 keeps it until you cancel it.</p>
+                        </div>
+                    </div>
+                    <label class="check-list__row" for="f-lapse-remind">
+                        <input type="checkbox" id="f-lapse-remind" name="commerce_lapse_remind" value="1"
+                               <?= $opt('commerce_lapse_remind', '1') === '1' ? 'checked' : '' ?>>
+                        <span>Remind the customer to pay the day before</span>
+                    </label>
+                </div>
+
+                <?php // ── SELLING ON GOOGLE AND INSTAGRAM ────────────────────
+                      // The address both fetch the products from
+                      // (`Commerce\ProductFeed`), to copy into Merchant Center
+                      // and Commerce Manager. Nothing to switch on: it lists
+                      // what the shop already shows. ?>
+                <div class="form-card__section" data-product-feed>
+                    <?= panel_title('Google Shopping and Instagram', 'feed') ?>
+                    <div class="field">
+                        <label class="label" for="f-product-feed">Product feed</label>
+                        <input class="input" type="url" id="f-product-feed" readonly
+                               value="<?= h(\Cms\Helpers\Url::page('feed/products.xml')) ?>">
+                        <p class="form-help">Give this address to Google Merchant Center and to Meta Commerce Manager as a scheduled feed: each product on sale, and each size and colour of one, with its price, sale and stock. They fetch it themselves.</p>
+                    </div>
+                </div>
+
                 <div class="form-card__section">
                     <?= panel_title('Card payments', 'payment') ?>
                     <?php // AN ABSENCE, EXPLAINED. An owner hunting for "where
@@ -725,6 +761,55 @@ $shopCountry = Countries::isValid($opt('commerce_country')) ? strtoupper($opt('c
                             the order says so.
                         </p>
                     </div>
+                </div>
+
+                <?php // ── WHAT THE CUSTOMER IS TOLD AS THE ORDER MOVES ─────────
+                      // The confirmation always goes: it is the receipt and the
+                      // instructions for paying. These two follow the order. ?>
+                <div class="form-card__section">
+                    <?= panel_title('Emails to customers', 'customer-mail') ?>
+                    <div class="field">
+                        <label class="check-list__row" for="f-mail-paid">
+                            <input type="checkbox" id="f-mail-paid" name="commerce_mail_paid" value="1"
+                                   <?= $opt('commerce_mail_paid', '1') === '1' ? 'checked' : '' ?>>
+                            <span>Payment received, when an order is moved to Processing</span>
+                        </label>
+                        <label class="check-list__row" for="f-mail-sent">
+                            <input type="checkbox" id="f-mail-sent" name="commerce_mail_sent" value="1"
+                                   <?= $opt('commerce_mail_sent', '1') === '1' ? 'checked' : '' ?>>
+                            <span>Sent or collected, with any tracking, when an order is moved to Completed</span>
+                        </label>
+                        <label class="check-list__row" for="f-mail-refunded">
+                            <input type="checkbox" id="f-mail-refunded" name="commerce_mail_refunded" value="1"
+                                   <?= $opt('commerce_mail_refunded', '1') === '1' ? 'checked' : '' ?>>
+                            <span>Refunded, with what it was for, when money is given back on an order</span>
+                        </label>
+                        <p class="form-help">
+                            Any of them can be sent again from the order, and a note
+                            on an order can be emailed to its customer.
+                        </p>
+                    </div>
+                </div>
+
+                <?php // ── WHEN STOCK IS RUNNING LOW ──────────────────────────
+                      // The mark the product list and the stock screen measure
+                      // against, and the email the shop gets when a count
+                      // crosses it or reaches nothing. ?>
+                <div class="form-card__section">
+                    <?= panel_title('Stock', 'stock') ?>
+                    <div class="form-grid form-grid--2">
+                        <div class="field">
+                            <label class="label" for="f-low-stock">Running low at</label>
+                            <input class="input" type="number" id="f-low-stock" name="commerce_low_stock" min="0" step="1"
+                                   value="<?= h($opt('commerce_low_stock', '2')) ?>">
+                            <p class="form-help">A count this size or smaller is running low.</p>
+                        </div>
+                    </div>
+                    <label class="check-list__row" for="f-mail-low">
+                        <input type="checkbox" id="f-mail-low" name="commerce_mail_low" value="1"
+                               <?= $opt('commerce_mail_low', '1') === '1' ? 'checked' : '' ?>>
+                        <span>Email me when a product or option runs low, and when it sells out</span>
+                    </label>
                 </div>
 
                 <div class="form-card__section">

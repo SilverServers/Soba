@@ -69,6 +69,8 @@ use Cms\Security\Csrf;
  * @var float|null                  $limit   null when unlimited
  * @var string|null                 $error
  * @var string|null                 $outcome
+ * @var list<string>                $outcomeErrors
+ * @var list<string>                $outcomeKept
  * @var array<string, mixed>        $user
  */
 
@@ -189,7 +191,35 @@ ob_start();
 
             <?php if ($outcome !== null): ?>
                 <div class="flashes">
-                    <div class="flash flash--success"><?= h((string) $outcome) ?></div>
+                    <div class="flash flash--success" data-assistant-outcome><?= h((string) $outcome) ?></div>
+                </div>
+            <?php endif; ?>
+            <?php if ($outcomeErrors !== []): ?>
+                <div class="alert alert--danger" data-assistant-refused>
+                    <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
+                    <div class="alert__body">
+                        <p class="alert__title">Nothing was changed</p>
+                        <ul class="alert__text">
+                            <?php foreach ($outcomeErrors as $e): ?>
+                                <li><?= h($e) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                </div>
+            <?php endif; ?>
+            <?php // WHAT AN UNDO LEFT AS IT IS, because the shop had moved on:
+                  // a count since changed, a code since used. Not a failure. ?>
+            <?php if ($outcomeKept !== []): ?>
+                <div class="alert" data-assistant-kept>
+                    <?= icon('circle-info', 'alert__icon icon', '', 18) ?>
+                    <div class="alert__body">
+                        <p class="alert__title">Some of it was left as it is</p>
+                        <ul class="alert__text">
+                            <?php foreach ($outcomeKept as $k): ?>
+                                <li><?= h($k) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
                 </div>
             <?php endif; ?>
 
@@ -309,7 +339,7 @@ ob_start();
                                             <form method="post"
                                                   action="<?= h(Url::admin('assistant/message/' . $mid . '/apply')) ?>"
                                                   data-confirm="Apply these <?= count($rows) ?> change<?= count($rows) === 1 ? '' : 's' ?>?"
-                                                  data-confirm-detail="Every record touched is snapshotted first, so this can be undone."
+                                                  data-confirm-detail="Every record touched is snapshotted first, so this can be undone.<?= array_filter($rows, static fn (array $r): bool => isset($r['details']['Emails'])) !== [] ? ' An email to a customer, once sent, stays sent.' : '' ?>"
                                                   data-confirm-verb="Apply">
                                                 <?= Csrf::field() ?>
                                                 <button type="submit" class="btn btn--primary">Apply</button>
@@ -326,13 +356,17 @@ ob_start();
                                             <form method="post"
                                                   action="<?= h(Url::admin('assistant/message/' . $mid . '/undo')) ?>"
                                                   data-confirm="Undo these changes?"
-                                                  data-confirm-detail="Every record is restored from the snapshot taken when it was applied."
+                                                  data-confirm-detail="Every record is restored from the snapshot taken when it was applied.<?= array_filter($rows, static fn (array $r): bool => in_array((string) ($r['op'] ?? ''), \Cms\Assistant\ShopOps::OPS, true)) !== [] ? ' Anything in the shop that has moved on since is left as it is, and you are told which.' : '' ?>"
                                                   data-confirm-verb="Undo">
                                                 <?= Csrf::field() ?>
                                                 <button type="submit" class="link link--xs">Undo</button>
                                             </form>
                                         <?php elseif ($status === 'discarded'): ?>
                                             <span class="proposal__state">Discarded</span>
+                                        <?php elseif ($status === 'undone'): ?>
+                                            <span class="proposal__state">Undone</span>
+                                        <?php elseif ($status === 'superseded'): ?>
+                                            <span class="proposal__state">Replaced by a later proposal</span>
                                         <?php endif; ?>
                                     </div>
                                 </div>

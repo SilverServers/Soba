@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Cms\Commerce\Countries;
 use Cms\Commerce\Money;
+use Cms\Commerce\Refund;
 use Cms\Commerce\Totals;
 use Cms\Helpers\Asset;
 use Cms\Helpers\Dates;
@@ -35,10 +36,26 @@ use Cms\Ui\OrderStatus;
  * @var array<string, mixed>       $order
  * @var list<array<string, mixed>> $items
  * @var list<array<string, mixed>> $notes
+ * @var array<string, string>      $resends  what can be emailed again, key => label
+ * @var array<int, list<array<string, mixed>>> $exchanges order_items.id => the options it can become
+ * @var list<string>               $errors   what a refused form could not save
+ * @var array<string, string>      $typed    that form's boxes, as typed
  */
 
 $currency = (string) $order['currency'];
 $oid      = (int) $order['id'];
+$errors   = $errors ?? [];
+$typed    = $typed ?? [];
+// A BOX SHOWS WHAT WAS TYPED when its form was refused, else what is stored.
+$val = static fn (string $key): string => (string) ($typed[$key] ?? $order[$key] ?? '');
+// POSTED TO AN ADDRESS: tracking is asked for only then.
+$ships = !in_array((string) ($order['shipping_method'] ?? ''), ['', \Cms\Commerce\Shipping::PICKUP], true);
+// WHAT HAS GONE BACK, AND WHAT IS LEFT TO GIVE.
+$refundRows = Refund::rows($order);
+$refundLeft = Refund::left($order);
+$canRefund  = $refundLeft['amount'] > 0 && (string) $order['status'] !== 'refunded';
+$refundTyped = isset($typed['refund']);
+$refundQty   = is_array($typed['refund_qty'] ?? null) ? $typed['refund_qty'] : [];
 
 /** An address block, or a stated absence. */
 $address = static function (array $order, string $prefix): void {
@@ -76,7 +93,26 @@ ob_start();
                 <?php endif; ?>
             </p>
         </div>
+        <?php // ON PAPER: the slip that goes in the parcel, and the invoice. ?>
+        <div class="page__header-actions">
+            <a class="btn" href="<?= h(Url::admin('orders/' . $oid . '/print?doc=slip')) ?>">Print packing slip</a>
+            <a class="btn" href="<?= h(Url::admin('orders/' . $oid . '/print?doc=invoice')) ?>">Print invoice</a>
+        </div>
     </div>
+
+    <?php if ($errors !== []): ?>
+        <div class="alert alert--danger">
+            <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
+            <div class="alert__body">
+                <p class="alert__title">Not saved</p>
+                <ul class="alert__text">
+                    <?php foreach ($errors as $error): ?>
+                        <li><?= h($error) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <?php // `.panel__grid` IS THE TWO-COLUMN GRID; `.form-main` and
           // `.form-aside` are its two CHILDREN. With `.form-main` as the
@@ -127,6 +163,7 @@ ob_start();
                                 $variantSub = trim(implode(' · ', array_filter([
                                     (string) ($item['variation_label'] ?? ''),
                                     (string) $item['sku'],
+                                    (int) ($item['refunded_qty'] ?? 0) > 0 ? (int) $item['refunded_qty'] . ' refunded' : '',
                                 ])));
                                 ?>
                                 <?php if ($variantSub !== ''): ?>
@@ -168,7 +205,133 @@ ob_start();
                         <span>Total</span>
                         <strong><?= h(Money::format((int) $order['total'], $currency)) ?></strong>
                     </div>
+                    <?php // EACH REFUND UNDER THE TOTAL IT CAME OFF, and what the
+                          // order nets after them: the figure the bank shows. ?>
+                    <?php foreach ($refundRows as $i => [$label, $amount]): ?>
+                        <?php $net = $i === count($refundRows) - 1; ?>
+                        <div class="order-totals__row<?= $net ? ' order-totals__row--grand' : '' ?>" data-refund-row>
+                            <span><?= h($label) ?></span>
+                            <?= $net ? '<strong>' : '<span>' ?><?= h(Money::format($amount, $currency)) ?><?= $net ? '</strong>' : '</span>' ?>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
+
+                <?php if ($canRefund): ?>
+                    <?php // ── A REFUND ──────────────────────────────────────────
+                          // Folded away until it is wanted, and opened again
+                          // when one is refused. The lines are this order's own,
+                          // each with what it has left; the figure beside the
+                          // button is the server's (order-refund.js asks it). ?>
+                    <details class="fold order-refund"<?= $refundTyped ? ' open' : '' ?>>
+                        <summary class="fold__head">
+                            Refund
+                            <?= icon('angle-down', 'fold__caret icon icon--sm') ?>
+                        </summary>
+                        <div class="fold__body">
+                            <form method="post" action="<?= h(Url::admin('orders/' . $oid . '/refund')) ?>"
+                                  data-refund-form data-quote="<?= h(Url::admin('orders/' . $oid . '/refund/quote')) ?>"
+                                  data-confirm="Refund order <?= h(Order::number($order)) ?>?"
+                                  data-confirm-detail="<?= \Cms\Models\Option::get('commerce_mail_refunded', '1') === '1' ? 'The customer is emailed the amount and what it was for. ' : '' ?>The money itself goes back however you send it."
+                                  data-confirm-verb="Refund">
+                                <?= Csrf::field() ?>
+                                <div class="order-refund__lines">
+                                    <?php foreach ($items as $item): ?>
+                                        <?php $most = (int) $item['quantity'] - (int) ($item['refunded_qty'] ?? 0); ?>
+                                        <?php if ($most <= 0) { continue; } ?>
+                                        <?php $rid = (int) $item['id']; ?>
+                                        <div class="order-refund__row">
+                                            <label class="order-refund__name" for="refund-qty-<?= $rid ?>">
+                                                <?= h(Refund::name($item)) ?>
+                                                <span class="u-text-muted"><?= h(Money::format((int) $item['unit_price'], $currency)) ?> each</span>
+                                            </label>
+                                            <input class="input order-refund__qty" type="number" id="refund-qty-<?= $rid ?>"
+                                                   name="refund_qty[<?= $rid ?>]" min="0" max="<?= $most ?>" step="1"
+                                                   value="<?= h((string) ($refundQty[$rid] ?? '0')) ?>">
+                                            <span class="u-text-muted order-refund__of">of <?= $most ?></span>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+
+                                <div class="form-grid form-grid--2">
+                                    <?php if ($refundLeft['shipping'] > 0): ?>
+                                        <div class="field">
+                                            <label class="label" for="refund-shipping">Delivery to refund</label>
+                                            <input class="input" type="text" id="refund-shipping" name="refund_shipping"
+                                                   inputmode="decimal" autocomplete="off" placeholder="0.00"
+                                                   value="<?= h((string) ($typed['refund_shipping'] ?? '')) ?>">
+                                            <p class="form-help">Up to <?= h(Money::format($refundLeft['shipping'], $currency)) ?>, before its tax.</p>
+                                        </div>
+                                    <?php endif; ?>
+                                    <div class="field">
+                                        <label class="label" for="refund-amount">Amount</label>
+                                        <input class="input" type="text" id="refund-amount" name="refund_amount"
+                                               inputmode="decimal" autocomplete="off"
+                                               value="<?= h((string) ($typed['refund_amount'] ?? '')) ?>">
+                                        <p class="form-help">Blank refunds what the items and delivery come to, with their tax; up to <?= h(Money::format($refundLeft['amount'], $currency)) ?>.</p>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <label class="label" for="refund-reason">Reason</label>
+                                    <input class="input" type="text" id="refund-reason" name="refund_reason" maxlength="255"
+                                           value="<?= h((string) ($typed['refund_reason'] ?? '')) ?>">
+                                </div>
+
+                                <?php if (!empty($order['stock_reduced'])): ?>
+                                    <label class="check-list__row" for="refund-restock">
+                                        <input type="checkbox" id="refund-restock" name="restock" value="1"
+                                               <?= ($typed['restock'] ?? '1') === '1' ? 'checked' : '' ?>>
+                                        <span>Put the refunded items back in stock</span>
+                                    </label>
+                                <?php endif; ?>
+
+                                <div class="form-actions form-actions--bare">
+                                    <button type="submit" class="btn btn--primary">Refund</button>
+                                    <span class="order-refund__sum" data-refund-sum aria-live="polite"></span>
+                                </div>
+                            </form>
+                        </div>
+                    </details>
+                <?php endif; ?>
+
+                <?php if ($exchanges !== []): ?>
+                    <?php // ── AN EXCHANGE ───────────────────────────────────────
+                          // The same thing in another size or colour, at the
+                          // price paid: the old option back on the shelf, the
+                          // new one taken off it. A form per line, each its own. ?>
+                    <details class="fold order-exchange"<?= isset($typed['exchange']) ? ' open' : '' ?>>
+                        <summary class="fold__head">
+                            Exchange
+                            <?= icon('angle-down', 'fold__caret icon icon--sm') ?>
+                        </summary>
+                        <div class="fold__body">
+                            <?php foreach ($items as $item): ?>
+                                <?php $xid = (int) $item['id']; ?>
+                                <?php if (!isset($exchanges[$xid])) { continue; } ?>
+                                <?php $xleft = (int) $item['quantity'] - (int) ($item['refunded_qty'] ?? 0); ?>
+                                <form method="post" action="<?= h(Url::admin('orders/' . $oid . '/exchange')) ?>" class="order-exchange__row">
+                                    <?= Csrf::field() ?>
+                                    <input type="hidden" name="item" value="<?= $xid ?>">
+                                    <label class="order-refund__name" for="exchange-to-<?= $xid ?>">
+                                        <?= h(Refund::name($item)) ?>
+                                        <span class="u-text-muted"><?= $xleft ?> on the order</span>
+                                    </label>
+                                    <select class="select" id="exchange-to-<?= $xid ?>" name="to_variation">
+                                        <?php foreach ($exchanges[$xid] as $option): ?>
+                                            <?php $optLeft = \Cms\Commerce\Variation::available($option); ?>
+                                            <option value="<?= (int) $option['id'] ?>"<?= $optLeft !== null && $optLeft < 1 ? ' disabled' : '' ?>>
+                                                <?= h((string) $option['label']) ?><?= $optLeft !== null ? ' · ' . ($optLeft < 1 ? 'sold out' : $optLeft . ' left') : '' ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <input class="input order-refund__qty" type="number" name="quantity" min="1" max="<?= $xleft ?>"
+                                           step="1" value="<?= $xleft ?>" aria-label="How many of <?= h(Refund::name($item)) ?> to exchange">
+                                    <button type="submit" class="btn">Exchange</button>
+                                </form>
+                            <?php endforeach; ?>
+                        </div>
+                    </details>
+                <?php endif; ?>
             </div>
 
             <div class="form-card__section">
@@ -179,6 +342,8 @@ ob_start();
                         <?php $address($order, 'billing'); ?>
                         <?php if ((string) $order['email'] !== ''): ?>
                             <p><a class="link" href="mailto:<?= h((string) $order['email']) ?>"><?= h((string) $order['email']) ?></a></p>
+                            <?php // EVERY ORDER OF THEIRS, one click from this one. ?>
+                            <p><a class="link" href="<?= h(Url::admin('customers/' . \Cms\Commerce\Customers::key((string) $order['email']))) ?>" data-order-customer>All their orders</a></p>
                         <?php endif; ?>
                         <?php if ((string) $order['phone'] !== ''): ?>
                             <p><a class="link" href="tel:<?= h((string) $order['phone']) ?>"><?= h((string) $order['phone']) ?></a></p>
@@ -214,6 +379,54 @@ ob_start();
                     <h3 class="order-address__title">Customer's note</h3>
                     <p><?= nl2br(h((string) $order['customer_note'])) ?></p>
                 <?php endif; ?>
+
+                <?php // ── CORRECTING THE ADDRESSES ──────────────────────────
+                      // Folded until it is wanted, and open again with the
+                      // boxes as typed when a correction is refused. What was
+                      // charged for the old address stays as it was charged. ?>
+                <?php
+                $addr = static fn (string $key): string => (string) (isset($typed['addresses']) ? ($typed[$key] ?? '') : ($order[$key] ?? ''));
+                $addressFields = static function (string $who) use ($addr): void {
+                    $idPrefix = 'oa';
+                    require __DIR__ . '/_address.php';
+                };
+                ?>
+                <details class="fold order-edit-addresses"<?= isset($typed['addresses']) ? ' open' : '' ?>>
+                    <summary class="fold__head">
+                        Correct the addresses
+                        <?= icon('angle-down', 'fold__caret icon icon--sm') ?>
+                    </summary>
+                    <div class="fold__body">
+                        <form method="post" action="<?= h(Url::admin('orders/' . $oid . '/addresses')) ?>">
+                            <?= Csrf::field() ?>
+                            <div class="order-addresses">
+                                <fieldset class="order-address-form">
+                                    <legend class="order-address__title">Billing</legend>
+                                    <div class="form-grid form-grid--2">
+                                        <div class="field">
+                                            <label class="label" for="oa-email">Email</label>
+                                            <input class="input" type="email" id="oa-email" name="email" value="<?= h($addr('email')) ?>">
+                                        </div>
+                                        <div class="field">
+                                            <label class="label" for="oa-phone">Phone</label>
+                                            <input class="input" type="tel" id="oa-phone" name="phone" value="<?= h($addr('phone')) ?>">
+                                        </div>
+                                    </div>
+                                    <?php $addressFields('billing'); ?>
+                                </fieldset>
+                                <?php if ($ships): ?>
+                                    <fieldset class="order-address-form">
+                                        <legend class="order-address__title">Delivery, when it is not the billing address</legend>
+                                        <?php $addressFields('shipping'); ?>
+                                    </fieldset>
+                                <?php endif; ?>
+                            </div>
+                            <div class="form-actions form-actions--bare">
+                                <button type="submit" class="btn btn--primary">Save the addresses</button>
+                            </div>
+                        </form>
+                    </div>
+                </details>
             </div>
 
             <div class="form-card__section">
@@ -228,7 +441,14 @@ ob_start();
                     <label class="label" for="order-note">Add a note</label>
                     <textarea class="input" id="order-note" name="note" rows="2"
                               placeholder="Rang the customer, posted Tuesday&hellip;"></textarea>
+                    <?php // WHO IT IS FOR. A private note stays on the order; a
+                          // note to the customer is emailed to them, and the
+                          // trail below marks it as sent. ?>
                     <div class="form-actions form-actions--bare">
+                        <select class="select" id="order-note-type" name="note_type" aria-label="Who the note is for">
+                            <option value="private">Private note</option>
+                            <option value="customer">Note to the customer, emailed</option>
+                        </select>
                         <button type="submit" class="btn">Add note</button>
                     </div>
                 </form>
@@ -286,6 +506,37 @@ ob_start();
                     </form>
                 </div>
 
+                <?php if ($ships): ?>
+                    <?php // ── HOW IT WENT ─────────────────────────────────────
+                          // Written when the parcel goes, and printed in the
+                          // email that says it is on its way; an order marked
+                          // Completed after this is saved carries it. ?>
+                    <div class="form-card__section">
+                        <?= panel_title('Tracking', 'tracking') ?>
+                        <form method="post" action="<?= h(Url::admin('orders/' . $oid . '/tracking')) ?>">
+                            <?= Csrf::field() ?>
+                            <div class="field">
+                                <label class="label" for="order-carrier">Carrier</label>
+                                <input class="input" type="text" id="order-carrier" name="tracking_carrier"
+                                       value="<?= h($val('tracking_carrier')) ?>" maxlength="60" placeholder="Canada Post">
+                            </div>
+                            <div class="field">
+                                <label class="label" for="order-tracking">Tracking number</label>
+                                <input class="input" type="text" id="order-tracking" name="tracking_number"
+                                       value="<?= h($val('tracking_number')) ?>" maxlength="80" autocomplete="off" spellcheck="false">
+                            </div>
+                            <div class="field">
+                                <label class="label" for="order-tracking-url">Tracking link</label>
+                                <input class="input" type="url" id="order-tracking-url" name="tracking_url"
+                                       value="<?= h($val('tracking_url')) ?>" maxlength="500" placeholder="https://">
+                            </div>
+                            <div class="form-actions form-actions--bare">
+                                <button type="submit" class="btn">Save tracking</button>
+                            </div>
+                        </form>
+                    </div>
+                <?php endif; ?>
+
                 <div class="form-card__section">
                     <?= panel_title('Payment', 'payment') ?>
                     <?php // `.kv-list` IS NOT A <dl>. It is a flex column of
@@ -306,13 +557,43 @@ ob_start();
                             <span class="kv-list__key">Currency</span>
                             <span class="kv-list__val"><?= h($currency) ?></span>
                         </div>
-                        <?php if ((string) $order['transaction_ref'] !== ''): ?>
-                            <div class="kv-list__row">
-                                <span class="kv-list__key">Reference</span>
-                                <span class="kv-list__val"><?= h((string) $order['transaction_ref']) ?></span>
-                            </div>
-                        <?php endif; ?>
                     </div>
+
+                    <?php // THE BANK'S REFERENCE FOR THE MONEY, typed when it
+                          // arrives: what matches this order to a line on the
+                          // statement. A change is a note with both values. ?>
+                    <form method="post" action="<?= h(Url::admin('orders/' . $oid . '/payment')) ?>" class="order-ref-form">
+                        <?= Csrf::field() ?>
+                        <div class="field">
+                            <label class="label" for="order-ref">Payment reference</label>
+                            <input class="input" type="text" id="order-ref" name="transaction_ref"
+                                   value="<?= h((string) $order['transaction_ref']) ?>" maxlength="120"
+                                   autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="form-actions form-actions--bare">
+                            <button type="submit" class="btn">Save reference</button>
+                        </div>
+                    </form>
+                </div>
+
+                <?php // ── SEND IT AGAIN ───────────────────────────────────────
+                      // For the customer who lost the email: the confirmation,
+                      // the email of the status the order is in, or the shop's
+                      // own copy. Each is built from the order as it is now. ?>
+                <div class="form-card__section">
+                    <?= panel_title('Emails', 'customer-mail') ?>
+                    <form method="post" action="<?= h(Url::admin('orders/' . $oid . '/email')) ?>">
+                        <?= Csrf::field() ?>
+                        <label class="label" for="order-email">Send again</label>
+                        <select class="select" id="order-email" name="email">
+                            <?php foreach ($resends as $key => $label): ?>
+                                <option value="<?= h($key) ?>"><?= h($label) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-actions form-actions--bare">
+                            <button type="submit" class="btn">Resend</button>
+                        </div>
+                    </form>
                 </div>
 
                 <?php // A PLAIN TEXT LINK AS THE PANEL'S LAST SECTION — the
@@ -343,6 +624,9 @@ ob_start();
 </div>
 
 <script src="<?= h(Asset::admin('js/confirm.js')) ?>"></script>
+<?php if ($canRefund): ?>
+    <script src="<?= h(Asset::admin('js/order-refund.js')) ?>"></script>
+<?php endif; ?>
 <?php
 $pageContent = ob_get_clean();
 require ROOT_PATH . '/admin/templates/layout.php';

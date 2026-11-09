@@ -83,6 +83,9 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
     if (\Cms\ContentType\Registry::withArchetype('product') !== []):
         $_cartCount = \Cms\Commerce\Cart::count();
     ?>
+        <?php /* A CUSTOMER'S ORDERS, beside the basket: their way back to
+                 an order without the email it came in. */ ?>
+        <a href="<?= htmlspecialchars(BASE_URL . '/account') ?>" class="site-header__account">Your orders</a><?php /* audit-ok: the name of the page it opens, which the system draws */ ?>
         <a href="<?= htmlspecialchars(BASE_URL . '/cart') ?>" class="site-header__cart">
             <?= htmlspecialchars(\Cms\Commerce\Words::of('basket')) ?>
             <?php /* No zero badge: a permanent "0" is furniture that says
@@ -114,7 +117,9 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
         <div class="shop-notice cms-alert cms-alert--<?= htmlspecialchars((string) ($_shopNotice['tone'] ?? 'success')) ?> imprint-alert imprint-alert--<?= htmlspecialchars((string) ($_shopNotice['tone'] ?? 'success')) ?>"
              role="status">
             <?= htmlspecialchars((string) ($_shopNotice['text'] ?? '')) ?>
-            <?php if (($_shopNotice['tone'] ?? '') === 'success'): ?>
+            <?php // TO THE BASKET from a notice about it, and not from one about
+                  // something else: an address left for a sold-out size. ?>
+            <?php if (($_shopNotice['tone'] ?? '') === 'success' && ($_shopNotice['basket'] ?? true)): ?>
                 <a class="shop__link" href="<?= htmlspecialchars(BASE_URL . '/cart') ?>">View basket</a>
             <?php endif; ?>
         </div>

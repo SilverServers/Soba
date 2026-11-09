@@ -18,7 +18,7 @@ final class ToolContext
 {
     /**
      * @param int    $userId Acting user
-     * @param string $role   'author' | 'editor' | 'admin'
+     * @param string $role   'author' | 'editor' | 'shop_manager' | 'admin'
      */
     public function __construct(
         public readonly int $userId,

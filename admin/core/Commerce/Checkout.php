@@ -394,7 +394,7 @@ final class Checkout
         // ran out must not leave the first two reserved. The database decides —
         // see `Stock`'s header on why "read then write" is a race.
         $names = array_map(static fn (array $l): string => (string) $l['name'], $lines);
-        $stock = Stock::takeForOrder($lines, $names);
+        $stock = StockLog::during('sold', null, 'Customer', static fn (): array => Stock::takeForOrder($lines, $names));
         if (!$stock['ok']) {
             self::$lastError = $stock['short'] . ' sold out while you were checking out.';
 
@@ -460,10 +460,10 @@ final class Checkout
         // SPENT WHEN IT DOES ANYTHING — money off, or free delivery.
         if ($coupon !== null && Coupon::applies($coupon, $subtotalNow, $cartLines, $usedBy)) {
             if (!Coupon::redeem((int) $coupon['id'])) {
-                Stock::giveForOrder(array_map(
-                    static fn (array $l): array => ['post_id' => $l['post_id'], 'quantity' => $l['quantity']],
-                    $lines
-                ));
+                // BACK TO THE SHELF EACH CAME OFF: the lines keep their
+                // option, which a list of products and counts alone lost, and
+                // an option's units went back to its product, or nowhere.
+                StockLog::during('cancelled', null, 'Customer', static fn () => Stock::giveForOrder($lines));
                 self::$lastError = 'The code ' . $code
                     . ' ran out while you were checking out. Your basket is '
                     . 'unchanged — the discount no longer applies.';
@@ -502,12 +502,11 @@ final class Checkout
             // THE SHELF IS PUT BACK. `Order::place()` is one transaction, so a
             // throw means no order row exists — and stock reserved for an order
             // that does not exist is stock nobody can ever sell.
-            Stock::giveForOrder(array_map(
-                static fn (array $l): array => ['post_id' => $l['post_id'], 'quantity' => $l['quantity']],
-                $lines
-            ));
+            StockLog::during('cancelled', null, 'Customer', static fn () => Stock::giveForOrder($lines));
             throw $e;
         }
+        // THE LINES THE STOCK WROTE BEFORE THERE WAS AN ORDER ARE ITS NOW.
+        StockLog::claimFor((int) $placed['id']);
 
         Order::addNote(
             $placed['id'],

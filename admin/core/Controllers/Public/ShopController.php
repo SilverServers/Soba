@@ -104,6 +104,48 @@ class ShopController
         $this->back(BASE_URL . '/cart');
     }
 
+    /**
+     * An address left for a sold-out option, or a sold-out product: emailed
+     * once when it is back, and not kept after that (`StockAlert`).
+     */
+    public function notifyWhenBack(array $vars = []): void
+    {
+        $this->requireCsrf();
+
+        $product     = Product::find((int) ($_POST['product_id'] ?? 0));
+        $variationId = (int) ($_POST['waitlist_option'] ?? 0);
+        if ($product === null) {
+            $this->notice('That product is no longer available.', 'error');
+            $this->back(BASE_URL . '/');
+            return;
+        }
+        $option = null;
+        foreach ($product['variations'] as $v) {
+            if ((int) $v['id'] === $variationId) {
+                $option = $v;
+            }
+        }
+        if ($product['variations'] !== [] && $option === null) {
+            $this->notice('Choose which one you are waiting for.', 'error');
+            $this->back(BASE_URL . '/');
+            return;
+        }
+        $name = $product['title'] . ($option !== null ? ' in ' . (string) $option['label'] : '');
+
+        // BACK ALREADY, while the page was open: said so, rather than kept for
+        // an email that would wait for it to sell out and come back again.
+        if ($option !== null ? \Cms\Commerce\Variation::isPurchasable($option) : $product['purchasable']) {
+            $this->notice($name . ' is in stock again, and can be ordered now.', 'success', false);
+            $this->back(BASE_URL . '/');
+            return;
+        }
+
+        $error = \Cms\Commerce\StockAlert::waitFor((int) $product['id'], $option !== null ? (int) $option['id'] : null,
+            (string) ($_POST['email'] ?? ''));
+        $this->notice($error ?? 'We will email you when ' . $name . ' is back.', $error !== null ? 'error' : 'success', false);
+        $this->back(BASE_URL . '/');
+    }
+
     public function updateCart(array $vars = []): void
     {
         $this->requireCsrf();
@@ -375,6 +417,18 @@ class ShopController
         $form = Checkout::readForm([]);
         $form['billing_country'] = Countries::shopDefault();
 
+        // A CUSTOMER SIGNED IN starts from their newest order's addresses
+        // (`Commerce\CustomerAccount`): only the checkout's own fields, and
+        // every one still theirs to change.
+        $email = \Cms\Commerce\CustomerAccount::email();
+        if ($email !== null) {
+            foreach (\Cms\Commerce\CustomerAccount::lastAddresses($email) as $key => $value) {
+                if (array_key_exists($key, $form) && $value !== '') {
+                    $form[$key] = $value;
+                }
+            }
+        }
+
         return $form;
     }
 
@@ -389,11 +443,14 @@ class ShopController
      * whichever page the visitor lands on. "Add to basket" returns them to the
      * product page they were reading, and drawing the notice only on the basket
      * template made that button look like it had done nothing.
+     *
+     * A notice about the basket links to it; one about something else (an
+     * address left for a sold-out size) says `$toBasket` false.
      */
-    private function notice(string $text, string $tone = 'success'): void
+    private function notice(string $text, string $tone = 'success', bool $toBasket = true): void
     {
         \Cms\Security\Session::ensure();
-        $_SESSION['shop_notice'] = ['text' => $text, 'tone' => $tone];
+        $_SESSION['shop_notice'] = ['text' => $text, 'tone' => $tone, 'basket' => $toBasket];
     }
 
     private function requireCsrf(): void

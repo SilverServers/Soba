@@ -8,6 +8,7 @@ use Cms\Assistant\AssistantRunner;
 use Cms\Assistant\Budget;
 use Cms\Assistant\ChangeSet;
 use Cms\Assistant\ChangeSetApplier;
+use Cms\Assistant\ShopOps;
 use Cms\Assistant\ToolContext;
 use Cms\Assistant\TurnProgress;
 use Cms\Assistant\Transport\ClaudeTransport;
@@ -86,7 +87,7 @@ class AssistantController
             if ($changeSet !== null) {
                 $diffs[(int) $message['id']] = [
                     'summary' => $changeSet['summary'] ?? '',
-                    'rows'    => self::buildDiff($changeSet['operations'] ?? []),
+                    'rows'    => self::buildDiff($changeSet['operations'] ?? [], ($message['change_set_status'] ?? 'pending') !== 'pending'),
                     'errors'  => AssistantSession::errorsOf($message),
                     'status'  => $message['change_set_status'] ?? 'pending',
                 ];
@@ -94,8 +95,22 @@ class AssistantController
         }
 
         $error   = $_SESSION['_assistant_error'] ?? null;
-        $outcome = $_SESSION['_assistant_outcome'] ?? null;
+        $done    = $_SESSION['_assistant_outcome'] ?? null;
         unset($_SESSION['_assistant_error'], $_SESSION['_assistant_outcome']);
+
+        // ── WHAT APPLYING OR UNDOING DID, IN WORDS ─────────────────────────
+        // `apply()` and `undo()` leave what happened as an array, and the
+        // screen printed it as a string: "Array", and a warning in the log.
+        $outcome       = null;
+        $outcomeErrors = is_array($done) ? array_values(array_map('strval', (array) ($done['errors'] ?? []))) : [];
+        $outcomeKept   = is_array($done) ? array_values(array_map('strval', (array) ($done['kept'] ?? []))) : [];
+        if (is_array($done) && !empty($done['undone'])) {
+            $n       = (int) ($done['count'] ?? 0);
+            $outcome = 'Undone: ' . $n . ' change' . ($n === 1 ? '' : 's') . ' put back.';
+        } elseif (is_array($done) && !empty($done['applied'])) {
+            $n       = count((array) ($done['results'] ?? []));
+            $outcome = 'Applied: ' . $n . ' change' . ($n === 1 ? '' : 's') . '.';
+        }
 
         $pageTitle    = 'Assistant';
         $contentClass = 'l-admin__content--full';
@@ -578,6 +593,10 @@ class AssistantController
 
         $changeSetId = (string) ($message['change_set_id'] ?? '');
         $outcome     = Revision::restoreChangeSet($changeSetId, $userId);
+        // THE SHOP'S PART, from what applying it did: counts, orders, codes
+        // and options are not in the revisions table (`ShopOps::reverse()`).
+        $shop        = ShopOps::reverse(AssistantSession::applyResultsOf($message), ToolContext::fromSession());
+        $count       = (int) $outcome['restored'] + $shop['reversed'];
 
         // Template edits are not in the revisions table — that models posts and
         // pages — so they are reversed by swapping the replacement back. Doing it
@@ -585,20 +604,22 @@ class AssistantController
         // in between is caught by the same uniqueness check instead of clobbered.
         $stored = AssistantSession::changeSetOf($message) ?? [];
 
-        if ($outcome['restored'] > 0) {
+        if ($count > 0) {
             AssistantSession::setChangeSetStatus($messageId, 'undone');
             $_SESSION['_assistant_outcome'] = [
                 'undone'  => true,
                 'applied' => false,
                 'results' => [],
                 'errors'  => [],
-                'count'   => $outcome['restored'],
+                'kept'    => $shop['kept'],
+                'count'   => $count,
             ];
         } else {
             $_SESSION['_assistant_outcome'] = [
                 'applied' => false,
                 'results' => [],
-                'errors'  => ['Nothing was undone — the snapshots for this change are no longer available.'],
+                'errors'  => $shop['kept'] !== [] ? $shop['kept']
+                    : ['Nothing was undone — the snapshots for this change are no longer available.'],
             ];
         }
 
@@ -667,12 +688,23 @@ class AssistantController
         return $words === '' ? 'Value' : ucfirst($words);
     }
 
-    private static function buildDiff(array $operations): array
+    private static function buildDiff(array $operations, bool $settled = false): array
     {
         $rows = [];
 
+        // ── WHAT IT WAS, ONCE IT IS NO LONGER WAITING ───────────────────────
+        // While a change can still be approved, `from` is the value stored now,
+        // because that is what approving replaces. Applied, the stored value is
+        // the `to`, and an applied change read "$179 → $179": what it was
+        // proposed from is the answer then.
+        $was = static fn (array $op, mixed $stored): mixed => $settled && array_key_exists('from', $op) ? $op['from'] : $stored;
+
         foreach ($operations as $op) {
             $type    = (string) ($op['op'] ?? '');
+            if (in_array($type, ShopOps::OPS, true)) {
+                $rows[] = ShopOps::row($op, $settled);
+                continue;
+            }
             $entryId = (int) ($op['entry_id'] ?? 0);
             $entry   = $entryId > 0 ? Post::find($entryId) : null;
 
@@ -689,11 +721,11 @@ class AssistantController
             if ($type === 'update_field' && $entry !== null) {
                 $field        = ContentTypeSchema::field((string) $entry['post_type'], (string) $op['field']);
                 $row['label'] = $field['label'] ?? self::humanKey((string) $op['field']);
-                $row['from']  = Meta::get($entryId, (string) $op['field']);
+                $row['from']  = $was($op, Meta::get($entryId, (string) $op['field']));
                 $row['to']    = $op['to'] ?? null;
             } elseif ($type === 'update_core' && $entry !== null) {
                 $row['label'] = self::humanKey((string) $op['field']);
-                $row['from']  = $entry[$op['field']] ?? null;
+                $row['from']  = $was($op, $entry[$op['field']] ?? null);
                 $row['to']    = $op['to'] ?? null;
             } elseif ($type === 'create_entry') {
                 // Show the human label ("Team"), not the registry key ("team_member").
@@ -717,7 +749,7 @@ class AssistantController
                 $row['entry'] = $page['title'] ?? "page {$pageId}";
                 $row['type']  = 'Page';
                 $row['label'] = self::PAGE_FIELD_LABELS[$field] ?? self::humanKey($field);
-                $row['from']  = $page[$field] ?? null;
+                $row['from']  = $was($op, $page[$field] ?? null);
                 $row['to']    = $op['to'] ?? null;
             }
 

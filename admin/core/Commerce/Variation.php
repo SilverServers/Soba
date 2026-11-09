@@ -229,6 +229,7 @@ final class Variation
 
         if ($stmt->rowCount() === 1) {
             self::syncStatus($id);
+            self::logged($id, -$quantity);
 
             return true;
         }
@@ -238,6 +239,40 @@ final class Variation
         $row = self::find($id);
 
         return $row !== null && empty($row['manage_stock']);
+    }
+
+    /**
+     * Option rows written as given, for a product copied from another
+     * (`ContentTypeController::handleCopy()`): every column but the id, and the
+     * copy's own product. A counted option with nothing in it is sold out.
+     *
+     * @param list<array<string, mixed>> $rows
+     */
+    public static function copyRows(int $postId, array $rows): void
+    {
+        self::$primed = [];
+        $stmt = Database::getInstance()->prepare(
+            'INSERT INTO product_variations
+                (post_id, label, terms, sku, price, sale_price, manage_stock, stock_qty, stock_status, image_id, sort_order)
+             VALUES (:p, :l, :t, :s, :pr, :sp, :m, :q, :st, :i, :o)'
+        );
+        foreach ($rows as $row) {
+            $managed = !empty($row['manage_stock']);
+            $qty     = (int) ($row['stock_qty'] ?? 0);
+            $stmt->execute([
+                ':p'  => $postId,
+                ':l'  => (string) $row['label'],
+                ':t'  => $row['terms'] ?? null,
+                ':s'  => (string) ($row['sku'] ?? ''),
+                ':pr' => $row['price'] ?? null,
+                ':sp' => $row['sale_price'] ?? null,
+                ':m'  => $managed ? 1 : 0,
+                ':q'  => $qty,
+                ':st' => $managed && $qty <= 0 ? Product::OUT_OF_STOCK : (string) ($row['stock_status'] ?? Product::IN_STOCK),
+                ':i'  => $row['image_id'] ?? null,
+                ':o'  => (int) ($row['sort_order'] ?? 0),
+            ]);
+        }
     }
 
     /** Put `$quantity` back. */
@@ -255,6 +290,56 @@ final class Variation
         );
         $stmt->execute([':give' => $quantity, ':id' => $id]);
         self::syncStatus($id);
+        if ($stmt->rowCount() === 1) {
+            self::logged($id, $quantity);
+        }
+    }
+
+    /**
+     * An option's count set to what the owner typed, IF it is still what the
+     * screen showed them (`Stock::setCount()` has the reason).
+     */
+    public static function setCount(int $id, int $was, int $now): bool
+    {
+        self::$primed = [];
+        if ($now < 0) {
+            return false;
+        }
+        $stmt = Database::getInstance()->prepare(
+            'UPDATE product_variations SET stock_qty = :now
+              WHERE id = :id AND manage_stock = 1 AND stock_qty = :was'
+        );
+        $stmt->execute([':now' => $now, ':id' => $id, ':was' => $was]);
+        if ($stmt->rowCount() !== 1) {
+            return false;
+        }
+        self::syncStatus($id);
+        self::logged($id, $now - $was);
+
+        return true;
+    }
+
+    /**
+     * An option's own price and sale price, from the product list's bulk edit
+     * (`ProductBulk`). Only on an option with a price of its own: one without
+     * follows the product's, and is left to.
+     */
+    public static function setPrices(int $id, int $price, ?int $sale): void
+    {
+        self::$primed = [];
+        $stmt = Database::getInstance()->prepare(
+            'UPDATE product_variations SET price = :p, sale_price = :s WHERE id = :id AND price IS NOT NULL'
+        );
+        $stmt->execute([':p' => $price, ':s' => $sale, ':id' => $id]);
+    }
+
+    /** A change to an option's count, as a line in its product's history. */
+    private static function logged(int $id, int $change): void
+    {
+        $row = self::find($id);
+        if ($row !== null) {
+            StockLog::record((int) $row['post_id'], $id, $change, (int) $row['stock_qty']);
+        }
     }
 
     /**
@@ -320,43 +405,12 @@ final class Variation
                 continue;
             }
 
-            $label = trim((string) ($row['label'] ?? ''));
-
-            // A ROW WITH NO LABEL IS NOT A VARIANT. The template's blank
-            // template row posts as one when a repeater is left open, and an
-            // unnamed variant is a line on a packing slip that says nothing.
-            if ($label === '') {
+            // A ROW WITH NO LABEL IS NOT A VARIANT (`columns()`).
+            $data = self::columns($postId, $row, $allowed, $sort);
+            if ($data === null) {
                 continue;
             }
-
-            $price = trim((string) ($row['price'] ?? ''));
-            $price = $price === '' ? null : Money::parse($price);
-            $sale  = trim((string) ($row['sale_price'] ?? ''));
-            $sale  = $sale === '' ? null : Money::parse($sale);
-            $image = (int) ($row['image_id'] ?? 0);
-
-            $data = [
-                ':post'   => $postId,
-                ':label'  => mb_substr($label, 0, 120),
-                ':sku'    => mb_substr(trim((string) ($row['sku'] ?? '')), 0, 80),
-                // A PRICE THAT WILL NOT PARSE IS LEFT INHERITED rather than
-                // stored as zero. `Money::parse()` returns null for anything it
-                // cannot hold exactly, and a variant silently priced at nothing
-                // is a product given away.
-                ':price'  => $price,
-                ':sale'   => $sale,
-                // WHAT THE OPTION IS MADE OF, from this type's option
-                // taxonomies only — `cleanTerms()` drops anything else.
-                ':terms'  => self::cleanTerms($allowed, $row['terms'] ?? null),
-                // A PHOTO THAT IS NO FILE IS NO PHOTO, and is not stored.
-                ':image'  => $image > 0 && \Cms\Models\Media::find($image) !== null ? $image : null,
-                ':manage' => !empty($row['manage_stock']) ? 1 : 0,
-                ':qty'    => max(0, (int) ($row['stock_qty'] ?? 0)),
-                ':status' => in_array((string) ($row['stock_status'] ?? ''), [
-                    Product::IN_STOCK, Product::OUT_OF_STOCK, Product::ON_BACKORDER,
-                ], true) ? (string) $row['stock_status'] : Product::IN_STOCK,
-                ':sort'   => $sort++,
-            ];
+            $sort++;
 
             $id = (int) ($row['id'] ?? 0);
             if ($id > 0) {
@@ -399,6 +453,99 @@ final class Variation
             "DELETE FROM product_variations WHERE post_id = :id AND id NOT IN ($marks)"
         );
         $stmt->execute([':id' => $postId]);
+    }
+
+    /**
+     * One option added to a product, by the same rules as a row the entry form
+     * saves (`columns()`), at the end of its list; its id, or null for a row
+     * with no name.
+     *
+     * ONE ROW, NOT THE LIST POSTED BACK. The assistant's `add_option` adds an
+     * option to a product people are buying from: writing every row back as it
+     * was read would put back each count as it stood, and a sale in between
+     * would be undone.
+     *
+     * @param array<string, mixed> $row as a row of `$_POST['variations']`
+     */
+    public static function add(int $postId, array $row): ?int
+    {
+        $db      = Database::getInstance();
+        $post    = \Cms\Models\Post::find($postId);
+        $allowed = array_keys(self::optionTaxonomies((string) ($post['post_type'] ?? '')));
+        $next    = $db->prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_variations WHERE post_id = :p');
+        $next->execute([':p' => $postId]);
+        $data = self::columns($postId, $row, $allowed, (int) $next->fetchColumn());
+        if ($data === null) {
+            return null;
+        }
+        self::$primed = [];
+        $db->prepare(
+            'INSERT INTO product_variations
+                    (post_id, label, terms, sku, price, sale_price, manage_stock, stock_qty,
+                     stock_status, image_id, sort_order)
+             VALUES (:post, :label, :terms, :sku, :price, :sale, :manage, :qty,
+                     :status, :image, :sort)'
+        )->execute($data);
+
+        return (int) $db->lastInsertId();
+    }
+
+    /** One option taken off its product: an `add()` undone. */
+    public static function remove(int $id): void
+    {
+        self::$primed = [];
+        Database::getInstance()->prepare('DELETE FROM product_variations WHERE id = :id')->execute([':id' => $id]);
+    }
+
+    /**
+     * A row as the table stores it, from a row as the entry form posts it; null
+     * for a row with no name.
+     *
+     * @param array<string, mixed> $row
+     * @param list<string>         $allowed the type's option taxonomies
+     * @return array<string, mixed>|null
+     */
+    private static function columns(int $postId, array $row, array $allowed, int $sort): ?array
+    {
+        $label = trim((string) ($row['label'] ?? ''));
+
+        // A ROW WITH NO LABEL IS NOT A VARIANT. The template's blank
+        // template row posts as one when a repeater is left open, and an
+        // unnamed variant is a line on a packing slip that says nothing.
+        if ($label === '') {
+            return null;
+        }
+
+        $price = trim((string) ($row['price'] ?? ''));
+        $price = $price === '' ? null : Money::parse($price);
+        $sale  = trim((string) ($row['sale_price'] ?? ''));
+        $sale  = $sale === '' ? null : Money::parse($sale);
+        $image = (int) ($row['image_id'] ?? 0);
+
+        $data = [
+            ':post'   => $postId,
+            ':label'  => mb_substr($label, 0, 120),
+            ':sku'    => mb_substr(trim((string) ($row['sku'] ?? '')), 0, 80),
+            // A PRICE THAT WILL NOT PARSE IS LEFT INHERITED rather than
+            // stored as zero. `Money::parse()` returns null for anything it
+            // cannot hold exactly, and a variant silently priced at nothing
+            // is a product given away.
+            ':price'  => $price,
+            ':sale'   => $sale,
+            // WHAT THE OPTION IS MADE OF, from this type's option
+            // taxonomies only — `cleanTerms()` drops anything else.
+            ':terms'  => self::cleanTerms($allowed, $row['terms'] ?? null),
+            // A PHOTO THAT IS NO FILE IS NO PHOTO, and is not stored.
+            ':image'  => $image > 0 && \Cms\Models\Media::find($image) !== null ? $image : null,
+            ':manage' => !empty($row['manage_stock']) ? 1 : 0,
+            ':qty'    => max(0, (int) ($row['stock_qty'] ?? 0)),
+            ':status' => in_array((string) ($row['stock_status'] ?? ''), [
+                Product::IN_STOCK, Product::OUT_OF_STOCK, Product::ON_BACKORDER,
+            ], true) ? (string) $row['stock_status'] : Product::IN_STOCK,
+            ':sort'   => $sort,
+        ];
+
+        return $data;
     }
 
     /**

@@ -396,6 +396,47 @@ $linkText = static function (string $url): string {
                         This is out of stock and cannot be ordered at the moment.<?php /* audit-ok: the SYSTEM describing its own state: stock decided this, and an editable version could contradict it */ ?>
                     </p>
                 <?php endif; ?>
+
+                <?php
+                // ── TOLD WHEN IT IS BACK ───────────────────────────────────
+                // A sold-out option, or a product sold out, takes an address
+                // to email once when it is back (`StockAlert`), and nothing
+                // else is done with it. Only one whose count is kept: "back"
+                // is its count coming up from nothing, and a thing marked out
+                // of stock with no count would keep the address for an email
+                // that never comes.
+                $soldOut = [];
+                if ($product !== null) {
+                    foreach ($variants as $soldVariant) {
+                        if (!\Cms\Commerce\Variation::isPurchasable($soldVariant)
+                            && \Cms\Commerce\Variation::available($soldVariant) !== null) {
+                            $soldOut[(int) $soldVariant['id']] = (string) $soldVariant['label'];
+                        }
+                    }
+                    if ($variants === [] && !$product['purchasable'] && $product['stock_left'] !== null) {
+                        $soldOut[0] = (string) $product['title'];
+                    }
+                }
+                ?>
+                <?php if ($soldOut !== []): ?>
+                    <form class="shop-waitlist" method="post" action="<?= htmlspecialchars(\Cms\Helpers\Url::page('shop/notify')) ?>" data-waitlist><?php /* audit-ok: a route on this site */ ?>
+                        <?= \Cms\Security\Csrf::field() ?>
+                        <input type="hidden" name="product_id" value="<?= (int) $product['id'] ?>">
+                        <label class="shop-waitlist__lead" for="waitlist-email">Sold out in the one you want? Leave your email to hear when it is back.</label><?php /* audit-ok: the SYSTEM describing what this form does with an address */ ?>
+                        <?php if ($variants !== []): ?>
+                            <label class="u-visually-hidden" for="waitlist-option">Which one</label><?php /* audit-ok: the select's label */ ?>
+                            <?php // ITS OWN NAME: `variation_id` is the basket form's, and
+                                  // what reads that form reads the option it adds. ?>
+                            <select class="shop-variant" id="waitlist-option" name="waitlist_option">
+                                <?php foreach ($soldOut as $soldId => $soldLabel): ?>
+                                    <option value="<?= (int) $soldId ?>"><?= htmlspecialchars($soldLabel) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        <?php endif; ?>
+                        <input class="shop-field__input" type="email" id="waitlist-email" name="email" required autocomplete="email">
+                        <button type="submit" class="shop-btn shop-btn--quiet">Email me</button><?php /* audit-ok: the button names what it does */ ?>
+                    </form>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
         <?php if ($variants !== [] || ($product['gallery'] ?? []) !== []): ?>

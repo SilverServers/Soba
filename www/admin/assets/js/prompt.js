@@ -32,10 +32,14 @@
  * off for by name. A dialog that asks for two strings is not a different kind of
  * thing from one that asks for one.
  *
- * A field is `{name, label, value, type, options, placeholder, help}`. `type` is
- * 'text' (the default), 'number' or 'select'; a select takes `options` as
- * `[[value, label], …]`. `help` is a line under the control, for the thing the
- * label cannot say in two words.
+ * A field is `{name, label, value, type, options, placeholder, help, required}`.
+ * `type` is 'text' (the default), 'number', 'select' or 'textarea'; a select
+ * takes `options` as `[[value, label], …]`, and a textarea `rows`. `help` is a
+ * line under the control, for the thing the label cannot say in two words.
+ *
+ * A textarea with `file: {label, accept}` also takes a file: a button that chooses
+ * one, or one dropped on the box, whose words become the box's. `wide: true` on
+ * the ask is a dialog with room for a document, for that ask alone.
  *
  * ── AND `fields: []` IS A DIALOG THAT ONLY TELLS YOU SOMETHING ──────────────
  * An EMPTY list is not the same as no list: it means "many fields, and there
@@ -156,6 +160,88 @@
     }
 
     /**
+     * A FILE'S WORDS INTO A TEXT BOX: the row under it, with a button that chooses
+     * a file, and the box itself taking one dropped on it. What the browser is
+     * given goes in the box, where the writer can see it before anything is done
+     * with it; nothing here sends it anywhere.
+     *
+     * READ AS BYTES, not as text. `readAsText()` turns what is not UTF-8 into
+     * replacement characters before anyone can tell, so a document saved by an
+     * older Windows editor lost its curly quotes. It is UTF-8 if it is valid as
+     * UTF-8, and Windows-1252 if not.
+     */
+    function fileRow(file, box) {
+        var row = document.createElement('div');
+        row.className = 'prompt-file';
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.hidden = true;
+        input.accept = file.accept || '';
+        input.setAttribute('data-prompt-file', '');
+
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn--sm';
+        button.textContent = file.label || 'Choose a file';
+        button.addEventListener('click', function () { input.click(); });
+
+        var said = document.createElement('span');
+        said.className = 'form-help';
+        said.setAttribute('data-prompt-file-said', '');
+
+        var accepted = function (chosen) {
+            var name = chosen.name.toLowerCase();
+            return chosen.type.indexOf('text/') === 0 || (file.accept || '').split(',').some(function (a) {
+                return a.charAt(0) === '.' && name.slice(-a.length) === a;
+            });
+        };
+        var read = function (chosen) {
+            if (!accepted(chosen)) {
+                said.textContent = chosen.name + ' is not a text file.';
+                return;
+            }
+            var reader = new FileReader();
+            reader.onload = function () {
+                var bytes = new Uint8Array(reader.result);
+                var text;
+                try {
+                    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+                } catch (err) {
+                    text = new TextDecoder('windows-1252').decode(bytes);
+                }
+                box.value = text;
+                said.textContent = chosen.name;
+                box.focus();
+            };
+            reader.onerror = function () { said.textContent = chosen.name + ' could not be read.'; };
+            reader.readAsArrayBuffer(chosen);
+        };
+
+        input.addEventListener('change', function () {
+            if (input.files.length) { read(input.files[0]); }
+            input.value = '';
+        });
+        var carriesFile = function (e) {
+            return !!e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') !== -1;
+        };
+        box.addEventListener('dragover', function (e) {
+            if (carriesFile(e)) { e.preventDefault(); }
+        });
+        box.addEventListener('drop', function (e) {
+            if (carriesFile(e) && e.dataTransfer.files.length) {
+                e.preventDefault();
+                read(e.dataTransfer.files[0]);
+            }
+        });
+
+        row.appendChild(input);
+        row.appendChild(button);
+        row.appendChild(said);
+        return row;
+    }
+
+    /**
      * Ask for a value.
      *
      * @param {object} opts  title · label · body (optional detail) ·
@@ -172,6 +258,7 @@
         var single = d.querySelector('[data-prompt-single]');
         var many   = d.querySelector('[data-prompt-fields]');
 
+        d.classList.toggle('modal--wide', !!opts.wide);
         d.querySelector('[data-prompt-title]').textContent = opts.title || '';
         body.textContent = opts.body || '';
         body.hidden = !opts.body;
@@ -223,6 +310,12 @@
                         o.textContent = pair[1];
                         el.appendChild(o);
                     });
+                } else if (f.type === 'textarea') {
+                    el = document.createElement('textarea');
+                    el.className = 'textarea';
+                    el.rows = f.rows || 6;
+                    el.spellcheck = false;
+                    if (f.placeholder) { el.placeholder = f.placeholder; }
                 } else {
                     el = document.createElement('input');
                     el.className = 'input';
@@ -236,7 +329,9 @@
                 el.id = id;
                 el.dataset.promptField = f.name;
                 el.value = f.value === undefined || f.value === null ? '' : String(f.value);
+                if (f.required) { el.required = true; }
                 wrap.appendChild(el);
+                if (f.file) { wrap.appendChild(fileRow(f.file, el)); }
 
                 if (f.help) {
                     var help = document.createElement('p');

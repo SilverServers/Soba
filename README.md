@@ -7,19 +7,22 @@ A content management system for the websites an agency builds and hands over to 
 - **Content Types and fields.** Define a type (News, Events, Staff, …) with its own fields, archive and address, entirely from the admin. Field groups attach to types by location rules.
 - **Taxonomies, menus and pages.** Categories and tags with their own addresses, menus for several locations, parent and child entries, revisions and undo.
 - **Media.** A library with folders. New images are stored as WebP. Galleries.
+- **Embeds.** A video or a post from YouTube, Vimeo, X, Instagram or Facebook goes into any text as the embed code the provider gives out, and the page shows it as the provider draws it.
+- **Import Markdown.** A Markdown document, pasted or chosen as a file, goes into the body where the cursor is, with its headings, lists, tables and links. Nothing is saved until the entry is, and pictures that are only on the writer's computer are named so they can be added.
 - **Forms.** A form builder (pages, conditions, repeaters, uploads, ratings, appointments), a submissions inbox, and spam handling that discards what is certainly spam and keeps what is only suspicious.
+- **A shop.** Products sold as themselves or in sizes and colours, each option with its own code, photo, price, sale and count. A basket and checkout with tax by province or state, delivery by place and local pickup, and discount codes. Orders with their emails and notes, refunds by the line, exchanges, tracking, packing slips and invoices, orders taken by telephone, and a spreadsheet for the books. A stock screen with each count's history, mail when a size runs low or sells out, and a list of who is waiting for it to come back. Prices, sales and counts changed across a selection, and products in and out of a spreadsheet. Customers who sign in from a link sent to their inbox, with what is kept about them given or erased on request. Reports of what sold and the tax collected by province. A feed for Google Merchant Center and Meta's catalogue, and an API with keys and webhooks for other programs. Payment is by bank transfer, cheque or on delivery: there is no card gateway yet.
 - **SEO.** Titles and descriptions with variables, structured data, a sitemap, redirects.
 - **Users and sign-in security.** Roles, two-step sign-in, signing in without a password, temporary access, a sign-in page at an address of your own or one made at random, lockouts, a log of who changed what, and a check of the CMS's own files against the release they came from.
 - **White-label.** Every name a visitor or an editor sees is the site's own title.
 - **Modules.** Pages, menus, search, the shop, appointments, the assistant and forms can each be switched off in `config.php`; their data stays.
-- **An assistant (optional).** The site owner asks in plain words. It proposes a change, a person approves the rendered difference, and only then does the CMS apply it: the model has no way to write. It uses the Claude API with the owner's own key and a spend limit.
+- **An assistant (optional).** The site owner asks in plain words. It proposes a change, a person approves the rendered difference, and only then does the CMS apply it: the model has no way to write. In a shop it also reads the orders, stock and sales, and proposes a new count, an order's move, a discount code or an option the same way. It uses the Claude API with the owner's own key and a spend limit.
 - **Updates with a way back.** The updater backs up the database and every file it replaces, refuses to overwrite a file the site has changed, and rolls itself back if anything fails.
 
-Nothing is fetched from a third party at runtime: no CDN scripts, no remote fonts.
+Nothing is fetched from a third party at runtime: no CDN scripts, no remote fonts. The one exception is an embed a writer pastes, which loads from its provider.
 
 ## Requirements
 
-- PHP 8.2 or later, with the PDO MySQL, mbstring, DOM and fileinfo extensions. Two-step sign-in also needs OpenSSL, and the assistant needs curl. Imagick, when present, is used for WebP.
+- PHP 8.2 or later, with the PDO MySQL, mbstring, DOM and fileinfo extensions. Two-step sign-in also needs OpenSSL, the assistant needs curl, and a shop's webhooks need `allow_url_fopen`. Imagick, when present, is used for WebP.
 - MySQL or MariaDB
 - Apache with `mod_rewrite` (the rules are in `www/.htaccess`), or a server that sends every request that is not a file to `www/index.php`
 
@@ -37,6 +40,8 @@ This repository is an installation: `admin/` holds the code and its configuratio
 If that password is lost before anyone signs in, `php admin/bin/security.php password admin` prints a new one. The same command is the way back in for any account whose owner cannot sign in.
 
 To move the sign-in page away from `/admin/login`, use Security → Login protection: type an address of your own, or press Randomize.
+
+A shop's unpaid orders are cancelled after the days Settings → Shop allows, and their customers reminded the day before, checked on visits at most every ten minutes. Where the host has cron, `php admin/bin/run-due.php` runs the same check on a timetable, so it happens on time on a quiet site.
 
 ## Updating
 

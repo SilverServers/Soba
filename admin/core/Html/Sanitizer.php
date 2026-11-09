@@ -59,7 +59,9 @@ final class Sanitizer
      * `script`, `style`, `iframe`, `object`, `embed`, `form`, `input`,
      * `button`, `svg`, `math`, `link`, `meta`, `base` — every one of these is
      * either executable, a way to load something executable, or a way to change
-     * where a form posts. None of them belongs in an entry's body.
+     * where a form posts. None of them belongs in an entry's body, except as
+     * part of an embed from one of five providers, kept only as the provider's
+     * code writes it (`Html\Embed`).
      *
      * `class` is allowed on almost nothing, and where it IS allowed only the
      * VALUES in `CLASSES` and `TEXT_CLASSES` survive. An author cannot reach
@@ -108,7 +110,10 @@ final class Sanitizer
         'span'       => [],
 
         // Lists
-        'ul' => [], 'ol' => [], 'li' => ['class'],
+        // `start` (digits only): a numbered list that carries on after a
+        // paragraph begins at 3, not again at 1. Markdown writes it so, and
+        // without it an imported "3. Three" became a second "1.".
+        'ul' => [], 'ol' => ['start'], 'li' => ['class'],
         'dl' => [], 'dt' => [], 'dd' => [],
 
         // Links and media
@@ -224,12 +229,20 @@ final class Sanitizer
     /** The anchors this call has kept — one each (`anchor()`). */
     private static array $anchors = [];
 
+    /** The providers whose embed this body has, by class (`Html\Embed`). */
+    private static array $embedded = [];
+
+    /** The providers' scripts this body has, each with its provider, until `clean()` knows whether it has an embed to draw. */
+    private static array $scripts = [];
+
     /**
      * Tags whose CONTENT goes with them, rather than being unwrapped.
      *
-     * `iframe` STAYS HERE, with one exception: YouTube's embed code is kept as
-     * pasted — the frame, with only the attributes YouTube writes on it
-     * (`Html\YouTube`). Every other iframe still goes with its contents.
+     * `iframe` and `script` STAY HERE, with one exception: an embed from one of
+     * five providers is kept as pasted — the provider's frame with only the
+     * attributes its code writes, and its script with nothing inside it
+     * (`Html\Embed`). Every other iframe and script still goes with its
+     * contents.
      */
     private const DROP_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'template', 'noscript'];
 
@@ -311,7 +324,19 @@ final class Sanitizer
 
         // One set of anchors per body; the wrapper's own id is never one.
         self::$anchors = ['cms-sanitizer-root' => true];
+        self::$embedded = [];
+        self::$scripts = [];
         self::walk($root);
+
+        // A PROVIDER'S SCRIPT WITH NOTHING TO DRAW GOES. Decided after the
+        // whole body is walked, because the script may come before its embed
+        // as well as after it.
+        foreach (self::$scripts as [$script, $provider]) {
+            if (!isset(self::$embedded[$provider])) {
+                $script->parentNode?->removeChild($script);
+            }
+        }
+        self::$scripts = [];
 
         $out = '';
         foreach (iterator_to_array($root->childNodes) as $child) {
@@ -355,30 +380,116 @@ final class Sanitizer
     }
 
     /**
-     * A YouTube embed, as YouTube's embed code writes it: only its own
-     * attributes (`srcdoc`, `sandbox`, `on*`, `style` and the rest go), a size
-     * only if it is a number, and nothing inside the frame.
+     * A provider's frame, as its embed code writes it: only its own attributes
+     * (`srcdoc`, `sandbox`, `on*` and the rest go), a size only if it is a
+     * number, a style only if it is the provider's own, and nothing inside the
+     * frame.
+     *
+     * @param class-string<EmbedFrame> $provider
      */
-    private static function keepEmbed(DOMElement $el): void
+    private static function keepFrame(DOMElement $el, string $provider): void
     {
+        $wrapped = $el->parentNode instanceof DOMElement && Embed::box($el->parentNode) === $provider;
         foreach (iterator_to_array($el->attributes ?? []) as $attr) {
             $name = strtolower($attr->nodeName);
-            if (!in_array($name, YouTube::ATTRIBUTES, true)
-                || (in_array($name, ['width', 'height', 'frameborder'], true) && preg_match('/^\d{1,4}%?$/', trim((string) $attr->nodeValue)) !== 1)) {
+            $value = trim((string) $attr->nodeValue);
+            if (!in_array($name, $provider::attributes(), true)
+                || (in_array($name, ['width', 'height', 'frameborder'], true) && preg_match('/^\d{1,4}%?$/', $value) !== 1)
+                || ($name === 'scrolling' && !in_array(strtolower($value), ['no', 'yes', 'auto'], true))
+                || ($name === 'style' && !$provider::frameStyle($value, $wrapped))) {
                 $el->removeAttribute($attr->nodeName);
             }
         }
         foreach (iterator_to_array($el->childNodes) as $child) {
             $el->removeChild($child);
         }
-        // `allowfullscreen` AS IT WAS WRITTEN. YouTube's code writes it bare,
-        // and a browser hands a bare one back from the editor as `=""`: an
-        // empty one is written bare again. One written out in full
-        // (`allowfullscreen="allowfullscreen"`, as an earlier release stored
-        // embed codes) is kept as it is. What is stored is the code as pasted.
-        if ($el->hasAttribute('allowfullscreen') && $el->getAttribute('allowfullscreen') === '') {
-            $el->removeAttribute('allowfullscreen');
-            $el->setAttributeNode(new \DOMAttr('allowfullscreen'));
+        self::bare($el);
+        self::$embedded[$provider] = true;
+    }
+
+    /**
+     * A provider's script: one of the addresses its code writes, the way it
+     * loads (`async`, `defer`, `charset`) and nothing inside it. Kept only if
+     * the body has the provider's embed — `clean()` decides once it has seen
+     * the whole body.
+     */
+    private static function keepScript(DOMElement $el, string $provider): void
+    {
+        foreach (iterator_to_array($el->attributes ?? []) as $attr) {
+            $name = strtolower($attr->nodeName);
+            $value = trim((string) $attr->nodeValue);
+            if (!in_array($name, ['src', 'async', 'defer', 'charset'], true)
+                || (in_array($name, ['async', 'defer'], true) && !in_array(strtolower($value), ['', $name], true))
+                || ($name === 'charset' && strtolower($value) !== 'utf-8')) {
+                $el->removeAttribute($attr->nodeName);
+            }
+        }
+        foreach (iterator_to_array($el->childNodes) as $child) {
+            $el->removeChild($child);
+        }
+        self::bare($el);
+        self::$scripts[] = [$el, $provider];
+    }
+
+    /**
+     * A provider's quote, as its embed code writes it: each tag of the
+     * provider's keeps only what the provider writes on it (`keeps()`), every
+     * other tag inside it is cleaned as it would be anywhere in a body, and a
+     * link that loses its address stops being a link. No provider's code puts a
+     * script or a frame inside its quote, so even a provider's own goes from
+     * there.
+     *
+     * No `rel` is added to the provider's `target="_blank"` links: the page
+     * they open is the provider's, whose script already runs in this one.
+     *
+     * @param class-string<EmbedQuote> $provider
+     */
+    private static function keepQuote(DOMElement $el, string $provider): void
+    {
+        $tag = strtolower($el->nodeName);
+        if (in_array($tag, ['script', 'iframe'], true)) {
+            $el->parentNode?->removeChild($el);
+            return;
+        }
+        if (!in_array($tag, $provider::tags(), true)) {
+            self::handleElement($el);
+            return;
+        }
+        foreach (iterator_to_array($el->attributes ?? []) as $attr) {
+            if (!$provider::keeps($tag, strtolower($attr->nodeName), trim((string) $attr->nodeValue))) {
+                $el->removeAttribute($attr->nodeName);
+            }
+        }
+        self::bare($el);
+        foreach (iterator_to_array($el->childNodes) as $child) {
+            if ($child instanceof DOMElement) {
+                self::keepQuote($child, $provider);
+            } elseif (in_array($child->nodeType, [XML_COMMENT_NODE, XML_CDATA_SECTION_NODE, XML_PI_NODE], true)) {
+                $el->removeChild($child);
+            }
+        }
+        if ($tag === 'a' && !$el->hasAttribute('href')) {
+            self::unwrap($el);
+        }
+        self::$embedded[$provider] = true;
+    }
+
+    /**
+     * AN EMPTY ATTRIBUTE IS WRITTEN BARE, IN ITS PLACE. A provider's code
+     * writes `allowfullscreen`, `async` and the like bare, and a browser hands
+     * a bare one back from the editor as `=""`. One written out in full
+     * (`allowfullscreen="allowfullscreen"`, as an earlier release stored embed
+     * codes, or Facebook's `allowfullscreen="true"`) is kept as it is. What is
+     * stored is the code as pasted.
+     */
+    private static function bare(DOMElement $el): void
+    {
+        foreach (iterator_to_array($el->attributes ?? []) as $attr) {
+            if ($attr->nodeValue === '') {
+                while ($attr->firstChild !== null) {
+                    $attr->removeChild($attr->firstChild);
+                }
+            }
         }
     }
 
@@ -405,12 +516,33 @@ final class Sanitizer
         // visible text on the page — not dangerous, but nonsense the author
         // never typed. `<style>` unwrapped is worse: a wall of CSS as prose.
         if (in_array($tag, self::DROP_CONTENT, true)) {
-            // A YOUTUBE EMBED IS KEPT — see `DROP_CONTENT`.
-            if ($tag === 'iframe' && YouTube::isEmbed($el->getAttribute('src'))) {
-                self::keepEmbed($el);
+            // A PROVIDER'S FRAME OR SCRIPT IS KEPT — see `DROP_CONTENT`.
+            $provider = match ($tag) {
+                'iframe' => Embed::frame($el->getAttribute('src')),
+                'script' => Embed::script($el->getAttribute('src')),
+                default  => null,
+            };
+            if ($provider !== null) {
+                $tag === 'iframe' ? self::keepFrame($el, $provider) : self::keepScript($el, $provider);
                 return;
             }
             $el->parentNode?->removeChild($el);
+            return;
+        }
+
+        // A PROVIDER'S QUOTE, AND A PROVIDER'S BOX ROUND ITS FRAME, keep what
+        // the provider's code writes on them, which `TAGS` would not.
+        if ($tag === 'blockquote' && ($provider = Embed::quote($el)) !== null) {
+            self::keepQuote($el, $provider);
+            return;
+        }
+        if ($tag === 'div' && Embed::box($el) !== null) {
+            foreach (iterator_to_array($el->attributes ?? []) as $attr) {
+                if (strtolower($attr->nodeName) !== 'style') {
+                    $el->removeAttribute($attr->nodeName);
+                }
+            }
+            self::walk($el);
             return;
         }
 
@@ -445,6 +577,11 @@ final class Sanitizer
             }
 
             if ($name === 'id' && !self::anchor((string) $attr->nodeValue)) {
+                $el->removeAttribute($attr->nodeName);
+                continue;
+            }
+
+            if ($name === 'start' && preg_match('/^\d{1,9}$/', trim((string) $attr->nodeValue)) !== 1) {
                 $el->removeAttribute($attr->nodeName);
                 continue;
             }

@@ -133,6 +133,23 @@ class ContentTypeController
         // BULK EDIT'S AUTHOR CHOICE is the entry form's: editors and up only.
         $bulkAuthors = Auth::hasRole('editor') ? User::authors() : null;
 
+        // ── A PRODUCT'S LINE: what it sells for, its code and its stock ────
+        // For a page of products, read in two queries rather than two a row.
+        $isProductType = in_array('product', (array) ($contentType['archetypes'] ?? []), true);
+        $productLines  = [];
+        if ($isProductType && $posts !== []) {
+            $ids   = array_map(static fn (array $r): int => (int) $r['id'], $posts);
+            $meta  = \Cms\Models\Meta::getAllFor($ids);
+            $opts  = \Cms\Commerce\Variation::forProducts($ids);
+            $lowAt = \Cms\Commerce\Stock::lowAt();
+            foreach ($posts as $row) {
+                $product = \Cms\Commerce\Product::fromPost($row, $opts[(int) $row['id']] ?? [], $meta[(int) $row['id']] ?? []);
+                if ($product !== null) {
+                    $productLines[(int) $row['id']] = \Cms\Commerce\Product::listLine($product, $lowAt);
+                }
+            }
+        }
+
         // WHAT THE LAST BULK ACTION DID, once — the media library's flash
         // pattern: set before the redirect, read and cleared here.
         $bulkReport = $_SESSION['entry_bulk_report'] ?? null;
@@ -275,6 +292,10 @@ class ContentTypeController
             $rows = $_POST['variations'] ?? [];
             \Cms\Commerce\Variation::sync($id, is_array($rows) ? $rows : []);
         }
+        // A NEW PRODUCT'S FIRST COUNTS are the history's first lines.
+        if (in_array('product', (array) ($contentType['archetypes'] ?? []), true)) {
+            \Cms\Commerce\StockLog::edited([], \Cms\Commerce\Stock::countsOf($id), (string) (Auth::user()['name'] ?? Auth::user()['username'] ?? ''));
+        }
 
         header('Location: ' . ADMIN_URL . '/' . $contentType['admin_slug'] . '/' . $id . '/edit');
         exit;
@@ -402,6 +423,10 @@ class ContentTypeController
         self::saveParent((int) $vars['id'], $contentType);
         self::saveAuthor((int) $vars['id']);
 
+        // COUNTS TYPED OVER ON THE PRODUCT are lines in its stock history:
+        // read before the save and after it, and each that moved is one.
+        $isProduct    = in_array('product', (array) ($contentType['archetypes'] ?? []), true);
+        $countsBefore = $isProduct ? \Cms\Commerce\Stock::countsOf((int) $vars['id']) : [];
         Meta::saveFields((int) $vars['id'], $contentType['fields'], $_POST);
 
         // ── AND THE OPTIONS THIS PRODUCT IS SOLD IN ────────────────────────
@@ -421,6 +446,9 @@ class ContentTypeController
                 (int) $vars['id'],
                 is_array($rows) ? $rows : []
             );
+        }
+        if ($isProduct) {
+            \Cms\Commerce\StockLog::edited($countsBefore, \Cms\Commerce\Stock::countsOf((int) $vars['id']), (string) (Auth::user()['name'] ?? Auth::user()['username'] ?? ''));
         }
 
         // Save SEO meta — a title still saying the pattern is stored as none.
@@ -474,6 +502,75 @@ class ContentTypeController
         }
         Post::trash((int) $vars['id']);
         header('Location: ' . ADMIN_URL . '/' . $this->contentType['admin_slug']);
+        exit;
+    }
+
+    /**
+     * A product copied, to start the next one from: kept Private, off the
+     * site, with its fields, options, categories and pictures, and "(copy)"
+     * after its title.
+     *
+     * NO CODES AND NO STOCK. A SKU names one thing, so each is left blank to
+     * be typed; and the copy is a different thing on the shelf, so it holds
+     * nothing until its own stock is counted in. Anything else may be changed
+     * on the copy's own screen, which is where this leads.
+     */
+    public function handleCopy(array $vars = []): void
+    {
+        Auth::requireAuth();
+        $post = $this->entryFor($vars);
+        if ($post === null) {
+            return;
+        }
+        if (!in_array('product', (array) ($this->contentType['archetypes'] ?? []), true)) {
+            http_response_code(404);
+            require ROOT_PATH . '/admin/templates/404.php';
+            return;
+        }
+
+        $slug = (string) $post['slug'] . '-copy';
+        for ($n = 2; Post::slugOwner($slug, null) !== null; $n++) {
+            $slug = (string) $post['slug'] . '-copy-' . $n;
+        }
+        $user  = Auth::user();
+        $newId = Post::create([
+            'post_type'         => (string) $post['post_type'],
+            'title'             => (string) $post['title'] . ' (copy)',
+            'slug'              => $slug,
+            'content'           => (string) ($post['content'] ?? ''),
+            'excerpt'           => $post['excerpt'] ?? null,
+            'status'            => 'private',
+            'featured_image_id' => $post['featured_image_id'] ?? null,
+            'menu_order'        => (int) ($post['menu_order'] ?? 0),
+            'author_id'         => (int) $user['id'],
+        ]);
+
+        $id      = (int) $post['id'];
+        $meta    = Meta::getAll($id);
+        $counted = (string) ($meta[\Cms\Commerce\Stock::MANAGE] ?? '') === '1';
+        foreach ($meta as $key => $value) {
+            Meta::set($newId, (string) $key, match ((string) $key) {
+                \Cms\Commerce\Product::SKU   => '',
+                \Cms\Commerce\Stock::QTY    => '0',
+                \Cms\Commerce\Product::STOCK => $counted ? \Cms\Commerce\Product::OUT_OF_STOCK : $value,
+                default                       => $value,
+            });
+        }
+        $copyRows = array_map(static function (array $v): array {
+            unset($v['id']);
+            $v['sku']       = '';
+            $v['stock_qty'] = 0;
+            return $v;
+        }, \Cms\Commerce\Variation::forProduct($id));
+        \Cms\Commerce\Variation::copyRows($newId, $copyRows);
+        foreach (array_keys($this->taxonomies) as $taxKey) {
+            Term::setPostTerms($newId, (string) $taxKey, array_map(
+                static fn (array $t): int => (int) $t['id'],
+                Term::forPosts([$id], [(string) $taxKey])[$id][(string) $taxKey] ?? []
+            ));
+        }
+
+        header('Location: ' . ADMIN_URL . '/' . $this->contentType['admin_slug'] . '/' . $newId . '/edit', true, 303);
         exit;
     }
 
@@ -565,6 +662,20 @@ class ContentTypeController
         // WHAT THE EDIT PANEL ASKS FOR, read once for the whole selection.
         $request = $action === 'edit' ? $this->bulkEditRequest() : null;
 
+        // A PRICE OR A COUNT THAT IS NOT ONE refuses the whole edit, before any
+        // entry is touched, in the sentence that says what one looks like.
+        if ($request !== null && $request['error'] !== null) {
+            $_SESSION['entry_bulk_report'] = [
+                'type'    => (string) $type['key'],
+                'action'  => $action,
+                'done'    => 0,
+                'skipped' => [],
+                'error'   => $request['error'],
+            ];
+            header('Location: ' . $this->bulkReturn());
+            exit;
+        }
+
         $done    = 0;
         $skipped = [];
         $acts    = in_array($action, ['trash', 'restore', 'delete'], true)
@@ -625,8 +736,12 @@ class ContentTypeController
      * for a taxonomy nobody touched (the `parent_panel` rule: the marker, not
      * the value, says the control was used).
      *
+     * Price, sale price and stock, on a type that sells (`Commerce\ProductBulk`):
+     * each with how it changes and a figure, and the sentence refusing a
+     * figure that is not one.
+     *
      * @return array{terms: array<string, array{set?: int, on?: list<int>, keep?: list<int>}>,
-     *               status: string, author: ?int}|null
+     *               status: string, author: ?int, shop: array<string, array<string, mixed>>, error: ?string}|null
      */
     private function bulkEditRequest(): ?array
     {
@@ -665,9 +780,14 @@ class ContentTypeController
             }
         }
 
-        return ($terms === [] && $status === '' && $author === null)
+        $shop = ['changes' => [], 'error' => null];
+        if (in_array('product', (array) ($this->contentType['archetypes'] ?? []), true)) {
+            $shop = \Cms\Commerce\ProductBulk::request($_POST);
+        }
+
+        return ($terms === [] && $status === '' && $author === null && $shop['changes'] === [] && $shop['error'] === null)
             ? null
-            : ['terms' => $terms, 'status' => $status, 'author' => $author];
+            : ['terms' => $terms, 'status' => $status, 'author' => $author, 'shop' => $shop['changes'], 'error' => $shop['error']];
     }
 
     /**
@@ -706,10 +826,30 @@ class ContentTypeController
             $filings[(string) $taxKey] = $new;
         }
 
-        if ($request['status'] !== '' && $request['status'] !== (string) $post['status']) {
+        // PRICES AND COUNTS, every figure worked out before anything is
+        // written: one refused leaves the entry as it was.
+        $shop = $request['shop'] !== [] ? \Cms\Commerce\ProductBulk::plan($id, $request['shop']) : null;
+        if ($shop !== null && $shop['error'] !== null) {
+            return $shop['error'];
+        }
+        $restatus = $request['status'] !== '' && $request['status'] !== (string) $post['status'];
+        $reprice  = $shop !== null && ($shop['meta'] !== [] || $shop['options'] !== []);
+
+        if ($restatus || $reprice) {
             // Reversible like a save: the revision is taken first.
             Revision::snapshot(Revision::TYPE_POST, $id, (int) (Auth::user()['id'] ?? 0));
             Revision::prune(Revision::TYPE_POST, $id);
+        }
+        // FIRST, so a count sold from since the plan leaves the entry whole.
+        if ($shop !== null && \Cms\Commerce\ProductBulk::changes($shop)) {
+            $user  = Auth::user();
+            $raced = \Cms\Commerce\ProductBulk::write($id, $shop, (string) ($user['name'] ?? $user['username'] ?? ''));
+            if ($raced !== null) {
+                return $raced;
+            }
+        }
+
+        if ($restatus) {
             // Leaving `password` drops the password, as the entry form does
             // (resolveStatusAndPassword() stores one only for that status).
             Post::update($id, ['status' => $request['status']]
@@ -833,6 +973,10 @@ class ContentTypeController
 
         $month = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $get('month')) === 1 ? $get('month') : '';
 
+        // SOLD OUT OR RUNNING LOW, on a list of things for sale.
+        $isProduct = in_array('product', (array) ($this->contentType['archetypes'] ?? []), true);
+        $stock     = $isProduct && in_array($get('stock'), ['out', 'low'], true) ? $get('stock') : '';
+
         // A TERM FILTER IS A TERM OF THIS TYPE'S TAXONOMY, or it is ignored —
         // an id from another taxonomy would otherwise filter by a term the bar
         // cannot show. On a nested taxonomy it stands for its whole branch,
@@ -875,7 +1019,7 @@ class ContentTypeController
         // Sorting keeps the filters, paging keeps both, and filtering starts
         // again at page 1. Empty values are left out, so an untouched list's
         // address is just its address.
-        $state = ['s' => $search, 'status' => $status, 'author' => $author, 'month' => $month];
+        $state = ['s' => $search, 'status' => $status, 'author' => $author, 'month' => $month, 'stock' => $stock];
         foreach ($terms as $taxKey => $termId) {
             $state['tax_' . $taxKey] = $termId;
         }
@@ -901,6 +1045,8 @@ class ContentTypeController
                 'search'       => $search,
                 'author'       => $author,
                 'month'        => $month,
+                'stock'        => $stock,
+                'low_at'       => \Cms\Commerce\Stock::lowAt(),
                 'terms'        => $branches,
                 'orderby'      => $orderby,
                 'order'        => $order,
@@ -913,11 +1059,12 @@ class ContentTypeController
                 'status'   => $status,
                 'author'   => $author,
                 'month'    => $month,
+                'stock'    => $stock,
                 'terms'    => $terms,
                 'per_page' => $perPage,
             ],
             'sort'      => ['orderby' => $orderby, 'order' => $order],
-            'filtering' => $search !== '' || $status !== '' || $author !== null || $month !== '' || $terms !== [],
+            'filtering' => $search !== '' || $status !== '' || $author !== null || $month !== '' || $stock !== '' || $terms !== [],
             'url'       => $url,
         ];
     }

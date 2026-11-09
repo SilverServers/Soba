@@ -415,10 +415,18 @@ final class AdminMenu
     private static function commerceSection(string $here): array
     {
         $onShop = self::under($here, '/admin/orders')
-               || self::under($here, '/admin/coupons');
+               || self::under($here, '/admin/customers')
+               || self::under($here, '/admin/reports')
+               || self::under($here, '/admin/coupons')
+               || self::under($here, '/admin/stock');
 
         return Sidebar::group('commerce', 'Shop', 'orders', Url::admin('orders'), [
             Sidebar::link('Orders', Url::admin('orders'), self::under($here, '/admin/orders'), 'orders'),
+            // WHO HAS BOUGHT, AS THEIR ORDERS MAKE THEM: under the orders they
+            // are made of (`Commerce\Customers`).
+            Sidebar::link('Customers', Url::admin('customers'), self::under($here, '/admin/customers'), 'customers'),
+            // WHAT SOLD, AND THE TAX COLLECTED, over any stretch of days.
+            Sidebar::link('Reports', Url::admin('reports'), self::under($here, '/admin/reports'), 'reports'),
             // DISCOUNT CODES ARE NOT SETTINGS AND NOT CONTENT. Migration 045's
             // header has the argument: a coupon has no page, no slug and nothing
             // to say, so it is not a Content Type; there are many of them and
@@ -427,6 +435,8 @@ final class AdminMenu
             // discounts.
             Sidebar::link('Discount codes', Url::admin('coupons'),
                           self::under($here, '/admin/coupons'), 'coupons'),
+            // EVERY COUNT ON ONE SCREEN, and each product's history of them.
+            Sidebar::link('Stock', Url::admin('stock'), self::under($here, '/admin/stock'), 'stock'),
         ], $onShop);
     }
 
@@ -509,6 +519,10 @@ final class AdminMenu
             // cannot disagree about whether this install is a shop.
             self::hasProducts() && Modules::enabled('commerce')
                 ? Sidebar::link('Shop', Url::admin('settings/commerce'), $here === '/admin/settings/commerce', 'commerce')
+                : null,
+            // THE KEYS AND WEBHOOKS OTHER PROGRAMS USE, beside the shop's settings.
+            self::hasProducts() && Modules::enabled('commerce')
+                ? Sidebar::link('API', Url::admin('settings/api'), $here === '/admin/settings/api', 'api')
                 : null,
             Sidebar::link('Users', Url::admin('users'), self::under($here, '/admin/users'), 'users'),
         ], self::under($here, '/admin/settings') || self::under($here, '/admin/users'));

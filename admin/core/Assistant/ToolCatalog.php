@@ -44,6 +44,8 @@ final class ToolCatalog
             self::readEntry(),
             self::listPages(),
             self::readPage(),
+            // THE SHOP'S, where there is one (`ShopTools`).
+            ...ShopTools::all(),
         ];
 
         $keyed = [];
@@ -372,8 +374,10 @@ final class ToolCatalog
             label: 'Reading one of your items',
             description:
                 'Read one entry in full: its core fields plus every custom field value, with images '
-                . 'and linked entries resolved to filenames and titles rather than bare ids. Call this '
-                . 'before proposing a change, so you know the current value of anything you are changing.',
+                . 'and linked entries resolved to filenames and titles rather than bare ids; a product also '
+                . 'with its price, sale, code and count, and each of its options ("M / Navy") with its '
+                . 'option_id, code, price and count. Call this before proposing a change, so you know the '
+                . 'current value of anything you are changing.',
             inputSchema: [
                 'type'       => 'object',
                 'properties' => [
@@ -421,7 +425,7 @@ final class ToolCatalog
                     }
                 }
 
-                return [
+                $out = [
                     'id'           => $id,
                     'content_type' => $post['post_type'],
                     'title'        => $post['title'],
@@ -436,6 +440,16 @@ final class ToolCatalog
                     'fields'       => $fields,
                     'taxonomies'   => $terms,
                 ];
+
+                // A PRODUCT'S PRICE, OPTIONS AND COUNTS, where the site sells.
+                // Without them "how many medium navy tees are left" had no
+                // answer: the options and their counts are not fields.
+                $shop = ShopTools::product($post);
+                if ($shop !== null) {
+                    $out['shop'] = $shop;
+                }
+
+                return $out;
             },
         );
     }

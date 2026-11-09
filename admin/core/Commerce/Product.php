@@ -418,6 +418,57 @@ final class Product
     }
 
     /** How a stock state reads to a customer. */
+    /**
+     * A product as its line in the product list reads: what it sells for, its
+     * code, and how its stock stands. "$38.00 · HT · 15 options, 1 sold out".
+     *
+     * THE PRICE IS WHAT IT SELLS FOR NOW, with the regular price beside a sale,
+     * and a range when its options are priced apart. THE STOCK IS COUNTED ON
+     * THE SHELF IT IS KEPT ON: the product's own count, or each option's, with
+     * the ones sold out and running low (`Stock::lowAt()`) named by number.
+     *
+     * @param array<string, mixed> $product from `fromPost()`
+     */
+    public static function listLine(array $product, int $lowAt): string
+    {
+        $variations = (array) ($product['variations'] ?? []);
+        $bounds     = Variation::bounds($variations, $product);
+        $price      = Money::format($bounds['low']) . ($bounds['high'] !== $bounds['low'] ? '–' . Money::format($bounds['high']) : '');
+        if ($variations === [] && $bounds['was_low'] > $bounds['low']) {
+            $price .= ', on sale from ' . Money::format($bounds['was_low']);
+        } elseif ($bounds['was_low'] > $bounds['low'] || $bounds['was_high'] > $bounds['high']) {
+            $price .= ' on sale';
+        }
+
+        if ($variations === []) {
+            $left  = $product['stock_left'];
+            $stock = match (true) {
+                ($product['stock'] ?? '') === self::OUT_OF_STOCK || ($left !== null && $left <= 0) => 'sold out',
+                $left === null => strtolower(self::stockLabel((string) $product['stock'])),
+                $left <= $lowAt => $left . ' left, running low',
+                default => $left . ' in stock',
+            };
+        } else {
+            $out = 0;
+            $low = 0;
+            foreach ($variations as $v) {
+                $vLeft = Variation::available($v);
+                if (($v['stock_status'] ?? '') === self::OUT_OF_STOCK || ($vLeft !== null && $vLeft <= 0)) {
+                    $out++;
+                } elseif ($vLeft !== null && $vLeft <= $lowAt) {
+                    $low++;
+                }
+            }
+            $stock = count($variations) . (count($variations) === 1 ? ' option' : ' options')
+                   . ($out > 0 ? ', ' . $out . ' sold out' : '')
+                   . ($low > 0 ? ', ' . $low . ' running low' : '')
+                   . ($out === 0 && $low === 0 ? ', all in stock' : '');
+        }
+
+        return implode(' · ', array_filter([$price, (string) ($product['sku'] ?? ''), $stock],
+            static fn (string $s): bool => $s !== ''));
+    }
+
     public static function stockLabel(string $stock): string
     {
         return match ($stock) {

@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
+use Cms\Commerce\Product;
+use Cms\Commerce\ProductSheet;
 use Cms\Content\Import;
+use Cms\ContentType\Registry;
 use Cms\Helpers\Url;
 use Cms\Security\Csrf;
 
@@ -74,7 +77,31 @@ class ImportController
             return;
         }
 
-        $json   = (string) file_get_contents((string) $file['tmp_name']);
+        $json = (string) file_get_contents((string) $file['tmp_name']);
+        $name = (string) ($file['name'] ?? 'import.json');
+
+        // ── A SPREADSHEET OF PRODUCTS ─────────────────────────────────────
+        // A .csv, or a file that is not JSON: read as products, into the type
+        // that sells chosen beside the upload (`Commerce\ProductSheet`), and
+        // planned and applied in the same two steps.
+        if (self::isSheet($name, $json)) {
+            $type = (string) ($_POST['import_into'] ?? '');
+            if (Registry::get($type) === null || !Product::isSellableType($type)) {
+                $this->render(null, null, $type === ''
+                    ? 'Choose what the spreadsheet\'s products are, beside the file, and read it again.'
+                    : 'A spreadsheet is read as products, and this site has no type of entry that sells for them to go into.');
+                return;
+            }
+            $result = ProductSheet::plan($json, $type);
+            if (!($result['ok'] ?? false)) {
+                $this->render(null, null, (string) ($result['error'] ?? 'That file could not be read.'));
+                return;
+            }
+            $_SESSION[self::PENDING] = ['csv' => $json, 'type' => $type, 'name' => $name];
+            $this->render($result['plan'], $name, null);
+            return;
+        }
+
         $result = Import::plan($json);
 
         if (!($result['ok'] ?? false)) {
@@ -96,7 +123,7 @@ class ImportController
         Auth::requireRole('admin');
 
         $pending = $_SESSION[self::PENDING] ?? null;
-        if (!is_array($pending) || !isset($pending['json'])) {
+        if (!is_array($pending) || (!isset($pending['json']) && !isset($pending['csv']))) {
             // The session expired, or Apply was reached without an upload. Say
             // which rather than importing nothing and reporting success.
             $this->render(null, null, 'There is no file waiting. Upload it again — the plan you saw has expired.');
@@ -104,11 +131,14 @@ class ImportController
         }
 
         $user   = Auth::user();
-        $result = Import::apply(
-            (string) $pending['json'],
-            (int) $user['id'],
-            !empty($_POST['import_settings'])
-        );
+        $result = isset($pending['csv'])
+            ? ProductSheet::apply((string) $pending['csv'], (string) $pending['type'], (int) $user['id'],
+                (string) ($user['name'] ?? $user['username'] ?? ''))
+            : Import::apply(
+                (string) $pending['json'],
+                (int) $user['id'],
+                !empty($_POST['import_settings'])
+            );
 
         // THE FILE GOES THE MOMENT IT IS APPLIED. Left in the session, a second
         // press of Apply — or a refresh, which re-posts — runs the whole import
@@ -142,6 +172,14 @@ class ImportController
         // the same job and the thing you do first; splitting them would put the
         // backup you take before an import on a different page from the import.
         require ROOT_PATH . '/admin/templates/tools/import-export.php';
+    }
+
+    /** A spreadsheet rather than an export: named .csv, or not JSON at all. */
+    private static function isSheet(string $name, string $text): bool
+    {
+        $start = ltrim((string) preg_replace('/^\xEF\xBB\xBF/', '', $text));
+
+        return str_ends_with(mb_strtolower($name), '.csv') || ($start !== '' && !in_array($start[0], ['{', '['], true));
     }
 
     private static function size(int $bytes): string

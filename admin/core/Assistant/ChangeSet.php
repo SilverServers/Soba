@@ -28,7 +28,11 @@ use Cms\Models\Post;
  *       {"op":"update_core","entry_id":2,"field":"title","from":"Team","to":"Team Plus"},
  *       {"op":"create_entry","content_type":"team_member","values":{"title":"Nia Feld"}},
  *       {"op":"trash_entry","entry_id":13},
- *       {"op":"update_page","page_id":4,"field":"content","from":"<p>…</p>","to":"<p>…</p>"}
+ *       {"op":"update_page","page_id":4,"field":"content","from":"<p>…</p>","to":"<p>…</p>"},
+ *       {"op":"set_stock","entry_id":1,"option_id":7,"from":4,"to":10},
+ *       {"op":"set_order_status","order_id":12,"from":"processing","to":"completed","tracking":{"carrier":"Canada Post","number":"…"}},
+ *       {"op":"create_coupon","values":{"code":"SPRING20","kind":"percent","amount":"20"}},
+ *       {"op":"add_option","entry_id":1,"choices":{"size":"XXL","colour":"Navy"},"stock":3}
  *     ]
  *   }
  *
@@ -54,7 +58,24 @@ final class ChangeSet
      * The rule: **an operation belongs here only when `validate()` and
      * `ChangeSetApplier` both have an arm for it.**
      */
-    public const OPS = ['update_field', 'update_core', 'create_entry', 'trash_entry', 'update_page'];
+    public const OPS = ['update_field', 'update_core', 'create_entry', 'trash_entry', 'update_page',
+                        // THE SHOP'S (`ShopOps`): a count, an order's status, a
+                        // discount code, an option.
+                        'set_stock', 'set_order_status', 'create_coupon', 'add_option'];
+
+    /**
+     * The operations this person may be offered: the shop's only where there
+     * is a shop and they may run it, so the model is never told it can do
+     * something every proposal of which would be refused.
+     *
+     * @return list<string>
+     */
+    public static function opsFor(ToolContext $context): array
+    {
+        $shop = ShopTools::open() && $context->hasRole('shop_manager');
+
+        return array_values(array_filter(self::OPS, static fn (string $op): bool => $shop || !in_array($op, ShopOps::OPS, true)));
+    }
 
     /**
      * Core columns an assistant may touch.
@@ -157,6 +178,8 @@ final class ChangeSet
                 'create_entry' => $this->validateCreateEntry($label, $op, $context),
                 'trash_entry'  => $this->validateTrashEntry($label, $op, $context),
                 'update_page'  => $this->validateUpdatePage($label, $op, $context),
+                'set_stock', 'set_order_status', 'create_coupon', 'add_option'
+                               => $this->validateShop($label, $type, $op, $context),
                 default        => $this->errors[] = "{$label}: '{$type}' is listed as an "
                     . 'operation but nothing implements it. This is a bug in the CMS, not '
                     . 'in the request.',
@@ -307,6 +330,14 @@ final class ChangeSet
     private function validateTrashEntry(string $label, array $op, ToolContext $context): void
     {
         $this->requireEntry($label, $op, $context);
+    }
+
+    /** The shop's operations, checked as the shop's own screens check them (`ShopOps`). */
+    private function validateShop(string $label, string $type, array $op, ToolContext $context): void
+    {
+        foreach (ShopOps::validate($type, $op, $context) as $problem) {
+            $this->errors[] = "{$label}: {$problem}";
+        }
     }
 
     /**

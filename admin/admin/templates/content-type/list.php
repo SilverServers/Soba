@@ -180,6 +180,17 @@ ob_start();
               // "20 updated" over 17. Each refusal is the rule's own words
               // (`Term::countViolation()`), and nothing of that entry changed:
               // an entry takes the whole edit or none of it. ?>
+        <?php // A FIGURE THAT IS NOT ONE refused the whole edit, before any
+              // entry: what one looks like, in a sentence. ?>
+        <?php if (!empty($bulkReport['error'])): ?>
+            <div class="alert alert--danger alert--compact" data-bulk-refused>
+                <?= icon('triangle-exclamation', 'alert__icon icon', '', 15) ?>
+                <div>
+                    <p class="alert__title">Nothing was changed</p>
+                    <p class="alert__text"><?= h((string) $bulkReport['error']) ?></p>
+                </div>
+            </div>
+        <?php endif; ?>
         <?php if (!empty($bulkReport['skipped'])): ?>
             <div class="alert alert--danger alert--compact" data-bulk-skipped>
                 <?= icon('triangle-exclamation', 'alert__icon icon', '', 15) ?>
@@ -287,6 +298,19 @@ ob_start();
                         <?php endif; ?>
                     </select>
                 </label>
+
+                <?php // WHAT IS SOLD OUT OR RUNNING LOW, on a list of things for
+                      // sale: a product, or any of its options. ?>
+                <?php if ($isProductType): ?>
+                    <label class="filterbar__field">
+                        <span class="filterbar__label">Stock</span>
+                        <select class="select" name="stock">
+                            <option value="">Any stock</option>
+                            <option value="out"<?= $filters['stock'] === 'out' ? ' selected' : '' ?>>Sold out</option>
+                            <option value="low"<?= $filters['stock'] === 'low' ? ' selected' : '' ?>>Running low (<?= \Cms\Commerce\Stock::lowAt() ?> or fewer)</option>
+                        </select>
+                    </label>
+                <?php endif; ?>
 
                 <?php // ONE PER TAXONOMY THE REGISTRY ATTACHES — nothing here is
                       // per type, so a type whose owner made a second taxonomy
@@ -454,6 +478,35 @@ ob_start();
                                 <option value="private">Private</option>
                             </select>
                         </div>
+
+                        <?php if ($isProductType): ?>
+                            <?php // ── PRICE, SALE PRICE AND STOCK ────────────────
+                                  // On a type that sells: how each changes, and
+                                  // the figure. Every price and count a product
+                                  // keeps, its options' included
+                                  // (`Commerce\ProductBulk`). ?>
+                            <div class="field" data-bulk-shop>
+                                <?php foreach ([
+                                    'price' => ['Price', \Cms\Commerce\ProductBulk::PRICE, '5.00 or 10%'],
+                                    'sale'  => ['Sale price', \Cms\Commerce\ProductBulk::SALE, '20%'],
+                                    'stock' => ['In stock', \Cms\Commerce\ProductBulk::STOCK, '5'],
+                                ] as $what => [$name, $hows, $example]): ?>
+                                    <label class="label" for="bulk-<?= h($what) ?>"><?= h($name) ?></label>
+                                    <div class="bulk-edit__pair">
+                                        <select class="select" id="bulk-<?= h($what) ?>" name="bulk_<?= h($what) ?>[how]">
+                                            <option value="">No change</option>
+                                            <?php foreach ($hows as $how => $words): ?>
+                                                <option value="<?= h($how) ?>"><?= h($words) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <input class="input" type="text" name="bulk_<?= h($what) ?>[amount]" inputmode="decimal"
+                                               autocomplete="off" placeholder="<?= h($example) ?>"
+                                               aria-label="<?= h($name) ?>: the figure">
+                                    </div>
+                                <?php endforeach; ?>
+                                <p class="form-help">Each option's own price changes with its product's, and a sale set here is on now.</p>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="form-card__section form-actions">
@@ -475,7 +528,7 @@ ob_start();
                 <p class="empty__title">No <?= h(strtolower($label)) ?> match that filter</p>
             </div>
         <?php else: ?>
-        <div class="list entry-list entry-list--select" id="entry-list">
+        <div class="list entry-list entry-list--select<?= $isProductType ? ' entry-list--product' : '' ?>" id="entry-list">
             <?php // THE HEADING ROW — the redirects list's precedent (`.rd-list__head`):
                   // a `.list__row` itself, so each label sits on the grid of the
                   // cells it names and cannot drift from them. It carries the
@@ -553,6 +606,11 @@ ob_start();
                               // space. ?>
                         <a class="list__row-link list__row-title" href="<?= h($editUrl) ?>"><?= h((string) $post['title']) ?></a>
                         <div class="list__row-sub">/<?= h((string) $post['slug']) ?></div>
+                        <?php // WHAT IT SELLS FOR, ITS CODE, AND ITS STOCK, for a
+                              // product: the line an owner reads the shop by. ?>
+                        <?php if (isset($productLines[$id])): ?>
+                            <div class="list__row-sub entry-list__product" data-product-line><?= h($productLines[$id]) ?></div>
+                        <?php endif; ?>
                         <?php if ($parentTitle !== null): ?>
                             <?php // THE PARENT TYPE'S NAME IS IN THE LABEL, not
                                   // just the title: "Board nominations open" on
@@ -628,6 +686,14 @@ ob_start();
                         <?php endif; ?>
                         </span>
                         <a class="btn btn--sm" href="<?= h($editUrl) ?>">Edit</a>
+                        <?php // A PRODUCT COPIED to start the next one: Private,
+                              // with no codes and no stock of its own yet. ?>
+                        <?php if ($isProductType): ?>
+                            <form class="form-inline" method="post" action="<?= h(Url::admin($adminSlug . '/' . $id . '/copy')) ?>">
+                                <?= Csrf::field() ?>
+                                <button type="submit" class="link link--xs">Copy</button>
+                            </form>
+                        <?php endif; ?>
                         <form class="form-inline" method="post"
                               action="<?= h(Url::admin($adminSlug . '/' . $id . '/trash')) ?>"
                               data-confirm="Move &ldquo;<?= h((string) $post['title']) ?>&rdquo; to the trash?"

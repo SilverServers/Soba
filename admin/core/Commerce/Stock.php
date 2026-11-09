@@ -6,6 +6,7 @@ namespace Cms\Commerce;
 
 use Cms\Database\Database;
 use Cms\Models\Meta;
+use PDO;
 
 /**
  * COUNTING WHAT IS LEFT, AND REFUSING TO SELL WHAT IS NOT.
@@ -52,6 +53,15 @@ final class Stock
 {
     /** Meta keys. One list, read by the archetype, the reader and the writer. */
     public const MANAGE = 'product_manage_stock';
+
+    /** Settings → Shop: a count at or below this, above nothing, is running low. */
+    public const LOW_KEY = 'commerce_low_stock';
+
+    /** The shop's low mark: 2 until the owner says otherwise, as a shop's first guess. */
+    public static function lowAt(): int
+    {
+        return max(0, (int) (\Cms\Models\Option::get(self::LOW_KEY, '2') ?? '2'));
+    }
     public const QTY    = 'product_stock_qty';
 
     /** Is this product counting units at all? */
@@ -116,8 +126,62 @@ final class Stock
         }
 
         self::syncStatus($postId);
+        StockLog::record($postId, null, -$quantity, self::countOf($postId));
 
         return true;
+    }
+
+    /** The product's own count as it stands, or null when it does not count. */
+    public static function countOf(int $postId): ?int
+    {
+        $meta = Meta::getAll($postId);
+
+        return self::isManaged($meta) ? (int) ($meta[self::QTY] ?? 0) : null;
+    }
+
+    /**
+     * The product's own count set to what the owner typed, IF it is still what
+     * the screen showed them: a sale in between changed it, and the typed
+     * figure would overwrite the sale. The change is a line in its history.
+     */
+    public static function setCount(int $postId, int $was, int $now): bool
+    {
+        if ($now < 0 || !self::isManaged(Meta::getAll($postId))) {
+            return false;
+        }
+        $stmt = Database::getInstance()->prepare(
+            'UPDATE post_meta SET meta_value = :now
+              WHERE post_id = :id AND meta_key = :key AND CAST(meta_value AS SIGNED) = :was'
+        );
+        $stmt->execute([':now' => (string) $now, ':id' => $postId, ':key' => self::QTY, ':was' => $was]);
+        if ($stmt->rowCount() !== 1) {
+            return false;
+        }
+        self::syncStatus($postId);
+        StockLog::record($postId, null, $now - $was, $now);
+
+        return true;
+    }
+
+    /**
+     * Every count a product keeps, to compare before and after a save:
+     * 'p' => its own, or 'v<id>' => each option's, with the option's name.
+     *
+     * @return array<string, array{0: int, 1: ?int, 2: int, 3: string}> key => [post, option, count, name]
+     */
+    public static function countsOf(int $postId): array
+    {
+        $out = [];
+        foreach (Variation::forProduct($postId) as $v) {
+            if (!empty($v['manage_stock'])) {
+                $out['v' . (int) $v['id']] = [$postId, (int) $v['id'], (int) $v['stock_qty'], (string) $v['label']];
+            }
+        }
+        if ($out === [] && ($own = self::countOf($postId)) !== null) {
+            $out['p'] = [$postId, null, $own, ''];
+        }
+
+        return $out;
     }
 
     /**
@@ -149,6 +213,7 @@ final class Stock
         $stmt->execute([':give' => $quantity, ':id' => $postId, ':key' => self::QTY]);
 
         self::syncStatus($postId);
+        StockLog::record($postId, null, $quantity, self::countOf($postId));
     }
 
     /**
@@ -261,5 +326,65 @@ final class Stock
 
             self::give((int) $item['post_id'], (int) $item['quantity']);
         }
+    }
+
+    /**
+     * Every product of a type that sells, with its own count or each of its
+     * options' counts, in title order: the stock screen's rows, and what the
+     * assistant's `read_stock` reads. Products that do not count their stock
+     * are listed too, saying so, so none is missing from the screen.
+     *
+     * @return list<array{key: string, post_id: int, title: string, option: string, sku: string,
+     *                    counted: bool, count: ?int, status: string}>
+     */
+    public static function listing(): array
+    {
+        $types = Product::sellableTypes();
+        if ($types === []) {
+            return [];
+        }
+        $marks = implode(',', array_fill(0, count($types), '?'));
+        $stmt  = Database::getInstance()->prepare(
+            "SELECT * FROM posts WHERE post_type IN ($marks) AND status <> 'trash' ORDER BY title, id"
+        );
+        $stmt->execute($types);
+        $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $ids   = array_map(static fn (array $p): int => (int) $p['id'], $posts);
+        $meta  = Meta::getAllFor($ids);
+        $opts  = Variation::forProducts($ids);
+
+        $out = [];
+        foreach ($posts as $post) {
+            $id = (int) $post['id'];
+            if (($opts[$id] ?? []) === []) {
+                $m       = $meta[$id] ?? [];
+                $counted = (string) ($m[self::MANAGE] ?? '') === '1';
+                $out[]   = [
+                    'key'     => 'p' . $id,
+                    'post_id' => $id,
+                    'title'   => (string) $post['title'],
+                    'option'  => '',
+                    'sku'     => (string) ($m[Product::SKU] ?? ''),
+                    'counted' => $counted,
+                    'count'   => $counted ? (int) ($m[self::QTY] ?? 0) : null,
+                    'status'  => (string) ($m[Product::STOCK] ?? Product::IN_STOCK),
+                ];
+                continue;
+            }
+            foreach ($opts[$id] as $v) {
+                $out[] = [
+                    'key'     => 'v' . (int) $v['id'],
+                    'post_id' => $id,
+                    'title'   => (string) $post['title'],
+                    'option'  => (string) $v['label'],
+                    'sku'     => (string) $v['sku'],
+                    'counted' => !empty($v['manage_stock']),
+                    'count'   => !empty($v['manage_stock']) ? (int) $v['stock_qty'] : null,
+                    'status'  => (string) $v['stock_status'],
+                ];
+            }
+        }
+
+        return $out;
     }
 }

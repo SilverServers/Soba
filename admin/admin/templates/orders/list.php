@@ -6,6 +6,7 @@ use Cms\Commerce\Money;
 use Cms\Helpers\Dates;
 use Cms\Helpers\Url;
 use Cms\Models\Order;
+use Cms\Security\Csrf;
 use Cms\Ui\OrderStatus;
 
 /**
@@ -35,6 +36,9 @@ use Cms\Ui\OrderStatus;
  * @var array<string, int>         $counts
  * @var int                        $total
  * @var string                     $status  the active filter, '' for all
+ * @var string                     $month   the month shown, 'YYYY-MM' or '' for all
+ * @var list<string>               $months  the months there are orders in, newest first
+ * @var array<string, mixed>|null  $bulkReport what the last bulk action did
  */
 
 ob_start();
@@ -57,7 +61,43 @@ ob_start();
                 <p class="page__subtitle"><?= h(implode(' · ', $lines)) ?></p>
             <?php endif; ?>
         </div>
+        <?php // AN ORDER THE SHOP TAKES ITSELF: on the telephone, at a stall.
+              // EXPORT sends the status and month chosen below with it (their
+              // selects belong to the export form by `form=`), so last month's
+              // orders are a spreadsheet of last month's orders. ?>
+        <div class="page__header-actions">
+            <?php if ($total > 0): ?>
+                <button type="submit" class="btn" form="order-export"><?= icon('cloud-arrow-down', 'icon icon--sm') ?>Export</button>
+            <?php endif; ?>
+            <a class="btn btn--primary" href="<?= h(Url::admin('orders/new')) ?>">
+                <?= icon('plus', 'icon icon--sm') ?>New order
+            </a>
+        </div>
     </div>
+    <form id="order-export" method="get" action="<?= h(Url::admin('orders/export.csv')) ?>"></form>
+
+    <?php // WHAT THE LAST BULK ACTION DID, and what it passed over, by number. ?>
+    <?php if ($bulkReport !== null): ?>
+        <?php $doneCount = (int) ($bulkReport['done'] ?? 0); ?>
+        <?php if ($doneCount > 0): ?>
+            <div class="flash flash--success" data-bulk-done>
+                <?= $doneCount ?> <?= $doneCount === 1 ? 'order' : 'orders' ?> moved to <?= h(Order::statusLabel((string) $bulkReport['action'])) ?>.
+            </div>
+        <?php endif; ?>
+        <?php if (!empty($bulkReport['skipped'])): ?>
+            <div class="alert alert--danger alert--compact" data-bulk-skipped>
+                <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
+                <div class="alert__body">
+                    <p class="alert__title"><?= count((array) $bulkReport['skipped']) ?> not changed</p>
+                    <ul class="alert__text">
+                        <?php foreach ((array) $bulkReport['skipped'] as $skip): ?>
+                            <li><?= h((string) $skip) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            </div>
+        <?php endif; ?>
+    <?php endif; ?>
 
     <?php if ($total === 0): ?>
         <?php // NOTHING HAS BEEN ORDERED YET — a state, and one a new shop is
@@ -81,11 +121,23 @@ ob_start();
                        aria-label="Filter orders by number, name or email"
                        data-filter-text>
 
-                <select class="select" aria-label="Filter by status" data-filter-attr="data-status">
+                <select class="select" aria-label="Filter by status" data-filter-attr="data-status"
+                        name="status" form="order-export">
                     <option value="">Any status</option>
                     <?php foreach (Order::STATUSES as $key => $statusLabel): ?>
                         <option value="<?= h($key) ?>"
                             <?= $status === $key ? 'selected' : '' ?>><?= h($statusLabel) ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <?php // THE MONTH IT WAS PLACED IN, in the site's own days. ?>
+                <select class="select" aria-label="Filter by month" data-filter-attr="data-month"
+                        name="month" form="order-export">
+                    <option value="">Any month</option>
+                    <?php foreach ($months as $ym): ?>
+                        <option value="<?= h($ym) ?>"<?= $month === $ym ? ' selected' : '' ?>>
+                            <?= h((new \DateTimeImmutable($ym . '-01'))->format('F Y')) ?>
+                        </option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -108,7 +160,30 @@ ob_start();
                 </p>
             </div>
         <?php else: ?>
-            <div class="list entry-list order-list" id="order-list">
+            <?php // ── SEVERAL AT ONCE ───────────────────────────────────────
+                  // The rows' boxes join this form by `form=`; entry-bulk.js
+                  // enables Apply with an action and a tick, and select all
+                  // reaches only the rows the filter is showing. ?>
+            <form id="order-bulk" method="post" action="<?= h(Url::admin('orders/bulk')) ?>"
+                  data-entry-bulk data-label-one="order" data-label-many="orders">
+                <?= Csrf::field() ?>
+                <div class="bulk-bar">
+                    <label class="entry-list__check order-list__all">
+                        <input type="checkbox" data-bulk-all aria-label="Select every order shown">
+                    </label>
+                    <select class="select select--sm" name="bulk_action" aria-label="Bulk action" data-bulk-action>
+                        <option value="">Bulk actions</option>
+                        <?php foreach (['processing', 'on-hold', 'completed', 'cancelled'] as $to): ?>
+                            <option value="<?= h($to) ?>">Move to <?= h(Order::statusLabel($to)) ?></option>
+                        <?php endforeach; ?>
+                        <option value="slip">Print packing slips</option>
+                        <option value="invoice">Print invoices</option>
+                    </select>
+                    <button type="submit" class="btn btn--sm" data-bulk-apply disabled>Apply</button>
+                </div>
+            </form>
+
+            <div class="list entry-list entry-list--select order-list" id="order-list">
                 <?php foreach ($orders as $o): ?>
                     <?php $oid = (int) $o['id']; ?>
                     <?php // `data-text` is the order's IDENTITY — number, name,
@@ -118,8 +193,13 @@ ob_start();
                           // properly. Same reasoning as the pages list. ?>
                     <div class="list__row"
                          data-status="<?= h((string) $o['status']) ?>"
+                         data-month="<?= h(Order::monthOf($o)) ?>"
                          data-text="<?= h(Order::number($o) . ' ' . (string) $o['billing_name'] . ' ' . (string) $o['email']) ?>"
                          data-row-href="<?= h(Url::admin('orders/' . $oid)) ?>">
+                        <label class="entry-list__check">
+                            <input type="checkbox" name="ids[]" value="<?= $oid ?>" form="order-bulk" data-bulk-row
+                                   data-title="<?= h(Order::number($o)) ?>" aria-label="Select order <?= h(Order::number($o)) ?>">
+                        </label>
                         <div class="entry-list__main">
                             <a class="list__row-link list__row-title"
                                href="<?= h(Url::admin('orders/' . $oid)) ?>">
@@ -174,6 +254,7 @@ ob_start();
           // bar is: there is nothing to filter otherwise. ?>
     <?php if ($total > 0 && $orders !== []): ?>
         <script src="<?= h(\Cms\Helpers\Asset::admin('js/list-filter.js')) ?>"></script>
+        <script src="<?= h(\Cms\Helpers\Asset::admin('js/entry-bulk.js')) ?>"></script>
     <?php endif; ?>
 </div>
 <?php

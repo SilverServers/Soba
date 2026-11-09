@@ -580,6 +580,16 @@
     fixLists(copy);
     fixStrike(copy);
 
+    // ── AN EMBED IS ITS CODE ────────────────────────────────────────────────
+    // The block on the surface is the editor's way of showing it; what goes
+    // to the HTML view and the save is the code it keeps (`embedBlock()`),
+    // after the repairs, so none of them ever reaches into it.
+    Array.prototype.forEach.call(copy.querySelectorAll('.editor__embed[data-code]'), function (block) {
+      var code = document.createElement('template');
+      code.innerHTML = block.getAttribute('data-code');
+      block.parentNode.replaceChild(code.content, block);
+    });
+
     return copy.innerHTML;
   }
 
@@ -881,6 +891,21 @@
       run({ cmd: 'image' }, surface, textarea, afterCommand);
     });
     head.appendChild(addImage);
+
+    // IMPORT MARKDOWN, BESIDE IT, and for the same reason: bringing a document
+    // in is not formatting the words. It works in either view.
+    var addMarkdown = document.createElement('button');
+    addMarkdown.type = 'button';
+    addMarkdown.className = 'btn btn--sm editor__add';
+    addMarkdown.dataset.cmd = 'markdown';
+    var markdownIcon = iconNode('markdown');
+    if (markdownIcon) { addMarkdown.appendChild(markdownIcon); }
+    addMarkdown.appendChild(document.createTextNode('Import Markdown'));
+    addMarkdown.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      importMarkdown();
+    });
+    head.appendChild(addMarkdown);
 
     var tabs = document.createElement('div');
     tabs.className = 'tabs tabs--inline editor__views';
@@ -1281,6 +1306,95 @@
     var sourceMode = false;
     try { sourceMode = localStorage.getItem('cms-editor-view') === 'source'; } catch (err) { /* private mode */ }
 
+    /**
+     * IMPORT MARKDOWN. A document, pasted or from a file, goes to the server
+     * (`Content\MarkdownImport`), and what comes back goes where the caret was,
+     * as anything typed there would. Nothing is saved until the entry is.
+     *
+     * The caret is remembered across the dialog, as for a picture: a modal takes
+     * focus out of the surface and collapses it. In the HTML view the box keeps
+     * its own. A caret outside the surface means the end of the body.
+     */
+    function importMarkdown() {
+      var sel = window.getSelection();
+      // WHERE THE CURSOR IS NOW, in either view: once the dialog has closed the
+      // HTML view's box reads as if it were at the start.
+      var at = null;
+      if (sourceMode) {
+        at = [textarea.selectionStart, textarea.selectionEnd];
+      } else if (sel && sel.rangeCount && surface.contains(sel.anchorNode)) {
+        at = caretOffset(surface);
+      }
+      window.Prompt.ask({
+        title: 'Import Markdown',
+        body: 'Paste the document, or choose or drop its file. It goes in where the cursor is, or fills an empty body. Nothing is saved until you save.',
+        verb: 'Import',
+        wide: true,
+        fields: [{
+          name: 'markdown', label: 'Markdown', type: 'textarea', rows: 14, required: true,
+          file: { label: 'Choose a file', accept: '.md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain' }
+        }]
+      }).then(function (answer) {
+        if (answer === null) { return null; }
+        return window.CMS.api('/admin/markdown', { method: 'POST', body: { markdown: answer.markdown } }).then(function (made) {
+          placeMarkdown(made, at);
+          return made.missing && made.missing.length ? tellMissing(made.missing) : null;
+        });
+      }).catch(function (err) {
+        return window.Prompt.ask({ title: 'That did not import', body: err.message, verb: 'Close', fields: [] });
+      });
+    }
+
+    function placeMarkdown(made, at) {
+      if (sourceMode) {
+        var value = textarea.value;
+        textarea.value = value.slice(0, at[0]) + made.html + value.slice(at[1]);
+        textarea.selectionStart = textarea.selectionEnd = at[0] + made.html.length;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.focus();
+      } else {
+        // THROUGH `surfaceHtml()`, as a save's HTML coming back is: an embed in
+        // the document is a block showing the provider's frame, and no script
+        // runs. The white space between its blocks is the HTML view's, not
+        // something to keep in a surface.
+        var parsed = document.createElement('template');
+        parsed.innerHTML = surfaceHtml(made.html);
+        Array.prototype.slice.call(parsed.content.childNodes).forEach(function (n) {
+          if (n.nodeType === 3 && !n.textContent.trim()) { parsed.content.removeChild(n); }
+        });
+        surface.focus();
+        if (!surface.textContent.trim() && !surface.querySelector('img, hr, iframe, table')) {
+          // AN EMPTY BODY BECOMES THE DOCUMENT, with no empty paragraph above it.
+          surface.textContent = '';
+          surface.appendChild(parsed.content);
+          ensureBlock(surface);
+          setCaretOffset(surface, Infinity);
+        } else {
+          setCaretOffset(surface, at === null ? Infinity : at);
+          insertBlock(surface, parsed.content);
+        }
+        sync();
+      }
+      // AN EMPTY TITLE BOX IS FILLED, and told so, for whatever follows it (the
+      // address made from a title). One the writer has filled is theirs.
+      var box = textarea.form ? textarea.form.querySelector('input[name="title"]') : null;
+      if (made.title && box && !box.value.trim()) {
+        box.value = made.title;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+
+    /** The pictures left out: files on the writer's computer, which the site does not have. */
+    function tellMissing(missing) {
+      var names = missing.map(function (m) { return m.alt ? m.src + ' (' + m.alt + ')' : m.src; });
+      return window.Prompt.ask({
+        title: 'Some pictures were left out',
+        body: 'These are files on your computer, so the site does not have them. Add each one with Add image:\n\n' + names.join('\n'),
+        verb: 'Close',
+        fields: []
+      });
+    }
+
     function setSourceMode(on) {
         sourceMode = !!on;
 
@@ -1610,11 +1724,11 @@
     surface.addEventListener('paste', function (e) {
       e.preventDefault();
       var text = (e.clipboardData || window.clipboardData).getData('text/plain');
-      // A YOUTUBE EMBED CODE — copied from YouTube's Share → Embed — goes in
-      // AS THE EMBED, a block of its own, the video showing.
-      var frame = youtubeFrame(text);
-      if (frame) {
-        insertBlock(surface, frame);
+      // AN EMBED CODE — copied from a provider's Share or Embed option — goes
+      // in AS THE EMBED, a block of its own, the provider's own frame showing.
+      var embed = pastedEmbed(text);
+      if (embed) {
+        insertBlock(surface, embed);
         sync();
         return;
       }
@@ -2288,56 +2402,312 @@
   }
 
   /**
-   * HTML FOR THE SURFACE: a YouTube embed stays the video, with only the
-   * attributes YouTube's embed code writes; any other frame
-   * goes, as it does on save. Parsed inertly first (`DOMParser` loads
-   * nothing), so no other frame ever loads in the admin.
+   * HTML FOR THE SURFACE: each embed from one of the five providers becomes a
+   * block of its own showing the provider's own frame (`embedBlock()`); any
+   * other frame goes, and so does a script, as they do on save. Parsed inertly
+   * first (`DOMParser` loads and runs nothing), so no other frame ever loads in
+   * the admin and no provider's script ever runs in it.
    */
   function surfaceHtml(html) {
     var doc = new DOMParser().parseFromString('<body>' + (html || '') + '</body>', 'text/html');
-    Array.prototype.slice.call(doc.querySelectorAll('iframe')).forEach(function (frame) {
-      var kept = embedFrame(frame, doc);
-      if (kept) {
-        frame.parentNode.replaceChild(kept, frame);
-      } else {
-        frame.parentNode.removeChild(frame);
+    // A block is the editor's own, never content: one that arrives from the
+    // HTML view is only a box.
+    Array.prototype.forEach.call(doc.querySelectorAll('.editor__embed, [data-code]'), function (el) {
+      el.classList.remove('editor__embed');
+      el.removeAttribute('data-code');
+      el.removeAttribute('contenteditable');
+    });
+    var groups = embedGroups(doc.body);
+    var kept = [];
+    groups.forEach(function (group) { kept = kept.concat(group.nodes); });
+    Array.prototype.slice.call(doc.querySelectorAll('iframe, script')).forEach(function (el) {
+      if (kept.some(function (n) { return n === el || n.contains(el); })) { return; }
+      var holder = el.parentNode;
+      holder.removeChild(el);
+      // A PARAGRAPH THAT HELD ONLY THAT goes with it: an empty line nobody
+      // typed, which a save would keep.
+      if (holder.nodeName === 'P' && !holder.children.length && !holder.textContent.trim()) {
+        holder.parentNode.removeChild(holder);
       }
+    });
+    groups.forEach(function (group) {
+      group.nodes[0].parentNode.insertBefore(embedBlock(group, doc), group.nodes[0]);
+      group.nodes.forEach(function (n) { n.parentNode.removeChild(n); });
     });
     return doc.body.innerHTML;
   }
 
-  // ── A YOUTUBE EMBED (`Html\YouTube` on the server says the same) ─────────
-  // https, YouTube's two embed hosts, a path under /embed/ — a video, a
-  // `videoseries` playlist or a `live_stream` — and only these attributes.
-  var YT_ATTRS = ['width', 'height', 'src', 'title', 'frameborder', 'allow', 'referrerpolicy', 'allowfullscreen'];
-
-  function embedFrame(frame, doc) {
-    var src = String(frame.getAttribute('src') || '').trim();
-    if (!/^https:\/\/(www\.youtube\.com|www\.youtube-nocookie\.com)\/embed\/[A-Za-z0-9_-]+\/?(?:[?#][^\s"'<>\\]*)?$/.test(src)) {
-      return null;
+  // ── THE FIVE PROVIDERS (`Html\Embed` on the server says the same) ────────
+  // Which frame, quote and script is whose, and what each provider's code
+  // writes on its frame. The server is the guarantee; this decides what the
+  // surface shows, and what the HTML view and the save see before it does.
+  var EMBEDS = [
+    {
+      name: 'youtube',
+      // https, YouTube's two embed hosts, a path under /embed/ — a video, a
+      // `videoseries` playlist or a `live_stream`.
+      frame: /^https:\/\/(?:www\.youtube\.com|www\.youtube-nocookie\.com)\/embed\/[A-Za-z0-9_-]+\/?(?:[?#][^\s"'<>\\]*)?$/,
+      attrs: ['width', 'height', 'src', 'title', 'frameborder', 'allow', 'referrerpolicy', 'allowfullscreen'],
+      scripts: []
+    },
+    {
+      name: 'vimeo',
+      // A video on Vimeo's player host, or a showcase or a live event; the
+      // frame fills Vimeo's box, whose padding keeps the video's shape.
+      frame: /^https:\/\/(?:player\.vimeo\.com\/video\/\d+|vimeo\.com\/(?:showcase\/\d+\/embed|event\/\d+\/embed(?:\/[A-Za-z0-9]+)?))\/?(?:[?#][^\s"'<>\\]*)?$/,
+      attrs: ['src', 'width', 'height', 'frameborder', 'allow', 'referrerpolicy', 'style', 'title',
+              'allowfullscreen', 'webkitallowfullscreen', 'mozallowfullscreen'],
+      box: /^padding:\d{1,3}(?:\.\d{1,4})?% 0 0 0;position:relative$/,
+      fill: 'position:absolute;top:0;left:0;width:100%;height:100%',
+      scripts: ['https://player.vimeo.com/api/player.js']
+    },
+    {
+      name: 'facebook',
+      // A post, a video, a page or a comment, from Facebook's plugin address.
+      frame: /^https:\/\/www\.facebook\.com\/plugins\/(?:post|video|page|comment_embed)\.php(?:[?#][^\s"'<>\\]*)?$/,
+      attrs: ['src', 'width', 'height', 'style', 'scrolling', 'frameborder', 'allowfullscreen', 'allow',
+              'allowtransparency', 'title'],
+      style: 'border:none;overflow:hidden',
+      scripts: []
+    },
+    {
+      name: 'instagram',
+      // Instagram's blockquote, naming a post, a reel or a video. What shows is
+      // Instagram's own frame for that post — the one its script would put in
+      // the blockquote's place — and it says how tall it is.
+      permalink: function (quote) {
+        return quote.classList.contains('instagram-media')
+          ? String(quote.getAttribute('data-instgrm-permalink') || '').trim() : '';
+      },
+      post: /^https:\/\/www\.instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(p|reel|tv)\/([A-Za-z0-9_-]+)\/?(?:[?#][^\s"'<>\\]*)?$/,
+      scripts: ['//www.instagram.com/embed.js', 'https://www.instagram.com/embed.js'],
+      show: function (quote, post) {
+        return 'https://www.instagram.com/' + post[1] + '/' + post[2] + '/embed/'
+          + (quote.hasAttribute('data-instgrm-captioned') ? 'captioned/' : '');
+      },
+      origin: 'https://www.instagram.com',
+      size: [540, 600],
+      height: function (data) {
+        var d = data;
+        if (typeof d === 'string') { try { d = JSON.parse(d); } catch (err) { return 0; } }
+        return d && d.type === 'MEASURE' && d.details ? Number(d.details.height) || 0 : 0;
+      }
+    },
+    {
+      name: 'x',
+      // X's blockquote, which names a post by the link to it, on x.com or on an
+      // older code's twitter.com (`Html\XPost`). What shows is X's own frame
+      // for that post, in the code's colours or else the admin's, and it says
+      // how tall it is.
+      permalink: function (quote) {
+        var classes = String(quote.getAttribute('class') || '').trim().split(/\s+/);
+        var isX = classes.some(function (c) { return c === 'twitter-tweet' || c === 'twitter-video'; })
+          && classes.every(function (c) { return /^(?:twitter-tweet|twitter-video|tw-align-(?:left|right|center))$/.test(c); });
+        var links = isX ? quote.querySelectorAll('a[href]') : [];
+        for (var i = 0; i < links.length; i++) {
+          var href = String(links[i].getAttribute('href')).trim();
+          if (this.post.test(href)) { return href; }
+        }
+        return '';
+      },
+      post: /^(?:https:\/\/(?:www\.|mobile\.)?x\.com|https?:\/\/(?:www\.)?twitter\.com|https:\/\/mobile\.twitter\.com)\/(?:[A-Za-z0-9_]{1,20}|i(?:\/web)?)\/status(?:es)?\/(\d{1,25})\/?(?:[?#][^\s"'<>\\]*)?$/,
+      scripts: ['https://platform.x.com/widgets.js', 'https://platform.twitter.com/widgets.js',
+                '//platform.x.com/widgets.js', '//platform.twitter.com/widgets.js'],
+      show: function (quote, post) {
+        var theme = quote.getAttribute('data-theme');
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = /dark/.test(window.getComputedStyle(document.documentElement).colorScheme) ? 'dark' : 'light';
+        }
+        return 'https://platform.twitter.com/embed/Tweet.html?id=' + post[1] + '&theme=' + theme + '&dnt=true';
+      },
+      origin: 'https://platform.twitter.com',
+      size: [550, 400],
+      height: function (data) {
+        var d = data;
+        if (typeof d === 'string') { try { d = JSON.parse(d); } catch (err) { return 0; } }
+        var call = d && d['twttr.embed'];
+        var size = call && call.method === 'twttr.private.resize' && call.params && call.params[0];
+        return size ? Number(size.height) || 0 : 0;
+      }
     }
-    var out = doc.createElement('iframe');
-    YT_ATTRS.forEach(function (name) {
-      if (frame.hasAttribute(name)) { out.setAttribute(name, frame.getAttribute(name)); }
-    });
-    return out;
+  ];
+
+  /** A `style` as a provider writes it, compared without its spacing, case or last semicolon (`Embed::style()`). */
+  function styleOf(value) {
+    return String(value || '').toLowerCase().trim().replace(/\s+/g, ' ')
+      .replace(/\s*([:;,])\s*/g, '$1').replace(/;+$/, '');
   }
 
-  /** The YouTube embed a pasted text is — exactly one frame and nothing else — or null. */
-  function youtubeFrame(text) {
-    var doc = new DOMParser().parseFromString('<body>' + (text || '') + '</body>', 'text/html');
-    var nodes = Array.prototype.filter.call(doc.body.childNodes, function (n) {
+  function frameProvider(src) {
+    src = String(src || '').trim();
+    for (var i = 0; i < EMBEDS.length; i++) {
+      if (EMBEDS[i].frame && EMBEDS[i].frame.test(src)) { return EMBEDS[i]; }
+    }
+    return null;
+  }
+
+  /** Whose box is this element: the provider's style, and the provider's frame alone inside it. */
+  function boxProvider(el) {
+    if (!el || el.nodeName !== 'DIV') { return null; }
+    var frames = Array.prototype.filter.call(el.childNodes, function (n) {
       return !(n.nodeType === 3 && !n.textContent.trim());
     });
-    return nodes.length === 1 && nodes[0].nodeName === 'IFRAME' ? embedFrame(nodes[0], document) : null;
+    if (frames.length !== 1 || frames[0].nodeName !== 'IFRAME') { return null; }
+    var p = frameProvider(frames[0].getAttribute('src'));
+    return p && p.box && p.box.test(styleOf(el.getAttribute('style'))) ? p : null;
+  }
+
+  function quoteProvider(el) {
+    for (var i = 0; i < EMBEDS.length; i++) {
+      var p = EMBEDS[i];
+      if (p.permalink && p.post.test(p.permalink(el))) { return p; }
+    }
+    return null;
+  }
+
+  function scriptProvider(el) {
+    var src = String(el.getAttribute('src') || '').trim();
+    for (var i = 0; i < EMBEDS.length; i++) {
+      if (EMBEDS[i].scripts.indexOf(src) !== -1) { return EMBEDS[i]; }
+    }
+    return null;
   }
 
   /**
-   * A BLOCK OF ITS OWN at the caret: the block the caret is in is split there,
-   * the new one goes between the halves, an empty half goes, and the caret
-   * waits on the line after it.
+   * THE EMBEDS IN A PIECE OF HTML, in order: each one's own nodes — the
+   * provider's box or frame, or its quote — and the provider's script after
+   * it, with only white space between.
+   */
+  function embedGroups(root) {
+    var groups = [];
+    var taken = [];
+    Array.prototype.forEach.call(root.querySelectorAll('iframe, blockquote'), function (el) {
+      if (taken.some(function (n) { return n.contains(el); })) { return; }
+      var p, first;
+      if (el.nodeName === 'IFRAME') {
+        p = frameProvider(el.getAttribute('src'));
+        first = p && boxProvider(el.parentNode) === p ? el.parentNode : el;
+      } else {
+        p = quoteProvider(el);
+        first = el;
+      }
+      if (!p) { return; }
+      var nodes = [first];
+      var gap = [];
+      var next = first.nextSibling;
+      while (next && next.nodeType === 3 && !next.textContent.trim()) { gap.push(next); next = next.nextSibling; }
+      if (next && next.nodeName === 'SCRIPT' && scriptProvider(next) === p) { nodes = nodes.concat(gap, [next]); }
+      groups.push({ provider: p, nodes: nodes });
+      taken = taken.concat(nodes);
+    });
+    return groups;
+  }
+
+  /**
+   * A COPY OF ONE OF AN EMBED'S NODES, AS THE SAVE WILL KEEP IT: a frame with
+   * only the attributes its provider writes (a size only if it is a number, a
+   * style only if it is the provider's own), the box with its style alone,
+   * the script with its address and nothing inside it. The quote goes as
+   * pasted; the server decides each of its parts.
+   */
+  function embedNode(node, p) {
+    var copy = node.cloneNode(true);
+    if (node.nodeType !== 1 || copy.nodeName === 'BLOCKQUOTE') { return copy; }
+    var keep = function (el, test) {
+      Array.prototype.slice.call(el.attributes).forEach(function (a) {
+        if (!test(a.name.toLowerCase(), a.value.trim())) { el.removeAttribute(a.name); }
+      });
+    };
+    var frame = copy.nodeName === 'IFRAME' ? copy : copy.querySelector('iframe');
+    if (copy.nodeName === 'SCRIPT') {
+      keep(copy, function (name, value) {
+        return name === 'src' || ((name === 'async' || name === 'defer') && (value === '' || value === name))
+          || (name === 'charset' && value.toLowerCase() === 'utf-8');
+      });
+      copy.textContent = '';
+      return copy;
+    }
+    if (copy !== frame) { keep(copy, function (name) { return name === 'style'; }); }
+    keep(frame, function (name, value) {
+      if (p.attrs.indexOf(name) === -1) { return false; }
+      if (name === 'width' || name === 'height' || name === 'frameborder') { return /^\d{1,4}%?$/.test(value); }
+      if (name === 'scrolling') { return /^(no|yes|auto)$/i.test(value); }
+      if (name === 'style') { return styleOf(value) === p.style || (copy !== frame && styleOf(value) === p.fill); }
+      return true;
+    });
+    frame.textContent = '';
+    return copy;
+  }
+
+  /**
+   * AN EMBED AS A BLOCK OF THE SURFACE. It shows the provider's own frame —
+   * the frame the code draws, or for a quote the frame the provider's script
+   * would draw — and keeps the code itself (`data-code`), which is what
+   * `htmlOut()` writes in its place. It is not text to type into: the caret
+   * goes before or after it, and Backspace or Delete beside it takes it all.
+   */
+  function embedBlock(group, doc) {
+    var p = group.provider;
+    var holder = doc.createElement('div');
+    group.nodes.forEach(function (n) { holder.appendChild(embedNode(n, p)); });
+    var show;
+    if (p.permalink) {
+      var quote = group.nodes[0];
+      show = doc.createElement('iframe');
+      show.setAttribute('src', p.show(quote, p.post.exec(p.permalink(quote))));
+      show.setAttribute('width', String(p.size[0]));
+      show.setAttribute('height', String(p.size[1]));
+      show.setAttribute('frameborder', '0');
+      show.setAttribute('scrolling', 'no');
+      show.setAttribute('title', quote.textContent.trim().slice(0, 120));
+    } else {
+      show = embedNode(group.nodes[0], p);
+    }
+    var block = doc.createElement('div');
+    block.className = 'editor__embed';
+    block.setAttribute('contenteditable', 'false');
+    block.setAttribute('data-embed', p.name);
+    block.setAttribute('data-code', holder.innerHTML);
+    block.appendChild(show);
+    return block;
+  }
+
+  /** The embed a pasted text is — exactly one, with its script, and nothing else — as a block, or null. */
+  function pastedEmbed(text) {
+    var doc = new DOMParser().parseFromString('<body>' + (text || '') + '</body>', 'text/html');
+    var groups = embedGroups(doc.body);
+    var nodes = Array.prototype.filter.call(doc.body.childNodes, function (n) {
+      return !(n.nodeType === 3 && !n.textContent.trim());
+    });
+    if (groups.length !== 1 || !nodes.every(function (n) { return groups[0].nodes.indexOf(n) !== -1; })) {
+      return null;
+    }
+    return embedBlock(groups[0], document);
+  }
+
+  // ── A QUOTE'S FRAME SAYS HOW TALL IT IS ──────────────────────────────────
+  // The provider's own frame posts its height to the page that holds it. Only
+  // from the provider's own address, only to the frame it came from, and
+  // never taller than a page.
+  window.addEventListener('message', function (e) {
+    EMBEDS.forEach(function (p) {
+      if (!p.origin || e.origin !== p.origin) { return; }
+      var height = Math.min(Math.ceil(p.height(e.data)), 4000);
+      if (!(height > 0)) { return; }
+      Array.prototype.forEach.call(document.querySelectorAll('.editor__embed[data-embed="' + p.name + '"] iframe'), function (f) {
+        if (f.contentWindow === e.source) { f.setAttribute('height', String(height)); }
+      });
+    });
+  });
+
+  /**
+   * A BLOCK OF ITS OWN at the caret, or several in a fragment: the block the
+   * caret is in is split there, the new ones go between the halves, an empty
+   * half goes, and the caret waits on the line after them.
    */
   function insertBlock(surface, node) {
+    var last = node.nodeType === 11 ? node.lastChild : node;
+    if (!last) { return; }
     var sel = window.getSelection();
     var range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
     var filled = function (el) { return el.textContent.trim() !== '' || !!el.querySelector('img, iframe, hr'); };
@@ -2356,11 +2726,11 @@
         var rest = block.cloneNode(false);
         rest.appendChild(tail.extractContents());
         surface.insertBefore(node, block.nextSibling);
-        if (filled(rest)) { surface.insertBefore(rest, node.nextSibling); }
+        if (filled(rest)) { surface.insertBefore(rest, last.nextSibling); }
         if (!filled(block)) { surface.removeChild(block); }
       }
     }
-    var next = node.nextSibling;
+    var next = last.nextSibling;
     if (!next) {
       next = document.createElement('p');
       next.appendChild(document.createElement('br'));

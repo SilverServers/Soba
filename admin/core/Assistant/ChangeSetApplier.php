@@ -63,6 +63,8 @@ final class ChangeSetApplier
                     'create_entry' => self::createEntry($op, $context),
                     'trash_entry'  => self::trashEntry($op, $changeSet, $context),
                     'update_page'  => self::updatePage($op, $changeSet, $context),
+                    'set_stock', 'set_order_status', 'create_coupon', 'add_option'
+                                   => ShopOps::apply((string) $op['op'], $op, $changeSet, $context),
                     default        => throw new \RuntimeException(
                         "Operation '{$op['op']}' has no implementation."
                     ),
@@ -70,6 +72,14 @@ final class ChangeSetApplier
             }
 
             $pdo->commit();
+
+            // WHAT LEAVES THE SITE, ONCE IT STANDS: an order's email to its
+            // customer. Never a reason to call an applied change failed.
+            try {
+                ShopOps::afterCommit($results, $context);
+            } catch (\Throwable $e) {
+                error_log('[assistant] change set ' . $changeSet->id . ' applied; telling afterwards failed: ' . $e->getMessage());
+            }
 
             return ['applied' => true, 'results' => $results, 'errors' => []];
         } catch (\Throwable $e) {

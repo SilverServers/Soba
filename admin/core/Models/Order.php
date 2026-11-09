@@ -105,28 +105,65 @@ final class Order
     }
 
     /**
-     * The order list, newest first, optionally narrowed to one status.
+     * The order list, newest first, optionally narrowed to one status and to
+     * one month.
      *
+     * THE MONTH IS THE SITE'S: October in Vancouver starts at 07:00 UTC on the
+     * first, and an order placed at 9 pm on the 31st is October's, as the
+     * order screen and the receipt date it.
+     *
+     * @param string|null $month 'YYYY-MM', in the site's own zone
      * @return list<array<string, mixed>>
      */
-    public static function all(?string $status = null, int $limit = 200): array
+    public static function all(?string $status = null, int $limit = 200, ?string $month = null): array
     {
         $sql    = 'SELECT o.*, (SELECT COALESCE(SUM(oi.quantity), 0) FROM order_items oi
                                  WHERE oi.order_id = o.id) AS item_count
-                     FROM orders o';
+                     FROM orders o WHERE 1 = 1';
         $params = [];
 
         if ($status !== null && isset(self::STATUSES[$status])) {
-            $sql .= ' WHERE o.status = :status';
+            $sql .= ' AND o.status = :status';
             $params[':status'] = $status;
         }
+        $bounds = $month !== null ? self::monthBounds($month) : null;
+        if ($bounds !== null) {
+            $sql .= ' AND o.created_at >= :from AND o.created_at < :to';
+            $params[':from'] = $bounds[0];
+            $params[':to']   = $bounds[1];
+        }
 
-        $sql .= ' ORDER BY o.created_at DESC, o.id DESC LIMIT ' . max(1, min(1000, $limit));
+        $sql .= ' ORDER BY o.created_at DESC, o.id DESC LIMIT ' . max(1, min(100000, $limit));
 
         $stmt = Database::getInstance()->prepare($sql);
         $stmt->execute($params);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * A month of the site's, as the UTC times it starts and ends at.
+     *
+     * @return array{0: string, 1: string}|null null for anything but 'YYYY-MM'
+     */
+    public static function monthBounds(string $month): ?array
+    {
+        if (!preg_match('/^(\d{4})-(0[1-9]|1[0-2])$/', $month)) {
+            return null;
+        }
+        $utc   = new \DateTimeZone('UTC');
+        $start = new \DateTimeImmutable($month . '-01 00:00:00', \Cms\Helpers\Dates::zone());
+
+        return [
+            $start->setTimezone($utc)->format('Y-m-d H:i:s'),
+            $start->modify('+1 month')->setTimezone($utc)->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /** The month an order was placed in, in the site's zone: 'YYYY-MM'. */
+    public static function monthOf(array $order): string
+    {
+        return \Cms\Helpers\Dates::format((string) $order['created_at'], 'Y-m');
     }
 
     /** status => how many, for the filter row. Every status, including zeros. */
@@ -373,7 +410,20 @@ final class Order
             throw $e;
         }
 
+        // ANOTHER PROGRAM TOLD, IF IT ASKED (`Commerce\Webhooks`).
+        \Cms\Commerce\Webhooks::emit('order.created', $orderId);
+
         return ['id' => $orderId, 'key' => $key];
+    }
+
+    /**
+     * An order's paid date put back as it was, by an assistant's change undone:
+     * the one thing that may unstamp it, because the move that stamped it is
+     * being taken back and no money arrived that day.
+     */
+    public static function restorePaidAt(int $id, ?string $paidAt): void
+    {
+        Database::getInstance()->prepare('UPDATE orders SET paid_at = :at WHERE id = :id')->execute([':at' => $paidAt, ':id' => $id]);
     }
 
     /**
@@ -383,8 +433,12 @@ final class Order
      * never restamped — an order refunded and then reinstated was still paid on
      * the original day, and overwriting it would lose the only record of when
      * the money arrived.
+     *
+     * `$tell` false moves it without the customer's email: an assistant's
+     * change undone puts an order back where it was, and "your payment is
+     * received" a second time is not news to them.
      */
-    public static function setStatus(int $id, string $status, string $by = ''): bool
+    public static function setStatus(int $id, string $status, string $by = '', bool $tell = true): bool
     {
         if (!isset(self::STATUSES[$status])) {
             return false;
@@ -417,6 +471,9 @@ final class Order
         // something a person can click twice on a slow page.
         $holds  = (bool) $order['stock_reduced'];
         $should = !in_array($status, ['cancelled', 'refunded'], true);
+        // WHETHER THIS CHANGE PUTS THE GOODS BACK: a refund recorded for the
+        // rest of the order says so.
+        $givesBack = $holds && !$should;
 
         // ── AND THE CODE'S USE FOLLOWS THE STATUS TOO ──────────────────────
         // Exactly the shape above, on its own flag: a cancelled order did not
@@ -453,7 +510,7 @@ final class Order
         }
 
         if ($holds !== $should) {
-            $items = self::items($id);
+            $items = self::held(self::items($id));
             if ($should) {
                 // REINSTATED. If the stock has gone in the meantime the order
                 // still moves — the owner asked for it — but the note says so,
@@ -470,14 +527,16 @@ final class Order
                     'variation_id' => $i['variation_id'] !== null ? (int) $i['variation_id'] : null,
                     'quantity'     => (int) $i['quantity'],
                 ], $items);
-                $took = \Cms\Commerce\Stock::takeForOrder($lines, $names);
+                $took = \Cms\Commerce\StockLog::during('reinstated', $id, $by,
+                    static fn (): array => \Cms\Commerce\Stock::takeForOrder($lines, $names));
                 if (!$took['ok']) {
                     self::addNote($id, 'Reinstated, but there was not enough stock for '
                         . $took['short'] . '. Check the count before shipping.', false, $by);
                 }
                 $holds = $took['ok'];
             } else {
-                \Cms\Commerce\Stock::giveForOrder($items);
+                \Cms\Commerce\StockLog::during($status === 'refunded' ? 'refunded' : 'cancelled', $id, $by,
+                    static fn () => \Cms\Commerce\Stock::giveForOrder($items));
                 $holds = false;
             }
 
@@ -492,6 +551,32 @@ final class Order
             false,
             $by
         );
+
+        // ── REFUNDED BY ITS STATUS: WHAT WAS LEFT WENT BACK ────────────────
+        // Recorded as a refund, as one from the refund form would be, and the
+        // customer told by that. Nothing is recorded when refunds already
+        // came to the whole order.
+        if ($status === 'refunded') {
+            \Cms\Commerce\Refund::remainder($id, $givesBack, $by);
+        }
+
+        // ── AND THE CUSTOMER IS TOLD, WHEREVER THE CHANGE CAME FROM ────────
+        // Paid and sent each have an email (Settings → Shop turns either off).
+        // Sent from here rather than by the screen that asked, so a status
+        // changed from the list, several at once, says the same as one changed
+        // on the order. It never throws: a failure is a note on the order.
+        if ($tell) {
+            \Cms\Commerce\OrderMail::statusChanged($id, $status, $by);
+        }
+
+        // ── AND ANOTHER PROGRAM, IF IT ASKED (`Commerce\Webhooks`): paid when
+        // it first reaches a paid status, and completed, cancelled or refunded.
+        if (in_array($status, self::PAID, true) && !in_array((string) $order['status'], self::PAID, true)) {
+            \Cms\Commerce\Webhooks::emit('order.paid', $id);
+        }
+        if (in_array($status, ['completed', 'cancelled', 'refunded'], true)) {
+            \Cms\Commerce\Webhooks::emit('order.' . $status, $id);
+        }
 
         return true;
     }
@@ -513,6 +598,105 @@ final class Order
             ':body'   => $body,
             ':cust'   => $toCustomer ? 1 : 0,
         ]);
+    }
+
+    /**
+     * The payment's own reference, as the owner reads it off the bank: an
+     * e-Transfer's reference number, a cheque's number.
+     *
+     * It is what matches the order to the money when the bank statement is
+     * reconciled, so a change is a note with both values: a reference typed
+     * over without a trace is a payment nobody can find again.
+     */
+    public static function setPaymentRef(int $id, string $ref, string $by = ''): bool
+    {
+        $order = self::find($id);
+        if ($order === null) {
+            return false;
+        }
+
+        $ref = mb_substr(trim($ref), 0, 120);
+        $was = (string) $order['transaction_ref'];
+        if ($ref === $was) {
+            return false;
+        }
+
+        $stmt = Database::getInstance()->prepare('UPDATE orders SET transaction_ref = :r WHERE id = :id');
+        $stmt->execute([':r' => $ref, ':id' => $id]);
+
+        self::addNote($id, match (true) {
+            $ref === '' => 'Payment reference ' . $was . ' removed.',
+            $was === '' => 'Payment reference recorded: ' . $ref . '.',
+            default     => 'Payment reference changed from ' . $was . ' to ' . $ref . '.',
+        }, false, $by);
+
+        return true;
+    }
+
+    /** Why a parcel's carrier, number and link cannot be kept, in a sentence, or null. */
+    public static function trackingProblem(string $carrier, string $number, string $url): ?string
+    {
+        $carrier = trim($carrier);
+        $number  = trim($number);
+        $url     = trim($url);
+        if (mb_strlen($carrier) > 60) {
+            return 'The carrier\'s name is longer than 60 characters.';
+        }
+        if (mb_strlen($number) > 80) {
+            return 'The tracking number is longer than 80 characters.';
+        }
+        if ($url !== '' && (strlen($url) > 500 || !preg_match('#^https?://#i', $url)
+                || filter_var($url, FILTER_VALIDATE_URL) === false)) {
+            return 'The tracking link has to be a web address starting with https:// or http://.';
+        }
+
+        return null;
+    }
+
+    /**
+     * How the order went: the carrier, its tracking number, and the carrier's
+     * own page for the parcel.
+     *
+     * A NUMBER TOO LONG IS REFUSED, NOT CUT. A tracking number with its last
+     * digits missing finds somebody else's parcel or nothing, and the customer
+     * is the one who finds out. The link is the carrier's, pasted as given:
+     * only an http or https address, so nothing else can be put in front of a
+     * customer as a link in the shop's own email.
+     *
+     * @return string|null what cannot be saved, in a sentence, or null when saved
+     */
+    public static function setTracking(int $id, string $carrier, string $number, string $url, string $by = ''): ?string
+    {
+        $order = self::find($id);
+        if ($order === null) {
+            return 'That order no longer exists.';
+        }
+
+        $carrier = trim($carrier);
+        $number  = trim($number);
+        $url     = trim($url);
+
+        $problem = self::trackingProblem($carrier, $number, $url);
+        if ($problem !== null) {
+            return $problem;
+        }
+
+        $was = [(string) $order['tracking_carrier'], (string) $order['tracking_number'], (string) $order['tracking_url']];
+        if ($was === [$carrier, $number, $url]) {
+            return null;
+        }
+
+        $stmt = Database::getInstance()->prepare(
+            'UPDATE orders SET tracking_carrier = :c, tracking_number = :n, tracking_url = :u WHERE id = :id'
+        );
+        $stmt->execute([':c' => $carrier, ':n' => $number, ':u' => $url, ':id' => $id]);
+
+        $now = trim($carrier . ' ' . $number);
+        self::addNote($id, $now === '' && $url === ''
+            ? 'Tracking removed.'
+            : 'Tracking recorded: ' . ($now !== '' ? $now : $url) . '.', false, $by);
+
+        return null;
     }
 
     /**
@@ -542,7 +726,8 @@ final class Order
         }
         try {
             if (!empty($order['stock_reduced'])) {
-                \Cms\Commerce\Stock::giveForOrder(self::items($id));
+                \Cms\Commerce\StockLog::during('deleted', $id, '',
+                    static fn () => \Cms\Commerce\Stock::giveForOrder(self::held(self::items($id))));
             }
             $code = trim((string) ($order['coupon_code'] ?? ''));
             if ($code !== '' && !empty($order['coupon_redeemed'])) {
@@ -560,6 +745,244 @@ final class Order
             }
             throw $e;
         }
+    }
+
+    /** The fields `setAddresses()` keeps, in the order the note lists them. */
+    public const ADDRESS_FIELDS = [
+        'email', 'phone',
+        'billing_name', 'billing_line1', 'billing_line2', 'billing_city', 'billing_region', 'billing_post', 'billing_country',
+        'shipping_name', 'shipping_line1', 'shipping_line2', 'shipping_city', 'shipping_region', 'shipping_post', 'shipping_country',
+    ];
+
+    /**
+     * The order's addresses and how to reach the customer, corrected.
+     *
+     * ── WHAT WAS CHARGED STAYS WHAT WAS CHARGED ────────────────────────────
+     * The tax and the delivery were worked out for the address the order was
+     * placed with, and a corrected street does not restate them. A move to
+     * another province that changes what is owed is the owner's to settle,
+     * with a refund or a note to the customer.
+     *
+     * The same rules as the checkout's: a name, street, town, postal code and
+     * country, the province where the country has a list of them, and a
+     * delivery address that is either left blank, the billing one, or whole.
+     * The note keeps the old and the new, because a parcel sent to the old one
+     * is the question it answers next week.
+     *
+     * @param array<string, string> $form `Checkout::readForm()` of the posted fields
+     * @return list<string> what cannot be saved, in sentences; empty when saved
+     */
+    public static function setAddresses(int $id, array $form, string $by = ''): array
+    {
+        $order = self::find($id);
+        if ($order === null) {
+            return ['That order no longer exists.'];
+        }
+
+        $errors = [];
+        foreach (\Cms\Commerce\Checkout::FIELDS as $key => [$label, $required]) {
+            if ($required && ($form[$key] ?? '') === '') {
+                $errors[] = $label . ' is required.';
+            }
+        }
+        if (($form['email'] ?? '') !== '' && !filter_var($form['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'The email address does not look like one.';
+        }
+        foreach (['billing' => '', 'shipping' => ' of the delivery address'] as $who => $whose) {
+            $country = (string) ($form[$who . '_country'] ?? '');
+            if ($who === 'shipping' && implode('', array_map(
+                static fn (string $k): string => (string) ($form[$k] ?? ''),
+                array_keys(\Cms\Commerce\Checkout::SHIPPING_FIELDS)
+            )) === '') {
+                continue;   // blank: delivered to the billing address
+            }
+            if ($who === 'shipping') {
+                foreach (['shipping_name', 'shipping_line1', 'shipping_city', 'shipping_post', 'shipping_country'] as $key) {
+                    if (($form[$key] ?? '') === '') {
+                        $errors[] = \Cms\Commerce\Checkout::SHIPPING_FIELDS[$key] . ' is required for the delivery address.';
+                    }
+                }
+            }
+            if ($country !== '' && !\Cms\Commerce\Countries::isValid($country)) {
+                $errors[] = 'Choose the country' . $whose . ' from the list.';
+            } elseif (\Cms\Commerce\Regions::listed($country) && ($form[$who . '_region'] ?? '') === '') {
+                $errors[] = 'Choose the ' . strtolower(\Cms\Commerce\Regions::word($country)) . $whose . '.';
+            }
+        }
+        if ($errors !== []) {
+            return $errors;
+        }
+
+        $new = [];
+        foreach (self::ADDRESS_FIELDS as $key) {
+            $value     = trim((string) ($form[$key] ?? ''));
+            $new[$key] = str_ends_with($key, '_country') ? \Cms\Commerce\Countries::code($value) : $value;
+        }
+        $changed = array_filter(self::ADDRESS_FIELDS, static fn (string $k): bool => (string) $order[$k] !== $new[$k]);
+        if ($changed === []) {
+            return [];
+        }
+
+        $sets = implode(', ', array_map(static fn (string $k): string => $k . ' = :' . $k, self::ADDRESS_FIELDS));
+        $stmt = Database::getInstance()->prepare('UPDATE orders SET ' . $sets . ' WHERE id = :id');
+        $bind = [':id' => $id];
+        foreach ($new as $k => $v) {
+            $bind[':' . $k] = $v;
+        }
+        $stmt->execute($bind);
+
+        $line = static fn (array $from, string $who): string => implode(', ', array_filter([
+            (string) $from[$who . '_name'], (string) $from[$who . '_line1'], (string) $from[$who . '_line2'],
+            trim((string) $from[$who . '_city'] . ' ' . (string) $from[$who . '_region']),
+            (string) $from[$who . '_post'], (string) $from[$who . '_country'],
+        ], static fn (string $s): bool => trim($s) !== ''));
+        $said = [];
+        foreach (['billing' => 'Billing address', 'shipping' => 'Delivery address'] as $who => $what) {
+            $was = $line($order, $who);
+            $now = $line($new, $who);
+            if ($was !== $now) {
+                $said[] = $what . ' changed from ' . ($was !== '' ? $was : 'the billing address')
+                        . ' to ' . ($now !== '' ? $now : 'the billing address') . '.';
+            }
+        }
+        foreach (['email' => 'Email', 'phone' => 'Phone'] as $key => $what) {
+            if ((string) $order[$key] !== $new[$key]) {
+                $said[] = $what . ' changed from ' . ((string) $order[$key] !== '' ? (string) $order[$key] : 'none')
+                        . ' to ' . ($new[$key] !== '' ? $new[$key] : 'none') . '.';
+            }
+        }
+        self::addNote($id, implode("\n", $said), false, $by);
+
+        return [];
+    }
+
+    /**
+     * One option of a line exchanged for another of the same product: the M
+     * tees back on the shelf, as many L taken off it, and the line reading L.
+     *
+     * ── AT THE PRICE IT WAS SOLD AT ─────────────────────────────────────────
+     * An exchange is the same thing in another size or colour, so the order's
+     * figures do not move. An option priced differently is the owner's to
+     * settle, with a refund or a note to the customer.
+     *
+     * PART OF A LINE SPLITS IT: one tee of two exchanged leaves a line of one M
+     * and a new line of one L, each at the price paid. What was refunded stays
+     * on the old line; only what is left of it can be exchanged.
+     *
+     * @return string|null what stops it, in a sentence, or null when done
+     */
+    public static function exchange(int $id, int $itemId, int $toVariation, int $qty, string $by = ''): ?string
+    {
+        $order = self::find($id);
+        if ($order === null) {
+            return 'That order no longer exists.';
+        }
+        $item = null;
+        foreach (self::items($id) as $row) {
+            if ((int) $row['id'] === $itemId) {
+                $item = $row;
+            }
+        }
+        if ($item === null) {
+            return 'That line is not on this order.';
+        }
+        $from = $item['variation_id'] !== null ? \Cms\Commerce\Variation::find((int) $item['variation_id']) : null;
+        $name = \Cms\Commerce\Refund::name($item);
+        if ($item['variation_id'] === null) {
+            return $name . ' has no options to exchange.';
+        }
+        $to = \Cms\Commerce\Variation::find($toVariation);
+        if ($to === null || $item['post_id'] === null || (int) $to['post_id'] !== (int) $item['post_id']) {
+            return 'Choose another option of ' . (string) $item['name'] . ' to exchange for.';
+        }
+        if ((int) $to['id'] === (int) $item['variation_id']) {
+            return 'Choose an option other than ' . (string) $item['variation_label'] . '.';
+        }
+        $most = (int) $item['quantity'] - (int) $item['refunded_qty'];
+        if ($qty < 1 || $qty > $most) {
+            return 'Only ' . $most . ' of ' . $name . ' can be exchanged.';
+        }
+
+        $db  = Database::getInstance();
+        $own = !$db->inTransaction();
+        if ($own) {
+            $db->beginTransaction();
+        }
+        try {
+            // THE SHELF, when the order holds its goods: the new option taken
+            // first, so a size that has run out refuses before anything moves.
+            if (!empty($order['stock_reduced'])) {
+                $took = \Cms\Commerce\StockLog::during('exchanged', $id, $by,
+                    static fn (): bool => \Cms\Commerce\Variation::take((int) $to['id'], $qty));
+                if (!$took) {
+                    if ($own) {
+                        $db->rollBack();
+                    }
+                    $left = \Cms\Commerce\Variation::available($to);
+
+                    return 'Only ' . (int) $left . ' of ' . (string) $item['name'] . ' (' . (string) $to['label'] . ') '
+                         . ((int) $left === 1 ? 'is' : 'are') . ' in stock.';
+                }
+                \Cms\Commerce\StockLog::during('exchanged', $id, $by,
+                    static fn () => \Cms\Commerce\Variation::give((int) $item['variation_id'], $qty));
+            }
+
+            $sku = (string) $to['sku'] !== '' ? (string) $to['sku'] : (string) ($from['sku'] ?? $item['sku']);
+            if ($qty === (int) $item['quantity']) {
+                $stmt = $db->prepare(
+                    'UPDATE order_items SET variation_id = :v, variation_label = :l, sku = :s WHERE id = :id'
+                );
+                $stmt->execute([':v' => (int) $to['id'], ':l' => (string) $to['label'], ':s' => $sku, ':id' => $itemId]);
+            } else {
+                $keep = (int) $item['quantity'] - $qty;
+                $stmt = $db->prepare('UPDATE order_items SET quantity = :q, line_total = :t WHERE id = :id');
+                $stmt->execute([':q' => $keep, ':t' => (int) $item['unit_price'] * $keep, ':id' => $itemId]);
+                $add = $db->prepare(
+                    'INSERT INTO order_items
+                        (order_id, post_id, variation_id, variation_label, name, sku, quantity, unit_price, line_total, position)
+                     VALUES (:o, :p, :v, :l, :n, :s, :q, :u, :t, :pos)'
+                );
+                $add->execute([
+                    ':o' => $id, ':p' => (int) $item['post_id'], ':v' => (int) $to['id'], ':l' => (string) $to['label'],
+                    ':n' => (string) $item['name'], ':s' => $sku, ':q' => $qty, ':u' => (int) $item['unit_price'],
+                    ':t' => (int) $item['unit_price'] * $qty, ':pos' => (int) $item['position'],
+                ]);
+            }
+
+            if ($own) {
+                $db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($own && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+
+        self::addNote($id, 'Exchanged ' . $qty . ' × ' . $name . ' for ' . (string) $to['label'] . ', at the price paid.', false, $by);
+
+        return null;
+    }
+
+    /**
+     * An order's lines as the shelf counts them: each less what a refund has
+     * already put back, so nothing goes back twice and nothing is taken again
+     * that was never returned to the shelf by the order.
+     *
+     * @param  list<array<string, mixed>> $items
+     * @return list<array<string, mixed>>
+     */
+    private static function held(array $items): array
+    {
+        $out = [];
+        foreach ($items as $item) {
+            $item['quantity'] = (int) $item['quantity'] - (int) ($item['restocked_qty'] ?? 0);
+            if ($item['quantity'] > 0) {
+                $out[] = $item;
+            }
+        }
+
+        return $out;
     }
 
     /**
