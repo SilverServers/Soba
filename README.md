@@ -12,13 +12,14 @@ A content management system for the websites an agency builds and hands over to 
 - **Forms.** A form builder (pages, conditions, repeaters, uploads, ratings, appointments), a submissions inbox, and spam handling that discards what is certainly spam and keeps what is only suspicious.
 - **A shop.** Products sold as themselves or in sizes and colours, each option with its own code, photo, price, sale and count. A basket and checkout with tax by province or state, delivery by place and local pickup, and discount codes. Orders with their emails and notes, refunds by the line, exchanges, tracking, packing slips and invoices, orders taken by telephone, and a spreadsheet for the books. A stock screen with each count's history, mail when a size runs low or sells out, and a list of who is waiting for it to come back. Prices, sales and counts changed across a selection, and products in and out of a spreadsheet. Customers who sign in from a link sent to their inbox, with what is kept about them given or erased on request. Reports of what sold and the tax collected by province. A feed for Google Merchant Center and Meta's catalogue, and an API with keys and webhooks for other programs. Payment is by bank transfer, cheque or on delivery: there is no card gateway yet.
 - **SEO.** Titles and descriptions with variables, structured data, a sitemap, redirects.
+- **Google's measurement tags.** A GA4 measurement ID, a Tag Manager container ID and a Search Console verification code, typed on Settings → SEO → Google, print Google's own code on every public page in production. Each form sends one conversion event for each real submission, and clicks on phone numbers and email addresses can be sent too.
 - **Users and sign-in security.** Roles, two-step sign-in, signing in without a password, temporary access, a sign-in page at an address of your own or one made at random, lockouts, a log of who changed what, and a check of the CMS's own files against the release they came from.
 - **White-label.** Every name a visitor or an editor sees is the site's own title.
 - **Modules.** Pages, menus, search, the shop, appointments, the assistant and forms can each be switched off in `config.php`; their data stays.
 - **An assistant (optional).** The site owner asks in plain words. It proposes a change, a person approves the rendered difference, and only then does the CMS apply it: the model has no way to write. In a shop it also reads the orders, stock and sales, and proposes a new count, an order's move, a discount code or an option the same way. It uses the Claude API with the owner's own key and a spend limit.
 - **Updates with a way back.** The updater backs up the database and every file it replaces, refuses to overwrite a file the site has changed, and rolls itself back if anything fails.
 
-Nothing is fetched from a third party at runtime: no CDN scripts, no remote fonts. The one exception is an embed a writer pastes, which loads from its provider.
+Nothing is fetched from a third party at runtime: no CDN scripts, no remote fonts. The exceptions are an embed a writer pastes, which loads from its provider, and Google's measurement tags once a site owner types their IDs.
 
 ## Requirements
 
@@ -68,6 +69,8 @@ if (\Cms\Site\Front::owns($_SERVER['REQUEST_URI'] ?? '/')) {
 ```
 
 `owns()` answers for the admin, the API, private files, form posts, the sign-in page wherever it has moved, and every Content Type and taxonomy published at an address. The site declares its own first segments in `admin/config/site-addresses.php`. Such a site updates from the release's router update package (`cms-router-<version>-update.tar.gz`), the same way.
+
+A site's own header prints Google's measurement tags by calling `<?= \Cms\Site\Google::head() ?>` in its `<head>` and `<?= \Cms\Site\Google::body() ?>` straight after `<body>`, as a whole-page theme does. Each prints once a page, and nothing while Settings → SEO → Google is empty, so a site whose header already prints its own tags leaves it empty. `head()` takes the page's nonce when the site's Content-Security-Policy asks for one. A thank-you page of the site's own can ask `\Cms\Site\Google::conversion()` for the conversion a form's redirect left, before the page's first byte.
 
 ## Reporting a security problem
 

@@ -715,6 +715,17 @@ ob_start();
                     <p class="form-help">A page on this site. Blank: back to the page the form was sent from, which shows the thank-you message.</p>
                 </div>
 
+                <?php // THE CONVERSION (`Site\Google`): sent once for each real
+                      // submission, while Settings → SEO → Google has an
+                      // Analytics or Tag Manager ID. ?>
+                <div class="field">
+                    <label class="label" for="f-conversion">Event sent to Google</label>
+                    <input class="input input--mono" type="text" id="f-conversion" name="conversion_event"
+                           value="<?= h($setting('conversion_event', \Cms\Site\Google::DEFAULT_EVENT)) ?>"
+                           placeholder="<?= h(\Cms\Site\Google::DEFAULT_EVENT) ?>" autocomplete="off" spellcheck="false">
+                    <p class="form-help">Sent once for each real submission when Settings → SEO → Google has an Analytics or Tag Manager ID. Blank: none.</p>
+                </div>
+
                 <div class="field">
                     <label class="label" for="f-max-links">Most links in a message</label>
                     <input class="input" type="text" inputmode="numeric" id="f-max-links" name="max_links"

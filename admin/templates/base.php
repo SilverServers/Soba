@@ -66,6 +66,7 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
 <?php endif; ?>
 </head>
 <body>
+<?= \Cms\Site\Google::body() ?>
 
 <?php $_publicSiteName = \Cms\SEO\Head::globalTokens()['site_name']; ?>
 <header class="site-header">

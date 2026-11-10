@@ -13,6 +13,8 @@ use Cms\Models\Option;
  * Nothing SEO-related is scattered across templates.
  *
  * Output order:
+ *   0. Google's measurement tags, when Settings → SEO → Google has any: as
+ *      high in the head as Google asks for them
  *   1. <title>
  *   2. <meta name="description">
  *   3. <meta name="robots">
@@ -46,7 +48,10 @@ class Head
     public static function render(): string
     {
         $d = self::$data;
-        $html = '';
+        // 0. Google's measurement tags (`Site\Google`): first, as high in the
+        // head as Google asks; once a page, on public pages only, and nothing
+        // at all while none is typed.
+        $html = \Cms\Site\Google::head();
 
         // 1. <title>
         $title = $d['title'] ?? '';

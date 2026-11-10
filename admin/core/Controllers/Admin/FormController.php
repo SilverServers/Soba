@@ -63,6 +63,7 @@ class FormController
         if ($title === '') {
             $errors[] = 'Form title is required.';
         }
+        self::postedEvent($errors);
         $placeKey = self::postedPlace($errors, null);
 
         if (!empty($errors)) {
@@ -129,6 +130,7 @@ class FormController
         if ($title === '') {
             $errors[] = 'Form title is required.';
         }
+        self::postedEvent($errors);
         $placeKey = self::postedPlace($errors, $form['place_key'] ?? null);
 
         if (!empty($errors)) {
@@ -766,6 +768,24 @@ class FormController
             // The most links a message may carry (change 30, `Forms\Guard`
             // reads it); blank: 4. Nothing saved it, so it was never set.
             'max_links'      => preg_match('/^\d{1,3}$/', trim((string) ($post['max_links'] ?? ''))) === 1 ? trim((string) $post['max_links']) : '',
+            // The event a real submission sends to Google (`Site\Google`);
+            // blank: none. A form saved before there was one sends the default.
+            'conversion_event' => trim((string) ($post['conversion_event'] ?? \Cms\Site\Google::DEFAULT_EVENT)),
         ];
+    }
+
+    /**
+     * The event a form sends to Google, when one is typed, must be one GA4
+     * takes (`Site\Google::eventName()`).
+     *
+     * @param list<string> $errors
+     */
+    private static function postedEvent(array &$errors): void
+    {
+        $event = trim((string) ($_POST['conversion_event'] ?? ''));
+        if ($event !== '' && \Cms\Site\Google::eventName($event) === null) {
+            $errors[] = 'The event sent to Google is a letter, then letters, digits or underscores, at most 40 in all, '
+                . 'and not a name Google keeps for itself, such as form_submit or page_view.';
+        }
     }
 }

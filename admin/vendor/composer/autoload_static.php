@@ -251,6 +251,7 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Security\\TwoStep' => __DIR__ . '/../..' . '/core/Security/TwoStep.php',
         'Cms\\Security\\Usernames' => __DIR__ . '/../..' . '/core/Security/Usernames.php',
         'Cms\\Site\\Front' => __DIR__ . '/../..' . '/core/Site/Front.php',
+        'Cms\\Site\\Google' => __DIR__ . '/../..' . '/core/Site/Google.php',
         'Cms\\Site\\Tools' => __DIR__ . '/../..' . '/core/Site/Tools.php',
         'Cms\\Ui\\AdminMenu' => __DIR__ . '/../..' . '/core/Ui/AdminMenu.php',
         'Cms\\Ui\\Brand' => __DIR__ . '/../..' . '/core/Ui/Brand.php',

@@ -60,6 +60,17 @@ final class Url
     }
 
     /**
+     * THE SAME ADDRESS AS A PATH, with no scheme or host: for what must go to
+     * whichever host the visitor is on. A site that answers on both `www.`
+     * and its bare name posts a form, and loads a script, on the name the
+     * page was read on, which a Content-Security-Policy of `'self'` requires.
+     */
+    public static function path(string $path = ''): string
+    {
+        return rtrim(defined('BASE_PATH') ? (string) BASE_PATH : '', '/') . self::pagePath($path);
+    }
+
+    /**
      * page() without the host: `/articles/foo/` or `/articles/foo`. For what is
      * compared or stored as a path — a redirect's target, the request itself.
      */

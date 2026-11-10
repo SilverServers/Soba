@@ -215,6 +215,7 @@ return array(
     'Cms\\Security\\TwoStep' => $baseDir . '/core/Security/TwoStep.php',
     'Cms\\Security\\Usernames' => $baseDir . '/core/Security/Usernames.php',
     'Cms\\Site\\Front' => $baseDir . '/core/Site/Front.php',
+    'Cms\\Site\\Google' => $baseDir . '/core/Site/Google.php',
     'Cms\\Site\\Tools' => $baseDir . '/core/Site/Tools.php',
     'Cms\\Ui\\AdminMenu' => $baseDir . '/core/Ui/AdminMenu.php',
     'Cms\\Ui\\Brand' => $baseDir . '/core/Ui/Brand.php',

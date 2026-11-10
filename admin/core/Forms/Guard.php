@@ -175,11 +175,15 @@ final class Guard
     {
         $n = self::decoyNames();
         $h = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
-        // INLINE ON PURPOSE. A form drawn into a theme that does not load our
-        // stylesheet must not show a stray box a visitor fills in — every real
-        // submission would then be a "bot".
+        // OUT OF SIGHT BY A STYLESHEET LINKED BESIDE THEM (`form-guard.css`).
+        // A form drawn into a theme that does not load ours must not show a
+        // stray box a visitor fills in — every real submission would then be a
+        // "bot" — and an inline style would show them on a page whose
+        // Content-Security-Policy refuses one. Linked before them, so nothing
+        // after it is drawn until the browser has the rule.
         return '<input type="hidden" name="' . self::TOKEN . '" value="' . $h(self::token()) . '">'
-             . '<div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">'
+             . '<link rel="stylesheet" href="' . $h(\Cms\Helpers\Asset::sitePath('assets/css/form-guard.css')) . '">'
+             . '<div class="cms-decoy" aria-hidden="true">'
              . '<input type="text" name="' . $h($n['empty']) . '" value="" tabindex="-1" autocomplete="off">'
              . '<input type="text" name="' . $h($n['keep']) . '" value="' . $h(self::decoyValue()) . '" tabindex="-1" autocomplete="off">'
              . '</div>';

@@ -282,7 +282,9 @@ class FormController
         self::maybePurge();
 
         $successMessage = $settings['success_message'] ?? 'Thank you! Your submission has been received.';
-        $this->answer(true, (string) $successMessage, 200, $form, $meta['source_page']);
+        // THE CONVERSION IS THIS ONE'S ALONE: a real submission, received.
+        // A caught bot's thank-you (`turnAway()`) and a refusal send none.
+        $this->answer(true, (string) $successMessage, 200, $form, $meta['source_page'], \Cms\Site\Google::conversionFor($form));
     }
 
     /**
@@ -841,14 +843,19 @@ class FormController
      *     when it has one, the whole page in its own words, handed $message,
      *     $status and $sourcePage; else `form-answer.php` in the site's chrome.
      *
+     * A real submission's conversion (`Site\Google`) goes with whichever
+     * answer it is: in the JSON, in a cookie for the redirect's page, or on
+     * the "Sent" page itself.
+     *
      * @param array<string, mixed>|null $form
+     * @param array{event: string, form: int, id: string}|null $conversion
      */
-    private function answer(bool $success, string $message, int $status, ?array $form, string $sourcePage): void
+    private function answer(bool $success, string $message, int $status, ?array $form, string $sourcePage, ?array $conversion = null): void
     {
         $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
         $ajax   = strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
         if ($ajax || str_contains($accept, 'application/json')) {
-            $this->jsonResponse($success, $message, $status);
+            $this->jsonResponse($success, $message, $status, $success ? $conversion : null);
             return;
         }
 
@@ -856,6 +863,9 @@ class FormController
         if ($success) {
             $to = self::afterSend($form ?? [], $sourcePage);
             if ($to !== null) {
+                if ($conversion !== null) {
+                    \Cms\Site\Google::sendAfterRedirect($conversion);
+                }
                 header('Location: ' . $to, true, 303);
                 return;
             }
@@ -869,6 +879,9 @@ class FormController
             return;
         }
 
+        if ($success && $conversion !== null) {
+            \Cms\Site\Google::sentHere($conversion);
+        }
         Head::set(['title' => $success ? 'Sent' : 'Not sent', 'robots' => 'noindex, nofollow']);
         $answer = [
             'success' => $success,
@@ -893,7 +906,9 @@ class FormController
      * After submitting), else the page it was sent from, marked; null when
      * there is neither. Only ever an address on this site — a path, or a full
      * address on this site's own host — since the page it was sent from is
-     * whatever the post says it was.
+     * whatever the post says it was. AS A PATH: the browser stays on the host
+     * it sent from, so a site answering on both `www.` and its bare name keeps
+     * the visitor, and a conversion's cookie, on the name they used.
      *
      * @param array<string, mixed> $form
      */
@@ -903,22 +918,30 @@ class FormController
         $own  = trim((string) (($form['settings'] ?? [])['redirect'] ?? ''));
         if ($own !== '') {
             if (self::onSite($own)) {
-                return $base . $own;
+                return self::pathOf($base . $own);
             }
             $host = (string) parse_url($base, PHP_URL_HOST);
             if ($host !== '' && preg_match('~^https?://[^\\\\\s]+$~i', $own) === 1
                 && strcasecmp((string) parse_url($own, PHP_URL_HOST), $host) === 0) {
-                return $own;
+                return self::pathOf($own);
             }
         }
         // A #fragment goes: what follows it is never sent to the server, so
         // the mark has to come before it to be read at all.
         $sourcePage = explode('#', $sourcePage, 2)[0];
         if (self::onSite($sourcePage)) {
-            return $base . $sourcePage . (str_contains($sourcePage, '?') ? '&' : '?')
-                . 'sent=1&form=' . (int) ($form['id'] ?? 0);
+            return self::pathOf($base . $sourcePage . (str_contains($sourcePage, '?') ? '&' : '?')
+                . 'sent=1&form=' . (int) ($form['id'] ?? 0));
         }
         return null;
+    }
+
+    /** An address on this site, as its path, query and fragment. */
+    private static function pathOf(string $address): string
+    {
+        $part = parse_url($address);
+        return ($part['path'] ?? '/') . (isset($part['query']) ? '?' . $part['query'] : '')
+            . (isset($part['fragment']) ? '#' . $part['fragment'] : '');
     }
 
     /**
@@ -935,13 +958,18 @@ class FormController
     // JSON response helper
     // ----------------------------------------------------------------
 
-    protected function jsonResponse(bool $success, string $message, int $httpCode = 200): void
+    /** @param array{event: string, form: int, id: string}|null $conversion a real submission's, for its script to send */
+    protected function jsonResponse(bool $success, string $message, int $httpCode = 200, ?array $conversion = null): void
     {
         http_response_code($httpCode);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode([
+        $answer = [
             'success' => $success,
             'message' => $message,
-        ]);
+        ];
+        if ($conversion !== null) {
+            $answer['conversion'] = $conversion;
+        }
+        echo json_encode($answer);
     }
 }

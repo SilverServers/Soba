@@ -108,6 +108,11 @@ final class Sections
             'title-patterns'  => 'quote-left',
             'organisation'    => 'user-group',
             'robots'          => 'shield-halved',
+            // Settings → SEO → Google: what is measured, the site's proof of
+            // owning itself, and the events it sends.
+            'google-measurement'  => 'signal',
+            'google-verification' => 'tag',
+            'google-events'       => 'bolt',
             'add-redirect'    => 'plus',
             // The SAME panel in its other state, so the mark says which one you
             // are in — one form does both on Tools → Redirects.

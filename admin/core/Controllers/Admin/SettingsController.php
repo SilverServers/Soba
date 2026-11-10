@@ -985,12 +985,18 @@ class SettingsController
             case 'robots':
                 $this->saveSeoRobots();
                 break;
+            case 'google':
+                $errors = $this->saveSeoGoogle();
+                break;
             default:
                 break;
         }
 
-        // Re-render
+        // Re-render: with what was typed, when it was refused.
         $options      = Option::getMany(self::seoKeys());
+        if ($errors !== []) {
+            $options = array_merge($options, self::googleTyped());
+        }
         $saved        = true;
         $contentTypes = Registry::all();
 
@@ -1028,7 +1034,7 @@ class SettingsController
      */
     private static function seoKeys(): array
     {
-        $keys = self::SEO_KEYS;
+        $keys = self::SEO_KEYS + \Cms\Site\Google::KEYS;
         foreach (\Cms\SEO\Head::titlePatterns() as $context => $pattern) {
             $keys['seo_pattern_' . $context] = $pattern['default'];
         }
@@ -1076,6 +1082,57 @@ class SettingsController
     private function saveSeoRobots(): void
     {
         Option::set('seo_robots_txt', $_POST['seo_robots_txt'] ?? '');
+    }
+
+    /**
+     * GOOGLE'S MEASUREMENT TAGS (`Site\Google`): only the IDs Google gives
+     * out, each as Google writes it, and nothing else. Any one that is not an
+     * ID refuses the whole save, in words, and keeps what was typed on the
+     * screen; empty clears it.
+     *
+     * @return list<string> what is wrong, or nothing when it saved
+     */
+    private function saveSeoGoogle(): array
+    {
+        $typed  = self::googleTyped();
+        $ga4    = \Cms\Site\Google::analyticsId($typed['google_ga4_id']);
+        $gtm    = \Cms\Site\Google::tagManagerId($typed['google_gtm_id']);
+        $verify = \Cms\Site\Google::verificationCode($typed['google_site_verification']);
+
+        $errors = [];
+        if ($typed['google_ga4_id'] !== '' && $ga4 === null) {
+            $errors[] = str_starts_with(strtoupper($typed['google_ga4_id']), 'UA-')
+                ? 'A UA- ID is Universal Analytics, which Google has retired. A GA4 measurement ID starts G- (Analytics → Admin → Data streams).'
+                : 'The measurement ID is G- and then letters and digits, as Analytics → Admin → Data streams shows it.';
+        }
+        if ($typed['google_gtm_id'] !== '' && $gtm === null) {
+            $errors[] = 'The container ID is GTM- and then letters and digits, as Tag Manager shows it beside the container\'s name.';
+        }
+        if ($typed['google_site_verification'] !== '' && $verify === null) {
+            $errors[] = 'The verification code is the content of Search Console\'s HTML tag: letters, digits, hyphens and underscores. The whole tag may be pasted instead.';
+        }
+        if ($errors !== []) {
+            return $errors;
+        }
+
+        Option::setMany([
+            'google_ga4_id'            => $ga4 ?? '',
+            'google_gtm_id'            => $gtm ?? '',
+            'google_site_verification' => $verify ?? '',
+            'google_click_events'      => $typed['google_click_events'],
+        ]);
+        return [];
+    }
+
+    /** @return array<string, string> the Google tab's fields as typed */
+    private static function googleTyped(): array
+    {
+        return [
+            'google_ga4_id'            => trim((string) ($_POST['google_ga4_id'] ?? '')),
+            'google_gtm_id'            => trim((string) ($_POST['google_gtm_id'] ?? '')),
+            'google_site_verification' => trim((string) ($_POST['google_site_verification'] ?? '')),
+            'google_click_events'      => !empty($_POST['google_click_events']) ? '1' : '0',
+        ];
     }
 
 }

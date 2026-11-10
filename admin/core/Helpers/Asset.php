@@ -42,6 +42,19 @@ final class Asset
     }
 
     /**
+     * The same, as a path on whichever host the page was read on
+     * (`Url::path()`): a script or a sheet that has to load under a
+     * Content-Security-Policy of `'self'` on a site with more than one name.
+     */
+    public static function sitePath(string $relative): string
+    {
+        $relative = ltrim($relative, '/');
+
+        return rtrim(defined('BASE_PATH') ? (string) BASE_PATH : '', '/') . '/' . $relative
+            . self::version((defined('PUBLIC_PATH') ? PUBLIC_PATH : '') . '/' . $relative);
+    }
+
+    /**
      * `?v=<mtime>`, or nothing at all when the file cannot be read.
      *
      * A missing file is already a broken page; appending `?v=0` or `?v=false`

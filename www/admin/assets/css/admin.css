@@ -4904,6 +4904,32 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 .editor__embed { margin: 0 0 var(--sp-3); max-width: 100%; }
 .editor__embed iframe { display: block; max-width: 100%; }
 
+/* A QUOTE'S WORDS HOLD ITS PLACE until the provider's frame says how tall it is,
+   and for good if the provider is blocked. The frame waits over them, unseen
+   but laid out, so it loads and measures as it would in view. `color-scheme:
+   normal`: the provider's page is not dark, and a frame whose scheme differs
+   from the page round it is painted on an opaque backdrop (white corners). */
+.editor__embed--quote { position: relative; }
+.editor__embed--quote > blockquote { margin: 0; }
+.editor__embed--quote > iframe { color-scheme: normal; }
+.editor__embed--quote:not(.is-drawn) > iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.editor__embed--quote.is-drawn > blockquote { display: none; }
+
+/* Selected by Backspace or Delete beside it, before the second press deletes
+   it: outlined as a clicked picture is. */
+.editor__embed.is-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .editor__surface .align-left,
 .editor__surface .align-right { max-width: 50%; }
 .editor__surface .align-left  { float: left;  margin: 0 var(--sp-4) var(--sp-3) 0; }

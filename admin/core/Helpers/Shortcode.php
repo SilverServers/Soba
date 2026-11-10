@@ -263,17 +263,17 @@ class Shortcode
             return '<!-- Form #' . $formId . ' has no fields -->';
         }
 
+        // ESCAPED ONCE, for the button and for the attribute form.js reads
+        // when it puts the button back after a failed send: the browser hands
+        // the script the words as typed, so "Send & go" comes back as itself.
         $submitLabel    = htmlspecialchars($settings['submit_label'] ?? 'Submit');
-        // THE SAME WORDS FOR THE SCRIPT that puts the button back after a
-        // failed send — encoded for JavaScript from what was typed, not from
-        // the HTML-escaped copy above, which the script sets as text: "Send &
-        // go" would come back as "Send &amp; go". `JSON_HEX_TAG` because this
-        // sits inside a <script> element (see `Schema::encode()`).
-        $submitLabelJs  = (string) json_encode((string) ($settings['submit_label'] ?? 'Submit'), JSON_HEX_TAG | JSON_HEX_AMP);
         $successMessage = htmlspecialchars($settings['success_message'] ?? 'Thank you! Your submission has been received.');
         // A page address, ending as Settings → Permalinks says: a front that
-        // adds the slash with a 301 would turn the POST into a GET.
-        $actionUrl      = \Cms\Helpers\Url::page('forms/' . $formId . '/submit');
+        // adds the slash with a 301 would turn the POST into a GET. AND A
+        // PATH (`Url::path()`): the post goes to whichever host the page was
+        // read on, so a site answering on `www.` and on its bare name, with a
+        // Content-Security-Policy of `form-action 'self'`, takes it on both.
+        $actionUrl      = \Cms\Helpers\Url::path('forms/' . $formId . '/submit');
 
         // SENT WITHOUT JAVASCRIPT. A browser
         // that posted the form itself comes back to this page marked
@@ -301,16 +301,16 @@ class Shortcode
         }
         $html .= '<form method="POST" action="' . htmlspecialchars($actionUrl) . '"'
                . ($sendsFiles ? ' enctype="multipart/form-data"' : '')
-               . ' class="cms-form__form" data-cms-form>';
+               . ' class="cms-form__form" data-cms-form data-submit-label="' . $submitLabel . '">';
 
         // THE TIME-TRAP AND THE TWO DECOYS (`Forms\Guard`).
         //
-        // The decoys' concealment STAYS INLINE ON PURPOSE. A class would put
-        // it in a stylesheet, and a shortcode can be rendered into a theme that
-        // does not load ours — at which point a decoy becomes a visible
-        // unlabelled text box, every real visitor fills it in, and every
-        // submission is discarded as spam. A form outage nobody can see is
-        // worse than one inline style.
+        // The decoys are kept out of sight by a stylesheet linked beside them
+        // (`Guard::fields()`), not one the theme may or may not load: a
+        // shortcode can be rendered into a theme that loads none of ours, and
+        // a visible unlabelled box is one every real visitor fills in, every
+        // submission then discarded as spam. Not an inline style either: a
+        // page whose Content-Security-Policy refuses one would show them.
         $html .= Guard::fields();
 
         $html .= '<div class="cms-form__fields">';
@@ -997,11 +997,9 @@ class Shortcode
         // logic.js ONLY WHEN A FIELD USES IT. A form with no conditional field
         // has nothing for it to do, and a script tag on every page carrying any
         // form is a request bought for nothing. Same-origin, no dependency.
+        // form.js binds it, after this file.
         if ($hasLogic) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/logic.js')) . '"></script>';
-            $html .= '<script>(function(){var f=document.querySelector('
-                   . '\'.cms-form[data-form-id="' . $formId . '"] [data-cms-form]\');'
-                   . 'if(f&&window.Logic){Logic.bind(f);}}());</script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/logic.js')) . '"></script>';
         }
 
         // AND reorder.js ONLY WHEN A RANKING NEEDS IT — same rule, same reason.
@@ -1016,61 +1014,29 @@ class Shortcode
                    . '" async defer></script>';
         }
         if ($hasRepeater) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/repeater.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/repeater.js')) . '"></script>';
         }
         if ($hasPages) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/pages.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/pages.js')) . '"></script>';
         }
         if ($hasSignature) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/signature.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/signature.js')) . '"></script>';
         }
         if ($hasTags) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/tags.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/tags.js')) . '"></script>';
         }
         if ($hasSummary) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/summary.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/summary.js')) . '"></script>';
         }
         if ($hasRanking) {
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/reorder.js')) . '"></script>';
-            $html .= '<script src="' . htmlspecialchars(Asset::site('assets/js/ranking.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/reorder.js')) . '"></script>';
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/ranking.js')) . '"></script>';
         }
 
-        // Inline JS for AJAX submission. IT ASKS FOR JSON: the controller
-        // answers a browser posting the form itself with a page or a redirect,
-        // and a fetch that did not say so would get that page
-        // and report "Something went wrong" for a message that was sent.
-        $html .= '<script>';
-        $html .= '(function(){';
-        $html .= 'var wrap=document.querySelector(\'.cms-form[data-form-id="' . $formId . '"]\');';
-        $html .= 'if(!wrap)return;';
-        $html .= 'var form=wrap.querySelector("[data-cms-form]");';
-        $html .= 'var msg=wrap.querySelector(".cms-form__alert");';
-        $html .= 'form.addEventListener("submit",function(e){';
-        $html .= 'e.preventDefault();';
-        $html .= 'var btn=form.querySelector(".cms-form__submit");';
-        $html .= 'btn.disabled=true;btn.textContent="Sending...";';
-        $html .= 'fetch(form.action,{method:"POST",body:new FormData(form),headers:{"Accept":"application/json"}})';
-        $html .= '.then(function(r){return r.json()})';
-        $html .= '.then(function(d){';
-        $html .= 'msg.removeAttribute("hidden");';
-        $html .= 'if(d.success){';
-        $html .= 'msg.className="cms-form__alert cms-form__alert--success";';
-        $html .= 'msg.textContent=d.message;';
-        $html .= 'form.reset();form.style.display="none";';
-        $html .= '}else{';
-        $html .= 'msg.className="cms-form__alert cms-form__alert--error";';
-        $html .= 'msg.textContent=d.message||"Something went wrong.";';
-        $html .= 'btn.disabled=false;btn.textContent=' . $submitLabelJs . ';';
-        $html .= '}';
-        $html .= '}).catch(function(){';
-        $html .= 'msg.removeAttribute("hidden");';
-        $html .= 'msg.className="cms-form__alert cms-form__alert--error";';
-        $html .= 'msg.textContent="Something went wrong. Please try again.";';
-        $html .= 'btn.disabled=false;btn.textContent=' . $submitLabelJs . ';';
-        $html .= '});';
-        $html .= '});';
-        $html .= '})();';
-        $html .= '</script>';
+        // SENT BY SCRIPT, from this site's file (form.js) and nothing
+        // inline, so a page whose Content-Security-Policy allows only this
+        // site's scripts sends it the same way. It binds each form once.
+        $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/form.js')) . '"></script>';
 
         return $html;
     }

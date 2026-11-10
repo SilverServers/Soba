@@ -326,13 +326,23 @@
     var range = sel.getRangeAt(0).cloneRange();
     range.selectNodeContents(surface);
     range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
-    return range.toString().length;
+    // AN EMBED IS NOT COUNTED. A quote's words are text in the surface, and a
+    // caret counted into them lands inside the block, where nothing can be typed.
+    var before = range.cloneContents();
+    Array.prototype.forEach.call(before.querySelectorAll('.editor__embed'), function (el) {
+      el.parentNode.removeChild(el);
+    });
+    return before.textContent.length;
   }
 
   /** Put the caret that many characters into the surface. */
   function setCaretOffset(surface, offset) {
     if (offset === null) { return; }
-    var walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT, null);
+    var walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        return n.parentNode.closest('.editor__embed') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      }
+    });
     var seen = 0, node;
     while ((node = walker.nextNode())) {
       var len = node.textContent.length;
@@ -389,9 +399,18 @@
 
     // Wrap each RUN of adjacent loose nodes, so text between two blocks becomes
     // its own paragraph rather than being hoisted to the front.
+    //
+    // A RUN THAT IS ONLY WHITE SPACE GOES. It is the line breaks of HTML typed
+    // or pasted in the HTML view — `</p>\n\n<p>` — not a paragraph, and wrapped
+    // it became an empty `<p>` that was saved and printed as a gap.
     var run = [];
     var flush = function () {
       if (!run.length) { return; }
+      if (run.every(function (n) { return n.nodeType === 3 && /^[ \t\n\r\f]*$/.test(n.nodeValue); })) {
+        run.forEach(function (n) { n.parentNode.removeChild(n); });
+        run = [];
+        return;
+      }
       var p = document.createElement('p');
       run[0].parentNode.insertBefore(p, run[0]);
       run.forEach(function (n) { p.appendChild(n); });
@@ -402,6 +421,8 @@
       run.push(n);
     });
     flush();
+    // A body that was only white space still needs a line to type on.
+    if (!surface.firstChild) { ensureBlock(surface); }
   }
 
   /**
@@ -1623,6 +1644,97 @@
             setSelectedImage(null);
         }
     });
+    // ── AN EMBED IS DELETED WHOLE ──────────────────────────────────────────
+    // Nothing in the block can be typed into, so the caret cannot step into
+    // it either, and left to the browsers, Backspace at the start of the line
+    // after it (or Delete at the end of the line before it) pulled that line
+    // past the block (Firefox) or took the block and joined the lines either
+    // side (Chromium). The first press selects the embed — outlined, as a
+    // clicked picture is — and the second deletes it, and the caret is where
+    // it was. An empty line beside it is only a place for the caret, and goes
+    // with it when there is another line to go to.
+    //
+    // THE SECOND PRESS IS OURS, not the browser's, for the same reason, and so
+    // is any other key while it is selected: a letter took the block and joined
+    // the lines (Chromium) or stood bare between them (Firefox). Typing or
+    // moving the caret means the author has gone back to the words, so the
+    // caret goes back first and the key then does what it does.
+    var besideEmbed = null;
+
+    // The start or end of a line, and of a list or a table its first or last
+    // item: Firefox types where a caret is put, even between a list's items.
+    function lineEdge(line, atEnd) {
+        var inner;
+        while ((inner = atEnd ? line.lastElementChild : line.firstElementChild)
+               && /^(UL|OL|LI|DL|DT|DD|TABLE|THEAD|TBODY|TFOOT|TR|TH|TD)$/.test(inner.nodeName)) {
+            line = inner;
+        }
+        var at = document.createRange();
+        at.selectNodeContents(line);
+        at.collapse(!atEnd);
+        return at;
+    }
+
+    surface.addEventListener('keydown', function (e) {
+        var sel = window.getSelection();
+        if (!sel || !sel.rangeCount) { return; }
+        var deleting = e.key === 'Backspace' || e.key === 'Delete';
+        var picked = surface.querySelector('.editor__embed.is-selected');
+        if (picked && sel.getRangeAt(0).intersectsNode(picked)) {
+            if (/^(Shift|Control|Alt|AltGraph|Meta|CapsLock)$/.test(e.key)) { return; }
+            if (!deleting) {
+                restoreRange(besideEmbed.caret, surface, null);
+                return;
+            }
+            e.preventDefault();
+            var from = besideEmbed.line;
+            var caret = besideEmbed.caret;
+            surface.removeChild(picked);
+            if (!from.textContent.trim() && !from.querySelector('img, iframe, hr')) {
+                var words = function (el) { return el && !el.matches('.editor__embed') ? el : null; };
+                var before = words(from.previousElementSibling);
+                var after = words(from.nextElementSibling);
+                var land = e.key === 'Delete' ? (before || after) : (after || before);
+                if (land) {
+                    surface.removeChild(from);
+                    caret = lineEdge(land, land === before);
+                }
+            }
+            restoreRange(caret, surface, null);
+            sync();
+            return;
+        }
+        if (!deleting || !sel.isCollapsed) { return; }
+        var line = sel.anchorNode;
+        while (line && line.parentNode !== surface) { line = line.parentNode; }
+        var back = e.key === 'Backspace';
+        var embed = line && (back ? line.previousElementSibling : line.nextElementSibling);
+        if (!embed || !embed.matches('.editor__embed')) { return; }
+        var rest = document.createRange();
+        rest.selectNodeContents(line);
+        if (back) {
+            rest.setEnd(sel.anchorNode, sel.anchorOffset);
+        } else {
+            rest.setStart(sel.anchorNode, sel.anchorOffset);
+        }
+        var contents = rest.cloneContents();
+        if (contents.textContent !== '' || contents.querySelector('img, iframe, hr')) { return; }
+        e.preventDefault();
+        besideEmbed = { line: line, caret: sel.getRangeAt(0).cloneRange() };
+        var whole = document.createRange();
+        whole.selectNode(embed);
+        restoreRange(whole, surface, null);
+        embed.classList.add('is-selected');
+        var release = function () {
+            var now = window.getSelection();
+            if (!embed.isConnected || !now.rangeCount || now.isCollapsed || !now.getRangeAt(0).intersectsNode(embed)) {
+                embed.classList.remove('is-selected');
+                document.removeEventListener('selectionchange', release);
+            }
+        };
+        document.addEventListener('selectionchange', release);
+    });
+
     // Typing or moving the caret means the author has gone back to the words.
     surface.addEventListener('keyup', function () {
         if (selectedImage) { setSelectedImage(null); }
@@ -2513,6 +2625,8 @@
       post: /^(?:https:\/\/(?:www\.|mobile\.)?x\.com|https?:\/\/(?:www\.)?twitter\.com|https:\/\/mobile\.twitter\.com)\/(?:[A-Za-z0-9_]{1,20}|i(?:\/web)?)\/status(?:es)?\/(\d{1,25})\/?(?:[?#][^\s"'<>\\]*)?$/,
       scripts: ['https://platform.x.com/widgets.js', 'https://platform.twitter.com/widgets.js',
                 '//platform.x.com/widgets.js', '//platform.twitter.com/widgets.js'],
+      // X's code writes it on its script, beside the address.
+      charset: 'utf-8',
       show: function (quote, post) {
         var theme = quote.getAttribute('data-theme');
         if (theme !== 'light' && theme !== 'dark') {
@@ -2644,7 +2758,8 @@
    * the frame the code draws, or for a quote the frame the provider's script
    * would draw — and keeps the code itself (`data-code`), which is what
    * `htmlOut()` writes in its place. It is not text to type into: the caret
-   * goes before or after it, and Backspace or Delete beside it takes it all.
+   * goes before or after it, and Backspace or Delete beside it selects it, then
+   * takes it all.
    */
   function embedBlock(group, doc) {
     var p = group.provider;
@@ -2668,8 +2783,35 @@
     block.setAttribute('contenteditable', 'false');
     block.setAttribute('data-embed', p.name);
     block.setAttribute('data-code', holder.innerHTML);
+    if (p.permalink) {
+      block.classList.add('editor__embed--quote');
+      block.style.maxWidth = p.size[0] + 'px';
+      block.appendChild(quoteWords(group.nodes[0], doc));
+    }
     block.appendChild(show);
     return block;
+  }
+
+  /**
+   * A quote's words, as its blockquote has them: paragraphs, line breaks and
+   * text, and nothing else — no link to follow out of the editor, and nothing
+   * of a pasted code that could run. They show until the provider's frame says
+   * how tall it is, and for good if the provider is blocked.
+   */
+  function quoteWords(quote, doc) {
+    var copy = function (from, to) {
+      Array.prototype.forEach.call(from.childNodes, function (n) {
+        if (n.nodeType === 3) {
+          to.appendChild(doc.createTextNode(n.textContent));
+        } else if (n.nodeName === 'P' || n.nodeName === 'BR') {
+          copy(n, to.appendChild(doc.createElement(n.nodeName.toLowerCase())));
+        } else if (n.nodeType === 1 && n.nodeName !== 'SCRIPT' && n.nodeName !== 'STYLE') {
+          copy(n, to);
+        }
+      });
+      return to;
+    };
+    return copy(quote, doc.createElement('blockquote'));
   }
 
   /** The embed a pasted text is — exactly one, with its script, and nothing else — as a block, or null. */
@@ -2682,7 +2824,17 @@
     if (groups.length !== 1 || !nodes.every(function (n) { return groups[0].nodes.indexOf(n) !== -1; })) {
       return null;
     }
-    return embedBlock(groups[0], document);
+    var group = groups[0];
+    // A QUOTE COPIED WITHOUT ITS SCRIPT gets the provider's, as its own code
+    // writes it: without one the page shows the words and never the post.
+    if (group.provider.permalink && group.nodes.length === 1) {
+      var script = doc.createElement('script');
+      script.setAttribute('async', '');
+      script.setAttribute('src', group.provider.scripts[0]);
+      if (group.provider.charset) { script.setAttribute('charset', group.provider.charset); }
+      group.nodes.push(doc.createTextNode('\n'), script);
+    }
+    return embedBlock(group, document);
   }
 
   // ── A QUOTE'S FRAME SAYS HOW TALL IT IS ──────────────────────────────────
@@ -2695,7 +2847,10 @@
       var height = Math.min(Math.ceil(p.height(e.data)), 4000);
       if (!(height > 0)) { return; }
       Array.prototype.forEach.call(document.querySelectorAll('.editor__embed[data-embed="' + p.name + '"] iframe'), function (f) {
-        if (f.contentWindow === e.source) { f.setAttribute('height', String(height)); }
+        if (f.contentWindow === e.source) {
+          f.setAttribute('height', String(height));
+          f.parentNode.classList.add('is-drawn');
+        }
       });
     });
   });

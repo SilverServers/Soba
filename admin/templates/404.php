@@ -23,6 +23,9 @@ use Cms\Ui\Theme;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <?php // Google's measurement tags, first, as base.php's head prints them.
+          // The admin requires this page too, and there they print nothing. ?>
+    <?= \Cms\Site\Google::head() ?>
     <?php // audit-ok: the browser tab on a page that has no content to name. ?>
     <title>404 Not Found</title>
     <?= \Cms\Ui\Brand::iconTags() ?>
@@ -40,6 +43,7 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
 <?php endif; ?>
 </head>
 <body>
+<?= \Cms\Site\Google::body() ?>
     <main class="site-content">
         <div class="notfound">
             <p class="notfound__code">404</p>

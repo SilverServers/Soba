@@ -72,6 +72,7 @@ $tabs = [
     'titles'    => 'Title patterns',
     'schema'    => 'Organisation',
     'robots'    => 'robots.txt',
+    'google'    => 'Google',
 ];
 $tab = array_key_exists($tab, $tabs) ? $tab : 'general';
 
@@ -309,6 +310,73 @@ $tabUrl = static fn (string $key): string
                                 <code>{site_url}</code> is replaced with the site address.
                             </p>
                         </div>
+                    </div>
+
+                    <div class="form-card__section form-actions">
+                        <div class="form-actions__spacer"></div>
+                        <button type="submit" class="btn btn--primary">Save changes</button>
+                    </div>
+                </div>
+            </form>
+
+        <?php elseif ($tab === 'google'): ?>
+            <?php // GOOGLE'S MEASUREMENT TAGS (`Site\Google`): the IDs Google
+                  // gives out and nothing else, so there is no box for code. ?>
+            <form method="post" action="<?= h(Url::admin('settings/seo')) ?>">
+                <?= Csrf::field() ?>
+                <input type="hidden" name="_seo_tab" value="google">
+                <div class="form-card">
+                    <div class="form-card__section">
+                        <?= panel_title('Analytics and Tag Manager', 'google-measurement') ?>
+                        <div class="field">
+                            <label class="label" for="f-google-ga4">Google Analytics measurement ID</label>
+                            <input class="input input--mono" type="text" id="f-google-ga4" name="google_ga4_id"
+                                   value="<?= h($opt('google_ga4_id')) ?>" placeholder="G-XXXXXXXXXX" autocomplete="off" spellcheck="false">
+                            <p class="form-help">GA4's, from Analytics → Admin → Data streams.</p>
+                        </div>
+                        <div class="field">
+                            <label class="label" for="f-google-gtm">Tag Manager container ID</label>
+                            <input class="input input--mono" type="text" id="f-google-gtm" name="google_gtm_id"
+                                   value="<?= h($opt('google_gtm_id')) ?>" placeholder="GTM-XXXXXXX" autocomplete="off" spellcheck="false">
+                            <p class="form-help">
+                                Each prints Google's own code on every public page and never in the admin.
+                                Leave them empty if the site's own header already prints its tags.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="form-card__section">
+                        <?= panel_title('Search Console', 'google-verification') ?>
+                        <div class="field">
+                            <label class="label" for="f-google-verification">Verification code</label>
+                            <input class="input input--mono" type="text" id="f-google-verification" name="google_site_verification"
+                                   value="<?= h($opt('google_site_verification')) ?>" autocomplete="off" spellcheck="false">
+                            <p class="form-help">
+                                From the HTML tag method: its code, or the whole tag pasted. It is printed on the home page.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="form-card__section">
+                        <?= panel_title('Events', 'google-events') ?>
+                        <div class="field">
+                            <label class="check-list__row" for="f-google-clicks">
+                                <input type="checkbox" id="f-google-clicks" name="google_click_events" value="1"
+                                       <?= $opt('google_click_events') === '1' ? 'checked' : '' ?>>
+                                <span>Send clicks on phone numbers and email addresses</span>
+                            </label>
+                            <p class="form-help">
+                                As <code>phone_call_click</code> and <code>email_click</code>, each with <code>method</code>
+                                and <code>link_url</code>. Leave this off if the site's own code already sends them.
+                                A form's own event is set on the form, under After submitting.
+                            </p>
+                        </div>
+                        <?php if (!\Cms\Site\Google::sends()): ?>
+                            <p class="form-help">
+                                This copy of the site is not in production (<code>app_env</code> in config.php), so its pages
+                                print these tags inside a comment, to compare with the live site, and send nothing.
+                            </p>
+                        <?php endif; ?>
                     </div>
 
                     <div class="form-card__section form-actions">

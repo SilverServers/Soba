@@ -1,0 +1,10 @@
+/* THE TWO DECOYS IN A FORM (`Forms\Guard::fields()`): off the screen, not
+   hidden. A person never sees them, and a script that fills in every box it
+   finds fills them in. Linked beside them wherever a form is drawn, so a theme
+   that loads none of this site's stylesheets still keeps them out of sight,
+   and a page whose Content-Security-Policy refuses inline styles needs none. */
+.cms-decoy {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+}
