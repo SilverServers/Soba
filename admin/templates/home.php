@@ -35,7 +35,7 @@
                 <p class="post-list__meta">
                     By <?= htmlspecialchars($p['author_name']) ?>
                     &mdash;
-                    <?= htmlspecialchars(\Cms\Helpers\Dates::format((string) $p['published_at'], 'F j, Y')) ?>
+                    <?= htmlspecialchars(\Cms\Helpers\Dates::short((string) $p['published_at'])) ?>
                 </p>
                 <?php // `Post::summary()` — the excerpt, or the start of the
                       // text — shared with the card and search, so "…" is

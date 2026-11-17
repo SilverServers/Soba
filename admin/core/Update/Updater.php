@@ -51,6 +51,22 @@ final class Updater
 
     private const SMOKE_404 = '/__cms-update-smoke-404';
 
+    /** What the two smoke tests call themselves (`smoke-request.php`, `http()`). */
+    private const PROBES = ['CMS-update-smoke', 'CMS-update-probe'];
+
+    /**
+     * Whether this request is the updater's own smoke test, from the command
+     * line or the web server: not a visitor, so nothing a visit does on the
+     * side (a not-found counted, a backup begun) is done for it, and a
+     * reinstall leaves the database as it found it.
+     *
+     * @param array<string, mixed> $server
+     */
+    public static function isProbe(array $server): bool
+    {
+        return in_array((string) ($server['HTTP_USER_AGENT'] ?? ''), self::PROBES, true);
+    }
+
     /** @var callable(string): void */
     private $say;
 

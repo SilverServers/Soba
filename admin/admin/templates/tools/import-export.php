@@ -34,7 +34,7 @@ use Cms\Ui\Sidebar;
  * @var array<string, mixed> $user
  */
 
-$pageTitle    = 'Import / Export';
+$pageTitle    = 'Import and export';
 $contentTypes = Registry::all();
 // THE TYPES THAT SELL, whose products also go out and come in as a spreadsheet.
 $sellingTypes = array_filter($contentTypes, static fn (array $ct, string $key): bool => \Cms\Commerce\Product::isSellableType($key),
@@ -50,7 +50,7 @@ ob_start();
 
     <div class="page__header">
         <div class="page__header-main">
-            <h1 class="page__title">Import / Export</h1>
+            <h1 class="page__title">Import and export</h1>
         </div>
     </div>
 
@@ -250,6 +250,101 @@ ob_start();
                     <?php endif; ?>
                 <?php endif; ?>
 
+                <?php $importJob = $importJob ?? null; ?>
+                <?php if ($importJob !== null): ?>
+                    <?php // A WORDPRESS EXPORT, IMPORTED (`Content\WordPressImport`):
+                          // its media library's files fetched a step at a time
+                          // while this page is open, then what was done. ?>
+                    <?php $jobFiles = count($importJob['files']); ?>
+                    <?php if ($importJob['phase'] !== 'done'): ?>
+                        <div class="static-copy__going" data-wp-import
+                             data-static-copy-step="<?= h(Url::admin('tools/import/wordpress/' . $importJob['token'] . '/step')) ?>">
+                            <p class="form-help form-help--lead">
+                                The pages and entries are in. Now the media library's files, a few at a time:
+                                keep this page open until they are done.
+                            </p>
+                            <div class="progress-bar">
+                                <div class="progress-bar__fill" data-static-copy-bar
+                                     style="width: <?= (int) round(100 * (int) $importJob['offset'] / max(1, $jobFiles)) ?>%"></div>
+                            </div>
+                            <div class="kv-list">
+                                <div class="kv-list__row">
+                                    <span class="kv-list__key">Files</span>
+                                    <span class="kv-list__val kv-list__val--num" data-static-copy="files"><?= (int) $importJob['offset'] ?></span>
+                                </div>
+                                <div class="kv-list__row">
+                                    <span class="kv-list__key">Still to do</span>
+                                    <span class="kv-list__val kv-list__val--num" data-static-copy="queued"><?= max(0, $jobFiles - (int) $importJob['offset']) ?></span>
+                                </div>
+                            </div>
+                            <div class="alert alert--danger" data-static-copy-error hidden>
+                                <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
+                                <div class="alert__body">
+                                    <p class="alert__title">Fetching the files stopped</p>
+                                    <p class="alert__text" data-static-copy-error-text></p>
+                                </div>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <?php $fetched = count($importJob['media']); $failed = $importJob['failed']; ?>
+                        <div class="flashes">
+                            <div class="flash flash--success" data-import-done>
+                                Imported from WordPress: <?= (int) $importJob['created'] ?> created,
+                                <?= (int) $importJob['overwritten'] ?> overwritten, <?= (int) $importJob['skipped'] ?> skipped<?php
+                                if ($jobFiles > 0): ?>; <?= $fetched ?> file<?= $fetched === 1 ? '' : 's' ?> fetched<?php
+                                    if ($failed !== []): ?>, <?= count($failed) ?> not<?php endif; ?><?php
+                                endif; ?>.
+                            </div>
+                        </div>
+                        <?php if ($failed !== []): ?>
+                            <div class="alert alert--info" data-import-failed>
+                                <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
+                                <div class="alert__body">
+                                    <p class="alert__title">
+                                        <?= count($failed) === 1 ? 'One file was not fetched' : count($failed) . ' files were not fetched' ?>:
+                                        each picture of <?= count($failed) === 1 ? 'it' : 'one' ?> still points at the old site
+                                    </p>
+                                    <ul class="alert__text">
+                                        <?php foreach (array_slice($failed, 0, 20) as $f): ?>
+                                            <li><code><?= h((string) $f['url']) ?></code>: <?= h((string) $f['why']) ?></li>
+                                        <?php endforeach; ?>
+                                        <?php if (count($failed) > 20): ?>
+                                            <li>and <?= count($failed) - 20 ?> more, in the list below.</li>
+                                        <?php endif; ?>
+                                    </ul>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ((int) ($importJob['left'] ?? 0) > 0): ?>
+                            <p class="form-help" data-import-left>
+                                <?= (int) $importJob['left'] ?> picture<?= (int) $importJob['left'] === 1 ? '' : 's' ?> in the content still
+                                point<?= (int) $importJob['left'] === 1 ? 's' : '' ?> at the old site. Upload each to the library and choose it in
+                                its page, before the old site goes.
+                            </p>
+                        <?php endif; ?>
+                        <details class="fold">
+                            <summary class="fold__head">
+                                What it touched, row by row
+                                <?= icon('angle-down', 'fold__caret icon icon--sm') ?>
+                            </summary>
+                            <ul class="kv-list">
+                                <?php foreach ($importJob['log'] as $line): ?>
+                                    <li><code><?= h((string) $line) ?></code></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </details>
+                        <p class="form-help">
+                            <?php if (!empty($importJob['publish'])): ?>
+                                What WordPress had published is published here; everything else is
+                                <strong>Private</strong>, as a draft there is.
+                            <?php else: ?>
+                                Everything imported is <strong>Private</strong>: on the site for you and 404s for
+                                visitors until you publish it.
+                            <?php endif; ?>
+                        </p>
+                    <?php endif; ?>
+                <?php endif; ?>
+
                 <?php if ($importPlan !== null): ?>
                     <?php
                     $planCount = count($importPlan['pages']) + count($importPlan['entries']);
@@ -268,10 +363,20 @@ ob_start();
                                 <?= h((string) $importFile) ?> — nothing has been changed yet
                             </p>
                             <p class="alert__text">
+                                <?php if (!empty($importPlan['wordpress'])): ?>
+                                    From WordPress: <?= h((string) ($importPlan['site']['title'] !== '' ? $importPlan['site']['title'] : $importPlan['site']['url'])) ?><?php
+                                    if ($importPlan['site']['title'] !== '' && $importPlan['site']['url'] !== ''): ?>,
+                                    <?= h((string) $importPlan['site']['url']) ?><?php endif; ?>.
+                                <?php endif; ?>
                                 <?= $planCount ?> item<?= $planCount === 1 ? '' : 's' ?> to import<?php
                                 if ($overwrites > 0): ?>, <strong><?= $overwrites ?> of which would
-                                <?= !empty($importPlan['sheet']) ? 'update' : 'overwrite' ?> something already here</strong><?php endif; ?>.
+                                <?= !empty($importPlan['sheet']) ? 'update' : 'overwrite' ?> something already here</strong><?php endif; ?><?php
+                                if (!empty($importPlan['wordpress']) && $importPlan['media'] > 0): ?>, and
+                                <?= (int) $importPlan['media'] ?> file<?= (int) $importPlan['media'] === 1 ? '' : 's' ?> for the media library<?php endif; ?>.
                             </p>
+                            <?php if (($importPlan['said'] ?? null) !== null): ?>
+                                <p class="alert__text"><strong><?= h((string) $importPlan['said']) ?></strong></p>
+                            <?php endif; ?>
                         </div>
                     </div>
 
@@ -285,7 +390,7 @@ ob_start();
                               // slug — three stacked lines per row where there
                               // should be one. ?>
                         <div class="list entry-list imp-list">
-                            <?php foreach ($rows as $row): ?>
+                            <?php foreach (array_slice($rows, 0, 100) as $row): ?>
                                 <div class="list__row">
                                     <div class="entry-list__main">
                                         <div class="list__row-title"><?= h((string) $row['title']) ?></div>
@@ -317,6 +422,9 @@ ob_start();
                                     </div>
                                 </div>
                             <?php endforeach; ?>
+                            <?php if (count($rows) > 100): ?>
+                                <div class="list__row"><p class="list__row-sub">and <?= count($rows) - 100 ?> more</p></div>
+                            <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
 
@@ -369,6 +477,56 @@ ob_start();
 
                     <form method="post" action="<?= h(Url::admin('tools/import/apply')) ?>">
                         <?= Csrf::field() ?>
+                        <?php if (!empty($importPlan['wordpress'])): ?>
+                            <?php // WHAT GOES WHERE, chosen beside the import: Read
+                                  // again shows their plan, and Import with
+                                  // changed choices shows it too rather than
+                                  // importing what the plan on screen did not say. ?>
+                            <?php $offer = $importPlan['offer']; $chosen = $importPlan['choices']; ?>
+                            <div class="form-grid form-grid--2" data-wp-choices>
+                                <?php foreach ($offer['kinds'] as $kind => $n): ?>
+                                    <div class="field">
+                                        <label class="label" for="f-wp-<?= h((string) $kind) ?>">
+                                            <?= h(match ((string) $kind) { 'post' => 'Posts', 'page' => 'Pages', default => 'WordPress\'s "' . $kind . '"' }) ?>
+                                            (<?= (int) $n ?>) go into
+                                        </label>
+                                        <select class="select" id="f-wp-<?= h((string) $kind) ?>" name="types[<?= h((string) $kind) ?>]">
+                                            <?php if ($kind === 'page'): ?>
+                                                <option value="page"<?= ($chosen['types']['page'] ?? '') === 'page' ? ' selected' : '' ?>>Pages</option>
+                                            <?php else: ?>
+                                                <?php foreach ($offer['types'] as $key => $label): ?>
+                                                    <option value="<?= h((string) $key) ?>"<?= ($chosen['types'][$kind] ?? '') === (string) $key ? ' selected' : '' ?>><?= h($label) ?></option>
+                                                <?php endforeach; ?>
+                                            <?php endif; ?>
+                                            <option value=""<?= ($chosen['types'][$kind] ?? '') === '' ? ' selected' : '' ?>>Leave them out</option>
+                                        </select>
+                                    </div>
+                                <?php endforeach; ?>
+                                <?php foreach (['categories' => 'Categories', 'tags' => 'Tags'] as $key => $label): ?>
+                                    <?php if ((int) $importPlan['terms'][$key] > 0): ?>
+                                        <div class="field">
+                                            <label class="label" for="f-wp-<?= $key ?>"><?= $label ?> (<?= (int) $importPlan['terms'][$key] ?>) go into</label>
+                                            <select class="select" id="f-wp-<?= $key ?>" name="<?= $key ?>">
+                                                <?php foreach ($offer['taxonomies'] as $tax => $taxLabel): ?>
+                                                    <option value="<?= h((string) $tax) ?>"<?= $chosen[$key] === (string) $tax ? ' selected' : '' ?>><?= h($taxLabel) ?></option>
+                                                <?php endforeach; ?>
+                                                <option value=""<?= $chosen[$key] === '' ? ' selected' : '' ?>>Leave them out</option>
+                                            </select>
+                                        </div>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
+                            <div class="field">
+                                <label class="check-list__row" for="f-wp-publish">
+                                    <input type="checkbox" id="f-wp-publish" name="publish" value="1"<?= !empty($chosen['publish']) ? ' checked' : '' ?>>
+                                    <span>Publish what WordPress had published</span>
+                                </label>
+                                <p class="form-help">
+                                    Left unticked, everything comes in <strong>Private</strong>, for you to look over and publish.
+                                    A draft comes in Private either way.
+                                </p>
+                            </div>
+                        <?php endif; ?>
                         <?php if ($importPlan['settings'] !== []): ?>
                             <?php // SETTINGS ARE THEIR OWN DECISION. An export's
                                   // settings block is the whole options table —
@@ -408,6 +566,9 @@ ob_start();
 
                         <div class="form-actions form-actions--bare">
                             <a class="btn" href="<?= h(Url::admin('tools/import-export')) ?>">Cancel</a>
+                            <?php if (!empty($importPlan['wordpress'])): ?>
+                                <button type="submit" class="btn" formaction="<?= h(Url::admin('tools/import/wordpress')) ?>" data-wp-replan>Read again with these choices</button>
+                            <?php endif; ?>
                             <button type="submit" class="btn btn--primary">
                                 Import <?= $planCount ?> item<?= $planCount === 1 ? '' : 's' ?>
                             </button>
@@ -417,23 +578,8 @@ ob_start();
                     <form method="post" action="<?= h(Url::admin('tools/import')) ?>"
                           enctype="multipart/form-data">
                         <?= Csrf::field() ?>
-                        <div class="field">
-                            <label class="label" for="f-import"><?= $sellingTypes !== [] ? 'Export file, or a spreadsheet of products' : 'Export file' ?></label>
-                            <input class="input" type="file" id="f-import" name="import_file"
-                                   accept="<?= $sellingTypes !== [] ? 'application/json,.json,text/csv,.csv' : 'application/json,.json' ?>">
-                            <?php // WHAT IT MATCHES ON, said before the upload
-                                  // rather than discovered after it. An import
-                                  // that matches on the ids in the file would
-                                  // overwrite unrelated rows on this install —
-                                  // see `Content\Import`'s header. ?>
-                            <p class="form-help">
-                                A <code>.json</code> file from the Download buttons above —
-                                this site's or another site's. Items are matched by
-                                their <strong>address</strong>, not by their id, so anything
-                                whose address is already here will be shown as an overwrite
-                                before you decide.
-                            </p>
-                        </div>
+                        <?php // THE SPREADSHEET'S TYPE FIRST, when there is one
+                              // to choose; then the file, and reading it. ?>
                         <?php if ($sellingTypes !== []): ?>
                             <?php // A SPREADSHEET IS PRODUCTS, of one type that sells:
                                   // which, chosen here, and only read for a .csv. ?>
@@ -458,10 +604,33 @@ ob_start();
                                 </p>
                             </div>
                         <?php endif; ?>
-                        <div class="form-actions form-actions--bare">
-                            <button type="submit" class="btn btn--primary">
-                                <?= icon('upload', 'icon icon--sm') ?>Read the file
-                            </button>
+                        <div class="field">
+                            <label class="label" for="f-import"><?= $sellingTypes !== [] ? 'Export file, WordPress export, or a spreadsheet of products' : 'Export file or WordPress export' ?></label>
+                            <?php // THE FILE AND READING IT, ON ONE ROW: the
+                                  // browser's own control drawn as a button
+                                  // with the file's name beside it (core.css
+                                  // `.file-pick`), and the one thing to do
+                                  // with it beside that. ?>
+                            <div class="input-row">
+                                <input class="file-pick" type="file" id="f-import" name="import_file"
+                                       accept="<?= $sellingTypes !== [] ? 'application/json,.json,text/xml,application/xml,.xml,text/csv,.csv' : 'application/json,.json,text/xml,application/xml,.xml' ?>">
+                                <button type="submit" class="btn btn--primary">
+                                    <?= icon('upload', 'icon icon--sm') ?>Read the file
+                                </button>
+                            </div>
+                            <?php // WHAT IT MATCHES ON, said before the upload
+                                  // rather than discovered after it. An import
+                                  // that matches on the ids in the file would
+                                  // overwrite unrelated rows on this install —
+                                  // see `Content\Import`'s header. ?>
+                            <p class="form-help">
+                                A <code>.json</code> file from the Download buttons above —
+                                this site's or another site's — or the <code>.xml</code> file
+                                WordPress writes at Tools → Export. Items are matched by
+                                their <strong>address</strong>, not by their id, so anything
+                                whose address is already here will be shown as an overwrite
+                                before you decide.
+                            </p>
                         </div>
                     </form>
                 <?php endif; ?>
@@ -471,6 +640,9 @@ ob_start();
     </div>
 
 </div>
+<?php if ($importJob !== null && $importJob['phase'] !== 'done'): ?>
+    <script src="<?= h(\Cms\Helpers\Asset::admin('js/static-copy.js')) ?>"></script>
+<?php endif; ?>
 <?php
 $pageContent = ob_get_clean();
 require ROOT_PATH . '/admin/templates/layout.php';

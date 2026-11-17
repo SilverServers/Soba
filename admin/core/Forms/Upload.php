@@ -11,7 +11,7 @@ use Cms\Models\Media;
  *
  * The admin's uploader (`Controllers\Api\MediaController`) is used by somebody
  * who signed in. This one is used by anybody who can see the form, and the
- * posture is deliberately tighter in four ways. Each is a decision, not a
+ * posture is deliberately tighter in five ways. Each is a decision, not a
  * default, so each is written down.
  *
  *   NO SVG. The admin list allows it; this one does not. An SVG is a script
@@ -31,6 +31,10 @@ use Cms\Models\Media;
  *   admin's 10, and the field's own Maximum size setting only ever lowers it —
  *   a per-field box that could RAISE the ceiling would be a control that
  *   overrides a security limit, which is not what that box is for.
+ *
+ *   A PHOTO KEEPS NOTHING ABOUT ITS SENDER. Its metadata (where it was taken,
+ *   when, the phone) is removed as it is stored (`Media\Optimizer::scrub()`),
+ *   and it is turned upright, in the format it came in.
  *
  * ── THE TYPE COMES FROM THE BYTES ───────────────────────────────────────────
  * `finfo`, never `$_FILES['type']`, which is a header the client writes and can
@@ -60,10 +64,70 @@ final class Upload
     /** The ceiling a field's own setting can lower but never raise. */
     public const MAX_BYTES = 5 * 1024 * 1024;
 
-    /** `accept` for the file input — a courtesy to the visitor, never a check. */
-    public static function acceptAttribute(): string
+    /** What each kind is called to a visitor: Word is two extensions, one name. */
+    private const NAMES = [
+        'jpg' => 'JPG', 'png' => 'PNG', 'gif' => 'GIF', 'webp' => 'WebP', 'pdf' => 'PDF',
+        'txt' => 'text', 'csv' => 'CSV', 'doc' => 'Word', 'docx' => 'Word',
+    ];
+
+    /**
+     * `accept` for one field's file input — a courtesy to the visitor, never
+     * a check: what `allowedFor()` lets through, by type.
+     */
+    public static function acceptAttribute(array $field = []): string
     {
-        return implode(',', array_keys(self::ALLOWED));
+        return implode(',', array_keys(self::allowedFor($field)));
+    }
+
+    /**
+     * WHAT ONE FIELD TAKES. Its own File types box names some of the kinds
+     * above ("jpg, png, webp" for a field asking for photos); empty, it takes
+     * them all. It only ever narrows the list: a kind not above is never
+     * taken, whatever the box says.
+     *
+     * @return array<string, string> mime => extension, as `ALLOWED`
+     */
+    public static function allowedFor(array $field): array
+    {
+        $own = self::extensions((string) ($field['accept'] ?? ''));
+
+        return $own === [] ? self::ALLOWED
+            : array_filter(self::ALLOWED, static fn (string $ext): bool => in_array($ext, $own, true));
+    }
+
+    /**
+     * The kinds typed in a File types box that a form takes, in `ALLOWED`'s
+     * order: "PNG, .jpeg; heic" is ['jpg', 'png']. JPEG is JPG.
+     *
+     * @return list<string>
+     */
+    public static function extensions(string $typed): array
+    {
+        preg_match_all('/[a-z0-9]+/', strtolower($typed), $words);
+        $named = [];
+        foreach ($words[0] as $word) {
+            $named[$word === 'jpeg' ? 'jpg' : $word] = true;
+        }
+
+        return array_values(array_filter(self::ALLOWED, static fn (string $ext): bool => isset($named[$ext])));
+    }
+
+    /**
+     * The kinds one field takes, as a visitor reads them ("JPG, PNG or
+     * WebP"); '' when it takes every kind, which needs no saying.
+     */
+    public static function namesFor(array $field): string
+    {
+        if (self::extensions((string) ($field['accept'] ?? '')) === []) {
+            return '';
+        }
+        $names = array_values(array_unique(array_map(
+            static fn (string $ext): string => self::NAMES[$ext] ?? strtoupper($ext),
+            self::allowedFor($field)
+        )));
+        $last = array_pop($names);
+
+        return $names === [] ? (string) $last : implode(', ', $names) . ' or ' . $last;
     }
 
     /** The limit in force for one field: its own, clamped to ours. */
@@ -75,6 +139,15 @@ final class Upload
         }
 
         return (int) min(self::MAX_BYTES, $mb * 1024 * 1024);
+    }
+
+    /** Why a file of a kind this field does not take is refused, for the visitor. */
+    public static function notTaken(array $field): string
+    {
+        $names = self::namesFor($field);
+
+        return $names === '' ? 'That kind of file is not accepted.'
+            : 'That kind of file is not accepted here. It takes ' . $names . ' files.';
     }
 
     /**
@@ -123,8 +196,8 @@ final class Upload
         if ($finfo !== false) {
             finfo_close($finfo);
         }
-        if (!isset(self::ALLOWED[$mime])) {
-            $error = 'That kind of file is not accepted.';
+        if (!isset(self::allowedFor($field)[$mime])) {
+            $error = self::notTaken($field);
             return null;
         }
 
@@ -146,6 +219,14 @@ final class Upload
         }
         if (!move_uploaded_file($tmp, $dir . '/' . $stored)) {
             $error = 'That file could not be stored.';
+            return null;
+        }
+        // A PHOTO LOSES WHAT IT SAYS ABOUT ITS SENDER: where it was taken,
+        // when, the phone. Kept upright and in its own format; one that
+        // cannot be read is not kept.
+        if (!\Cms\Media\Optimizer::scrub($dir . '/' . $stored, $mime)) {
+            @unlink($dir . '/' . $stored);
+            $error = 'That picture could not be read.';
             return null;
         }
 

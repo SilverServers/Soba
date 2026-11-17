@@ -18,7 +18,6 @@ use Cms\Controllers\Admin\DashboardController;
 use Cms\Controllers\Admin\FieldGroupController;
 use Cms\Controllers\Admin\MediaController as AdminMediaController;
 use Cms\Controllers\Admin\PageController;
-use Cms\Controllers\Admin\PlaceholderController;
 use Cms\Controllers\Admin\RedirectsController;
 use Cms\Controllers\Admin\SettingsController;
 use Cms\Controllers\Admin\TaxonomyController;
@@ -125,7 +124,7 @@ defined('BASE_URL')  || define('BASE_URL', rtrim($config['base_url'], '/'));
 defined('BASE_PATH') || define('BASE_PATH', $parsedUrl['path'] ?? '');
 
 // THE ADMIN LIVES AT /admin. Hiding it is one setting: Security → Login
-// protection → "Move the sign-in page" (`Security\LoginUrl`). A fixed admin
+// protection → Sign-in address (`Security\LoginUrl`). A fixed admin
 // address in config.php (`admin_url_slug`) is no longer read; the updater
 // moves an install that had one onto the setting.
 define('ADMIN_URL_SLUG', 'admin');
@@ -136,7 +135,20 @@ define('ADMIN_URL', BASE_URL . '/' . ADMIN_URL_SLUG);
 // ----------------------------------------------------------------
 
 Database::init($config);
-Database::runMigrations(ROOT_PATH . '/core/Database/migrations', ROOT_PATH . '/site/migrations');
+// ANOTHER PROCESS MIGRATING, an update's run or a visit that came first, and
+// holding the lock longer than a visit waits (`Migrator::run()`): not a fault
+// but a moment, answered as the update's flag above answers, so a visitor
+// tries again and a search engine comes back instead of noting an error.
+try {
+    Database::runMigrations(ROOT_PATH . '/core/Database/migrations', ROOT_PATH . '/site/migrations');
+} catch (\Cms\Database\MigrationsBusy $e) {
+    error_log('CMS: ' . $e->getMessage());
+    http_response_code(503);
+    header('Retry-After: 30');
+    header('Cache-Control: no-store');
+    header('Content-Type: text/plain; charset=utf-8');
+    exit("This site is being updated. Please try again in a minute.\n");
+}
 
 // ----------------------------------------------------------------
 // Session
@@ -325,6 +337,9 @@ $router->addRoute('POST', '/admin/pages/new',              [PageController::clas
 $router->addRoute('GET',  '/admin/pages/trash',            [PageController::class, 'showTrash']);
 $router->addRoute('GET',  '/admin/pages/{id:\d+}/edit',    [PageController::class, 'showEdit']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/edit',    [PageController::class, 'handleUpdate']);
+$router->addRoute('POST', '/admin/pages/{id:\d+}/copy',    [PageController::class, 'handleCopy']);
+$router->addRoute('POST', '/admin/pages/{id:\d+}/share',   [PageController::class, 'handleShare']);
+$router->addRoute('POST', '/admin/pages/{id:\d+}/share/stop', [PageController::class, 'handleStopShare']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/trash',   [PageController::class, 'handleTrash']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/restore', [PageController::class, 'handleRestore']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/delete',  [PageController::class, 'handleDelete']);
@@ -334,10 +349,12 @@ $router->addRoute('POST', '/admin/pages/{id:\d+}/delete',  [PageController::clas
 // -----------------------------------------------------------------------
 $router->addRoute('GET',  '/admin/media',     [AdminMediaController::class, 'index']);
 $router->addRoute('GET',  '/admin/media/add', [AdminMediaController::class, 'add']);
-// A FOLDER IS MADE FROM THE LIBRARY SCREEN, by a plain form posted here: the
-// library offers a folder FILTER, and without this route no screen could add
-// to its options. `MediaController::newFolder()` has the rest.
+// FOLDERS ARE MANAGED ON A SCREEN OF THEIR OWN (Files and media → Manage
+// folders): made, renamed and deleted there by plain forms posted here, while
+// the library's folder row only chooses one. `MediaController` has the rest.
+$router->addRoute('GET',  '/admin/media/folders',     [AdminMediaController::class, 'folders']);
 $router->addRoute('POST', '/admin/media/folders/new', [AdminMediaController::class, 'newFolder']);
+$router->addRoute('POST', '/admin/media/folders/{id:\d+}/rename', [AdminMediaController::class, 'renameFolder']);
 // AND DELETING ONE: whatever the admin can make, it can also remove
 // (`MediaFolder::delete()`). The files survive: `attachments.folder_id` is
 // ON DELETE SET NULL.
@@ -429,12 +446,14 @@ $router->addRoute('GET',  '/admin/forms/submissions/{sid:\d+}',                [
 $router->addRoute('POST', '/admin/forms/submissions/{sid:\d+}/delete',         [AdminFormController::class, 'handleDeleteSubmission']);
 $router->addRoute('POST', '/admin/forms/submissions/{sid:\d+}/spam',           [AdminFormController::class, 'handleMarkSpam']);
 $router->addRoute('POST', '/admin/forms/submissions/{sid:\d+}/not-spam',       [AdminFormController::class, 'handleNotSpam']);
+$router->addRoute('POST', '/admin/forms/submissions/{sid:\d+}/resend',         [AdminFormController::class, 'handleResend']);
 $router->addRoute('POST', '/admin/forms/submissions/bulk',                     [AdminFormController::class, 'handleBulk']);
 $router->addRoute('GET',  '/admin/forms/spam',                                 [AdminFormController::class, 'spam']);
 $router->addRoute('POST', '/admin/forms/spam/empty',                           [AdminFormController::class, 'handleEmptySpam']);
 $router->addRoute('POST', '/admin/forms/spam/settings',                        [AdminFormController::class, 'handleSpamSettings']);
 $router->addRoute('GET',  '/admin/forms/{id:\d+}/edit',                        [AdminFormController::class, 'showEdit']);
 $router->addRoute('POST', '/admin/forms/{id:\d+}/edit',                        [AdminFormController::class, 'handleUpdate']);
+$router->addRoute('POST', '/admin/forms/{id:\d+}/copy',                        [AdminFormController::class, 'handleCopy']);
 $router->addRoute('POST', '/admin/forms/{id:\d+}/delete',                      [AdminFormController::class, 'handleDelete']);
 $router->addRoute('GET',  '/admin/forms/{id:\d+}/submissions',                 [AdminFormController::class, 'submissions']);
 $router->addRoute('GET',  '/admin/forms/{id:\d+}/submissions.csv',             [AdminFormController::class, 'exportCsv']);
@@ -458,6 +477,9 @@ use Cms\Controllers\Admin\BrandingController;
 $router->addRoute('GET',  '/admin/appearance/branding',               [BrandingController::class, 'show']);
 $router->addRoute('POST', '/admin/appearance/branding',               [BrandingController::class, 'saveAdmin']);
 $router->addRoute('POST', '/admin/appearance/branding/sign-in',       [BrandingController::class, 'saveSignIn']);
+// The public site's own look (`Site\Look`), with its home page beside the controls.
+$router->addRoute('GET',  '/admin/appearance/customizer',             [\Cms\Controllers\Admin\CustomizerController::class, 'show']);
+$router->addRoute('POST', '/admin/appearance/customizer',             [\Cms\Controllers\Admin\CustomizerController::class, 'save']);
 $router->addRoute('GET',  '/admin/appearance/menus',                  [AdminMenuController::class, 'index']);
 // MANAGE LOCATIONS — the second tab. Registered BEFORE the `{id:\d+}` routes
 // only for readability; `locations` cannot match `\d+`, so the order is not
@@ -475,8 +497,6 @@ $router->addRoute('POST', '/admin/appearance/menus/create',           [AdminMenu
 $router->addRoute('GET',  '/admin/appearance/menus/{id:\d+}/edit',    [AdminMenuController::class, 'showEdit']);
 $router->addRoute('POST', '/admin/appearance/menus/{id:\d+}/edit',    [AdminMenuController::class, 'handleUpdate']);
 $router->addRoute('POST', '/admin/appearance/menus/{id:\d+}/delete',  [AdminMenuController::class, 'handleDelete']);
-$router->addRoute('GET',  '/admin/appearance/theme-builder',          [PlaceholderController::class, 'themeBuilder']);
-$router->addRoute('GET',  '/admin/appearance/customizer',             [PlaceholderController::class, 'customizer']);
 
 // -----------------------------------------------------------------------
 // Admin — Users: create + delete (list + edit already exist below)
@@ -524,6 +544,12 @@ $router->addRoute('GET', '/admin/tools/import-export', [ToolsController::class, 
 // operation with no confirm step, run against content nobody can get back.
 $router->addRoute('POST', '/admin/tools/import',       [ImportController::class, 'plan']);
 $router->addRoute('POST', '/admin/tools/import/apply', [ImportController::class, 'apply']);
+// A WORDPRESS EXPORT's plan again with other choices, then the report of its
+// import, and its media library's files fetched a step at a time
+// (`Content\WordPressImport`).
+$router->addRoute('POST', '/admin/tools/import/wordpress',                         [ImportController::class, 'replan']);
+$router->addRoute('GET',  '/admin/tools/import/wordpress/{token:[a-f0-9]{24}}',      [ImportController::class, 'report']);
+$router->addRoute('POST', '/admin/tools/import/wordpress/{token:[a-f0-9]{24}}/step', [ImportController::class, 'step']);
 $router->addRoute('GET', '/admin/tools/system-health', [ToolsController::class, 'systemHealth']);
 
 // Redirects — a tool of its own, not a tab on Settings → SEO;
@@ -533,6 +559,29 @@ $router->addRoute('GET',  '/admin/tools/redirects',                    [Redirect
 $router->addRoute('POST', '/admin/tools/redirects',                    [RedirectsController::class, 'store']);
 $router->addRoute('POST', '/admin/tools/redirects/{id:\d+}',           [RedirectsController::class, 'update']);
 $router->addRoute('POST', '/admin/tools/redirects/{id:\d+}/delete',    [RedirectsController::class, 'delete']);
+// The addresses visitors did not find (`SEO\NotFound`), listed on the same screen.
+$router->addRoute('POST', '/admin/tools/redirects/not-found/{id:\d+}/dismiss', [RedirectsController::class, 'dismissNotFound']);
+$router->addRoute('POST', '/admin/tools/redirects/not-found/clear',           [RedirectsController::class, 'clearNotFound']);
+
+// A STATIC COPY OF THE SITE (`Export\StaticCopy`): the screen, the start, one
+// polled step of the job, and its archive. The id's exact shape is checked by
+// `StaticCopy::open()`, as an order's key is by `Order::findByKey()`.
+use Cms\Controllers\Admin\StaticCopyController;
+// Tools → Backups (`Site\Backups`): the timetable, the list, and one made now.
+$router->addRoute('GET',  '/admin/tools/backups',                               [\Cms\Controllers\Admin\BackupsController::class, 'index']);
+$router->addRoute('POST', '/admin/tools/backups',                               [\Cms\Controllers\Admin\BackupsController::class, 'save']);
+$router->addRoute('POST', '/admin/tools/backups/now',                           [\Cms\Controllers\Admin\BackupsController::class, 'now']);
+$router->addRoute('POST', '/admin/tools/backups/{id:[0-9a-f-]+}/step',          [\Cms\Controllers\Admin\BackupsController::class, 'step']);
+$router->addRoute('GET',  '/admin/tools/backups/{id:[0-9a-f-]+}/download',      [\Cms\Controllers\Admin\BackupsController::class, 'download']);
+$router->addRoute('POST', '/admin/tools/backups/{id:[0-9a-f-]+}/delete',        [\Cms\Controllers\Admin\BackupsController::class, 'delete']);
+// Tools → Broken links: the copy's crawl, checking the site's links and writing nothing.
+$router->addRoute('GET',  '/admin/tools/broken-links',                          [\Cms\Controllers\Admin\BrokenLinksController::class, 'index']);
+$router->addRoute('POST', '/admin/tools/broken-links',                          [\Cms\Controllers\Admin\BrokenLinksController::class, 'start']);
+$router->addRoute('POST', '/admin/tools/broken-links/{id:[0-9a-f-]+}/step',     [\Cms\Controllers\Admin\BrokenLinksController::class, 'step']);
+$router->addRoute('GET',  '/admin/tools/static-copy',                         [StaticCopyController::class, 'index']);
+$router->addRoute('POST', '/admin/tools/static-copy',                         [StaticCopyController::class, 'start']);
+$router->addRoute('POST', '/admin/tools/static-copy/{id:[0-9a-f-]+}/step',    [StaticCopyController::class, 'step']);
+$router->addRoute('GET',  '/admin/tools/static-copy/{id:[0-9a-f-]+}/download', [StaticCopyController::class, 'download']);
 
 // -----------------------------------------------------------------------
 // Admin — Security
@@ -575,6 +624,9 @@ $router->addRoute('GET',  '/admin/settings/permalinks', [SettingsController::cla
 $router->addRoute('POST', '/admin/settings/permalinks', [SettingsController::class, 'handlePermalinks']);
 $router->addRoute('GET',  '/admin/settings/email',      [SettingsController::class, 'showEmail']);
 $router->addRoute('POST', '/admin/settings/email',      [SettingsController::class, 'handleEmail']);
+$router->addRoute('POST', '/admin/settings/email/test', [SettingsController::class, 'handleEmailTest']);
+$router->addRoute('GET',  '/admin/settings/business',   [\Cms\Controllers\Admin\BusinessController::class, 'show']);
+$router->addRoute('POST', '/admin/settings/business',   [\Cms\Controllers\Admin\BusinessController::class, 'save']);
 $router->addRoute('GET',  '/admin/settings/commerce',   [SettingsController::class, 'showCommerce']);
 $router->addRoute('POST', '/admin/settings/commerce',   [SettingsController::class, 'handleCommerce']);
 $router->addRoute('GET',  '/admin/settings/api',                       [\Cms\Controllers\Admin\ApiSettingsController::class, 'show']);
@@ -582,6 +634,13 @@ $router->addRoute('POST', '/admin/settings/api/keys',                  [\Cms\Con
 $router->addRoute('POST', '/admin/settings/api/keys/{id:\d+}/revoke',  [\Cms\Controllers\Admin\ApiSettingsController::class, 'revokeKey']);
 $router->addRoute('POST', '/admin/settings/api/webhooks',              [\Cms\Controllers\Admin\ApiSettingsController::class, 'addHook']);
 $router->addRoute('POST', '/admin/settings/api/webhooks/{id:\d+}/remove', [\Cms\Controllers\Admin\ApiSettingsController::class, 'removeHook']);
+
+// -----------------------------------------------------------------------
+// API — still signed in? The page and entry editors ask while somebody
+// writes, which keeps the sign-in (`Api\SessionController`).
+// -----------------------------------------------------------------------
+$router->addRoute('GET',  '/api/v1/session',                        [\Cms\Controllers\Api\SessionController::class, 'show']);
+$router->addRoute('POST', '/api/v1/session/leave',                  [\Cms\Controllers\Api\SessionController::class, 'leave']);
 
 // -----------------------------------------------------------------------
 // API — media
@@ -708,6 +767,20 @@ foreach (Registry::all() as $contentTypeKey => $contentType) {
         // Public archive (listing) page
         $router->addRoute('GET', "/{$p}",        [PublicContentTypeController::class,  'archive', $contentTypeKey]);
 
+        // ITS NEWEST ENTRIES AS A FEED, unless it sells (`Content\Feed`).
+        // BEFORE THE ENTRY'S PATTERN: the router refuses a fixed address that
+        // a pattern added earlier would already match.
+        if (\Cms\Content\Feed::has($contentTypeKey)) {
+            $router->addRoute('GET', "/{$p}/feed.xml", [\Cms\Controllers\Public\EntryFeedController::class, 'show', $contentTypeKey]);
+        }
+        // AN EVENTS TYPE IN A CALENDAR (`Content\Calendar`): all of it to
+        // subscribe to, then one event to add. Before the entry's pattern too,
+        // and the fixed address before the event's own.
+        if (\Cms\Content\Calendar::has($contentTypeKey)) {
+            $router->addRoute('GET', "/{$p}/calendar.ics", [\Cms\Controllers\Public\CalendarController::class, 'type', $contentTypeKey]);
+            $router->addRoute('GET', "/{$p}/{slug:[a-z0-9-]+}.ics", [\Cms\Controllers\Public\CalendarController::class, 'event', $contentTypeKey]);
+        }
+
         // Public single-item view.
         //
         // POST goes to the SAME handler because a password-protected entry's
@@ -729,6 +802,9 @@ foreach (Registry::all() as $contentTypeKey => $contentType) {
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/edit",   [ContentTypeController::class, 'handleUpdate',  $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/trash",  [ContentTypeController::class, 'handleTrash',   $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/copy",   [ContentTypeController::class, 'handleCopy',    $contentTypeKey]);
+    // A link that shows an entry not yet on the site (`Content\\Share`).
+    $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/share",  [ContentTypeController::class, 'handleShare',   $contentTypeKey]);
+    $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/share/stop", [ContentTypeController::class, 'handleStopShare', $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/restore",[ContentTypeController::class, 'handleRestore', $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/delete", [ContentTypeController::class, 'handleDelete',  $contentTypeKey]);
     // One action on the entries ticked in the list or the trash.
@@ -764,6 +840,13 @@ $router->addRoute('POST', '/{slug}', [PublicPageController::class, 'show']);
 // A switched-off module registers no routes: its addresses 404 (Helpers\Modules).
 $router->keepOnly([\Cms\Helpers\Modules::class, 'allowsRoute']);
 
+// A PAGE DRAWN FOR A STATIC COPY (`Export\StaticCopy`, through
+// `Export/render-page.php`, which alone defines CMS_EXPORT and runs only from
+// the command line) is drawn and nothing else: none of what a visit also does
+// below (a redirect's count, the username watch, the daily file check, the
+// notification channels, due orders) happens once per page of an export.
+$exporting = defined('CMS_EXPORT');
+
 // ----------------------------------------------------------------
 // Redirect check — runs before dispatch
 // ----------------------------------------------------------------
@@ -778,28 +861,17 @@ if ($requestPath !== '/') {
     $requestPath = rtrim($requestPath, '/');
 }
 
-// THE ADMIN IS NEVER REDIRECTED, and a rule — exact, or a `/*` covering a whole
-// section (`Redirects::forRequest()`) — carries
-// the visitor's query string along.
-$redirect = ($requestPath === '/admin' || str_starts_with($requestPath, '/admin/'))
-    ? null
-    : Redirects::forRequest($requestPath, (string) ($_SERVER['QUERY_STRING'] ?? ''));
+// A RULE — exact, or a `/*` covering a whole section — carries the visitor's
+// query string along. Never the admin, never away from the sign-in page, and
+// never a rule that points at the page it is on (`Redirects::followed()`,
+// which a site with its own router in front asks too, through
+// `Site\Front::owns()`, so the two cannot differ).
+$redirect = Redirects::followed($requestPath, (string) ($_SERVER['QUERY_STRING'] ?? ''));
 
-// A RULE THAT POINTS AT THE PAGE IT IS ON IS NOT FOLLOWED. `/about` → `/about/`
-// is the commonest rule a site moved from another CMS brings with it, and the
-// lookup above trims the request's slash before it looks — so the destination
-// would match its own rule again, and the browser would give up on the loop.
-// The page answers instead, and its controller settles the ending
-// (`Url::settle()`). `Redirects::pageOf()` is the same test the Redirects
-// screen refuses a new rule with.
-// AND THE SIGN-IN PAGE IS NEVER REDIRECTED AWAY. Every screen that can create
-// a redirect refuses its address (`Slug::reservedFirstSegments()`), but a rule
-// that arrives another way — an import, a row edited by hand — must not be able
-// to take the only way into the admin.
-if ($redirect !== null
-    && $requestPath !== \Cms\Security\LoginUrl::path()
-    && Redirects::pageOf((string) $redirect['to']) !== $requestPath) {
-    Redirects::incrementHitCount((int) $redirect['id']);
+if ($redirect !== null) {
+    if (!$exporting) {
+        Redirects::incrementHitCount((int) $redirect['id']);
+    }
     http_response_code((int) $redirect['type']);
     // THROUGH Url::resolve, NOT RAW. The lookup above strips BASE_PATH from the
     // request, so the Location header has to put it back: on an install in a
@@ -854,7 +926,7 @@ if ($isAdminPath($requestPath) || $requestPath === \Cms\Security\LoginUrl::path(
 // before: there is nothing at any of them to find.
 // ----------------------------------------------------------------
 
-if (!$isAdminPath($requestPath)) {
+if (!$isAdminPath($requestPath) && !$exporting) {
     \Cms\Security\Enumeration::watch($requestPath, $_GET);
 }
 
@@ -864,8 +936,10 @@ if (!$isAdminPath($requestPath)) {
 // the page has gone, and nobody waits on it.
 // Once a day, the CMS's files against what shipped (`Security\FileCheck`) —
 // before the channels look, so a finding is theirs to send in the same breath.
-\Cms\Security\FileCheck::poke();
-\Cms\Security\Alerts::poke();
+if (!$exporting) {
+    \Cms\Security\FileCheck::poke();
+    \Cms\Security\Alerts::poke();
+}
 
 // ----------------------------------------------------------------
 // CSRF protection — validate token on all admin/API POST requests
@@ -922,7 +996,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Unpaid orders past the shop's days are cancelled at most every ten
 // minutes, whoever's visit it is, after their page (`Commerce\Lapse`):
 // shared hosting has no cron to rely on.
-\Cms\Commerce\Lapse::onVisit();
+if (!$exporting) {
+    \Cms\Commerce\Lapse::onVisit();
+    // And a backup on its timetable, the same way (`Site\Backups`).
+    \Cms\Site\Backups::onVisit();
+}
 
 $result = $router->dispatch($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI']);
 

@@ -84,6 +84,13 @@ class FormSubmission
      *   submitted_at  its own time, 'Y-m-d H:i:s' UTC (a history import);
      *                 now when absent
      *   is_read       true for a submission nobody needs to open (history)
+     *   is_test       true for a test: one sent from the form's test address,
+     *                 or a history import's test
+     *   id            its own number, from a history import, so a site's lead
+     *                 numbers carry on. Refused when a row already has it (a
+     *                 \RuntimeException, and nothing is written); new
+     *                 submissions then continue after the highest, so no
+     *                 number is ever given out twice. Absent: the next one.
      *
      * @param array<string, mixed> $data
      * @param array<string, mixed> $opts
@@ -94,14 +101,48 @@ class FormSubmission
         $cut    = static fn (mixed $v, int $n): ?string => ($v = trim((string) ($v ?? ''))) !== '' ? mb_substr($v, 0, $n) : null;
         $at     = (string) ($opts['submitted_at'] ?? '');
         $at     = preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $at) === 1 ? $at : gmdate('Y-m-d H:i:s');
+        $id     = null;
+        if (isset($opts['id'])) {
+            $id = filter_var($opts['id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 4294967295]]);
+            if ($id === false) {
+                throw new \InvalidArgumentException('A submission\'s id is a whole number from 1.');
+            }
+            if (self::find($id) !== null) {
+                throw new \RuntimeException("Submission #{$id} already exists: an imported submission keeps its own number or is not imported.");
+            }
+        }
 
         $pdo  = Database::getInstance();
+        // `id` is NULL unless one is given, and NULL takes the next number.
         $stmt = $pdo->prepare(
             'INSERT INTO form_submissions
-                (form_id, data, status, spam_reason, source_page, is_read, ip_address, user_agent, token_hash, submitted_at)
-             VALUES (:fid, :data, :status, :reason, :page, :read, :ip, :ua, :token, :at)'
+                (id, form_id, data, status, spam_reason, source_page, is_read, is_test, ip_address, user_agent, token_hash, submitted_at)
+             VALUES (:id, :fid, :data, :status, :reason, :page, :read, :test, :ip, :ua, :token, :at)'
         );
+        try {
+            self::insert($stmt, $id, $formId, $data, $status, $opts, $cut, $ipAddress, $at);
+        } catch (\PDOException $e) {
+            // Taken between the look above and the write: refused all the same.
+            if ($id !== null && (int) ($e->errorInfo[1] ?? 0) === 1062) {
+                throw new \RuntimeException("Submission #{$id} already exists: an imported submission keeps its own number or is not imported.", 0, $e);
+            }
+            throw $e;
+        }
+        // AN ID GIVEN IS THE ID: the database's last insert id names only one
+        // it chose itself.
+        return $id ?? (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * The write itself, for `create()`.
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $opts
+     */
+    private static function insert(\PDOStatement $stmt, ?int $id, int $formId, array $data, string $status, array $opts, \Closure $cut, ?string $ipAddress, string $at): void
+    {
         $stmt->execute([
+            ':id'     => $id,
             ':fid'    => $formId,
             // NEVER FALSE. A byte that is not UTF-8 made `json_encode()` return
             // false, the JSON-only column refused the row, and an accepted
@@ -111,12 +152,12 @@ class FormSubmission
             ':reason' => $status === self::SPAM ? ($cut($opts['spam_reason'] ?? 'turned away', 255) ?? 'turned away') : null,
             ':page'   => $cut($opts['source_page'] ?? null, 500),
             ':read'   => !empty($opts['is_read']) ? 1 : 0,
+            ':test'   => !empty($opts['is_test']) ? 1 : 0,
             ':ip'     => $ipAddress !== null && $ipAddress !== '' ? mb_substr($ipAddress, 0, 45) : null,
             ':ua'     => $cut($opts['user_agent'] ?? null, 300),
             ':token'  => preg_match('/^[0-9a-f]{64}$/', (string) ($opts['token_hash'] ?? '')) === 1 ? $opts['token_hash'] : null,
             ':at'     => $at,
         ]);
-        return (int) $pdo->lastInsertId();
     }
 
     /** Whether the notification email went: true sent, false failed. */
@@ -124,6 +165,23 @@ class FormSubmission
     {
         Database::getInstance()->prepare('UPDATE form_submissions SET notified = :n WHERE id = :id')
             ->execute([':n' => $sent ? 1 : 0, ':id' => $id]);
+    }
+
+    /**
+     * Take the conversion a received submission's after-sending page carries
+     * (`Site\Google::conversion()`): true the first time, and false ever after,
+     * for a row that is gone, or for one a person has since marked as spam. One
+     * statement, so two pages asking at once cannot both have it.
+     */
+    public static function takeConversion(int $id): bool
+    {
+        $stmt = Database::getInstance()->prepare(
+            "UPDATE form_submissions SET conversion_taken_at = UTC_TIMESTAMP()
+             WHERE id = :id AND status = 'received' AND conversion_taken_at IS NULL"
+        );
+        $stmt->execute([':id' => $id]);
+
+        return $stmt->rowCount() === 1;
     }
 
     // ----------------------------------------------------------------
@@ -139,14 +197,16 @@ class FormSubmission
      * walks index entries rather than reading 240,000 payloads. The second
      * reads the page's rows and nothing else.
      *
+     * `$test`: true lists tests alone, false leaves them out, null both.
+     *
      * @return array{items: list<array<string, mixed>>, total: int}
      */
-    public static function page(string $status, ?int $formId, int $page, int $perPage): array
+    public static function page(string $status, ?int $formId, int $page, int $perPage, ?bool $test = null): array
     {
         $pdo     = Database::getInstance();
         $perPage = max(1, min(999, $perPage));
         $page    = max(1, $page);
-        [$where, $args] = self::scope($status, $formId);
+        [$where, $args] = self::scope($status, $formId, $test);
 
         $ids = $pdo->prepare(
             "SELECT id FROM form_submissions WHERE $where
@@ -160,7 +220,7 @@ class FormSubmission
         if ($idList !== []) {
             $in   = implode(',', array_fill(0, count($idList), '?'));
             $rows = $pdo->prepare(
-                "SELECT s.id, s.form_id, s.data, s.status, s.spam_reason, s.source_page, s.is_read,
+                "SELECT s.id, s.form_id, s.data, s.status, s.spam_reason, s.source_page, s.is_read, s.is_test,
                         s.ip_address, s.notified, s.submitted_at, f.title AS form_title
                  FROM form_submissions s JOIN forms f ON f.id = s.form_id
                  WHERE s.id IN ($in)
@@ -173,29 +233,49 @@ class FormSubmission
             }
         }
 
-        return ['items' => $items, 'total' => self::count($status, $formId)];
+        return ['items' => $items, 'total' => self::count($status, $formId, $test)];
     }
 
-    /** How many a list holds. */
-    public static function count(string $status, ?int $formId = null): int
+    /** How many a list holds; `$test` as `page()` reads it. */
+    public static function count(string $status, ?int $formId = null, ?bool $test = null): int
     {
-        [$where, $args] = self::scope($status, $formId);
+        [$where, $args] = self::scope($status, $formId, $test);
         $stmt = Database::getInstance()->prepare("SELECT COUNT(*) FROM form_submissions WHERE $where");
         $stmt->execute($args);
         return (int) $stmt->fetchColumn();
     }
 
     /**
-     * The WHERE for one list: a status, and a form when the list has one.
+     * Whether a list of received submissions, one form's or every form's,
+     * holds any test, from the index alone (`idx_form_submissions_test`).
+     */
+    public static function hasTests(?int $formId): bool
+    {
+        $stmt = Database::getInstance()->prepare(
+            "SELECT 1 FROM form_submissions WHERE is_test = 1 AND status = 'received'"
+            . ($formId !== null ? ' AND form_id = ?' : '') . ' LIMIT 1'
+        );
+        $stmt->execute($formId !== null ? [$formId] : []);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * The WHERE for one list: a status, a form when the list has one, and
+     * tests alone or none when it asks.
      *
      * @return array{0: string, 1: list<int|string>}
      */
-    private static function scope(string $status, ?int $formId): array
+    private static function scope(string $status, ?int $formId, ?bool $test = null): array
     {
         $status = $status === self::SPAM ? self::SPAM : self::RECEIVED;
-        return $formId !== null
+        [$where, $args] = $formId !== null
             ? ['form_id = ? AND status = ?', [$formId, $status]]
             : ['status = ?', [$status]];
+        if ($test !== null) {
+            $where .= ' AND is_test = ?';
+            $args[]  = $test ? 1 : 0;
+        }
+        return [$where, $args];
     }
 
     // ----------------------------------------------------------------
@@ -230,7 +310,7 @@ class FormSubmission
                 array_push($bind, $after[0], $after[0], $after[1]);
             }
             $stmt = $pdo->prepare(
-                "SELECT id, form_id, data, source_page, ip_address, notified, submitted_at
+                "SELECT id, form_id, data, source_page, ip_address, notified, is_test, submitted_at
                  FROM form_submissions WHERE $where$more
                  ORDER BY submitted_at DESC, id DESC LIMIT " . $batch
             );
@@ -329,6 +409,32 @@ class FormSubmission
         $pdo->prepare($sql)->execute($params);
 
         return ['done' => count($hit), 'skipped' => count($ids) - count($hit)];
+    }
+
+    /**
+     * Of the ticked ids, the ones in a received list — one form's, or every
+     * form's — whose email could not be sent (`notified` = 0), oldest first:
+     * what "Send the email again" acts on. Re-read under the list's own
+     * conditions, as `bulk()` does, so a forged id or a row another tab moved
+     * is never sent.
+     *
+     * @param  list<int> $ids
+     * @return list<int>
+     */
+    public static function failedIn(array $ids, ?int $formId): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $i): bool => $i > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        [$where, $args] = self::scope(self::RECEIVED, $formId);
+        $in   = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::getInstance()->prepare(
+            "SELECT id FROM form_submissions WHERE $where AND notified = 0 AND id IN ($in) ORDER BY submitted_at, id"
+        );
+        $stmt->execute([...$args, ...$ids]);
+
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
     /** One received submission marked as spam by a person. */

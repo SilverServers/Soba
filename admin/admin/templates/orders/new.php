@@ -191,6 +191,8 @@ ob_start();
         </div>
 
         <div class="form-card__section form-actions">
+            <a class="link link--xs" href="<?= h(\Cms\Helpers\Url::admin('orders')) ?>">Cancel</a>
+            <div class="form-actions__spacer"></div>
             <button type="submit" class="btn btn--primary">Place the order</button>
         </div>
     </form>

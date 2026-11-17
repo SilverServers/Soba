@@ -528,7 +528,7 @@ ob_start();
                 <p class="empty__title">No <?= h(strtolower($label)) ?> match that filter</p>
             </div>
         <?php else: ?>
-        <div class="list entry-list entry-list--select<?= $isProductType ? ' entry-list--product' : '' ?>" id="entry-list">
+        <div class="list entry-list entry-list--select entry-list--copy" id="entry-list">
             <?php // THE HEADING ROW — the redirects list's precedent (`.rd-list__head`):
                   // a `.list__row` itself, so each label sits on the grid of the
                   // cells it names and cannot drift from them. It carries the
@@ -686,14 +686,13 @@ ob_start();
                         <?php endif; ?>
                         </span>
                         <a class="btn btn--sm" href="<?= h($editUrl) ?>">Edit</a>
-                        <?php // A PRODUCT COPIED to start the next one: Private,
-                              // with no codes and no stock of its own yet. ?>
-                        <?php if ($isProductType): ?>
-                            <form class="form-inline" method="post" action="<?= h(Url::admin($adminSlug . '/' . $id . '/copy')) ?>">
-                                <?= Csrf::field() ?>
-                                <button type="submit" class="link link--xs">Copy</button>
-                            </form>
-                        <?php endif; ?>
+                        <?php // AN ENTRY COPIED to start the next one: Private;
+                              // a product's with no codes and no stock of its
+                              // own yet. ?>
+                        <form class="form-inline" method="post" action="<?= h(Url::admin($adminSlug . '/' . $id . '/copy')) ?>">
+                            <?= Csrf::field() ?>
+                            <button type="submit" class="link link--xs">Copy</button>
+                        </form>
                         <form class="form-inline" method="post"
                               action="<?= h(Url::admin($adminSlug . '/' . $id . '/trash')) ?>"
                               data-confirm="Move &ldquo;<?= h((string) $post['title']) ?>&rdquo; to the trash?"

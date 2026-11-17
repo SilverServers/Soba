@@ -487,6 +487,12 @@ final class Guard
 
     private static function secret(): string
     {
+        // A PAGE DRAWN FOR A STATIC COPY (`Export\StaticCopy`) carries decoys
+        // and a token under the copy's own secret, which the copy's form
+        // handler holds — never the site's `app_secret`, which stays here.
+        if (defined('CMS_EXPORT') && is_array(CMS_EXPORT) && (string) (CMS_EXPORT['secret'] ?? '') !== '') {
+            return (string) CMS_EXPORT['secret'];
+        }
         if (self::$secret === null) {
             $config = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
             $config = is_array($config) ? $config : [];

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Api;
 
 use Cms\Auth\Auth;
+use Cms\Helpers\Dates;
 use Cms\Media\Optimizer;
 use Cms\Models\Media;
 use Cms\Models\MediaRejected;
@@ -26,13 +27,18 @@ class MediaController
         $page       = max(1, (int) ($_GET['page'] ?? 1));
         $type       = in_array($_GET['type'] ?? '', ['image', 'document'], true)
                     ? $_GET['type'] : null;
-        $folderId   = isset($_GET['folder_id']) ? (int) $_GET['folder_id'] : null;
+        // An empty folder_id is any folder, as on the library screen; 0 is unfiled.
+        $folderId   = is_string($_GET['folder_id'] ?? null) && ctype_digit($_GET['folder_id'])
+                    ? (int) $_GET['folder_id'] : null;
         $visibility = in_array($_GET['visibility'] ?? '', ['public', 'private'], true)
                     ? $_GET['visibility'] : null;
-        $search     = isset($_GET['search']) && trim($_GET['search']) !== ''
+        $search     = is_string($_GET['search'] ?? null) && trim($_GET['search']) !== ''
                     ? trim($_GET['search']) : null;
+        // The library screen's orders (`Media::SORTS`); anything else is newest first.
+        $sort       = is_string($_GET['sort'] ?? null) && isset(Media::SORTS[$_GET['sort']])
+                    ? $_GET['sort'] : Media::DEFAULT_SORT;
 
-        $result = Media::all($page, 40, $type, $folderId, $visibility, $search);
+        $result = Media::all($page, 40, $type, $folderId, $visibility, $search, $sort);
 
         $items = array_map(
             fn(array $a): array => $this->attachmentPayload($a),
@@ -136,6 +142,32 @@ class MediaController
             }
             $data['folder_id'] = ($_POST['folder_id'] === '' || $_POST['folder_id'] === null)
                 ? null : (int) $_POST['folder_id'];
+        }
+
+        // ── THE DATES (editor+ only), as the details' boxes post them: the
+        // site's wall-clock time (`Dates::fromInput()`), stored in UTC. A box
+        // left as it was changes nothing: a box holds minutes, and re-saving
+        // it would cut the seconds off every file whose title was edited,
+        // reordering files added in the same minute. Date added cannot be
+        // emptied; an empty Date taken is "not known".
+        foreach (['created_at' => 'Date added', 'taken_at' => 'Date taken'] as $key => $label) {
+            if (!array_key_exists($key, $_POST)) {
+                continue;
+            }
+            if (!Auth::hasRole('editor')) {
+                $this->json(['success' => false, 'error' => 'Insufficient permissions.'], 403);
+                return;
+            }
+            $typed = trim((string) $_POST[$key]);
+            if ($typed === Dates::toInput(isset($attachment[$key]) ? (string) $attachment[$key] : null)) {
+                continue;
+            }
+            $utc = Dates::fromInput($typed);
+            if ($utc === false || ($utc === null && $key === 'created_at')) {
+                $this->json(['success' => false, 'error' => $label . ' needs a date and a time.'], 400);
+                return;
+            }
+            $data[$key] = $utc;
         }
 
         // Visibility (editor+ only) — uses changeVisibility for physical file move
@@ -281,6 +313,8 @@ class MediaController
             'width'         => $facts['width'],
             'height'        => $facts['height'],
         ]);
+        // Its smaller widths, made again from the new file.
+        \Cms\Media\Sizes::make((array) Media::find($id));
 
         $updated = Media::find($id);
         $this->json(['success' => true, 'data' => $this->attachmentPayload($updated)]);
@@ -334,13 +368,11 @@ class MediaController
     {
         Auth::requireRole('editor');
 
-        $name = trim($_POST['name'] ?? '');
-        if ($name === '') {
-            $this->json(['success' => false, 'error' => 'Folder name is required.'], 400);
-            return;
-        }
-        if (MediaFolder::nameExists($name)) {
-            $this->json(['success' => false, 'error' => 'A folder with that name already exists.'], 400);
+        // The admin's name rules, refusals and all (`MediaFolder::refusal()`).
+        $name    = trim((string) ($_POST['name'] ?? ''));
+        $refusal = MediaFolder::refusal($name);
+        if ($refusal !== null) {
+            $this->json(['success' => false, 'error' => $refusal], 400);
             return;
         }
 
@@ -354,14 +386,15 @@ class MediaController
         Auth::requireRole('editor');
 
         $id   = (int) ($vars['id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
+        $name = trim((string) ($_POST['name'] ?? ''));
 
-        if ($name === '') {
-            $this->json(['success' => false, 'error' => 'Folder name is required.'], 400);
+        if (MediaFolder::find($id) === null) {
+            $this->json(['success' => false, 'error' => 'Folder not found.'], 404);
             return;
         }
-        if (MediaFolder::nameExists($name, $id)) {
-            $this->json(['success' => false, 'error' => 'A folder with that name already exists.'], 400);
+        $refusal = MediaFolder::refusal($name, $id);
+        if ($refusal !== null) {
+            $this->json(['success' => false, 'error' => $refusal], 400);
             return;
         }
 
@@ -403,6 +436,7 @@ class MediaController
             'visibility'    => $visibility,
             'is_image'      => $this->isImage($attachment['mime_type']),
             'created_at'    => $attachment['created_at'],
+            'taken_at'      => $attachment['taken_at'] ?? null,
         ];
     }
 

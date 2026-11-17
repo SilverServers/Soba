@@ -56,6 +56,117 @@ final class Optimizer
         }
     }
 
+    /**
+     * A VISITOR'S PICTURE, WITHOUT WHAT IT SAYS ABOUT THEM. A photo from a
+     * phone carries where it was taken (GPS), when, and the phone; a form
+     * that keeps it as sent keeps that, and its email hands it on. The file
+     * at `$path` is rewritten in place, in the format it came in: turned the
+     * way its EXIF says it is shown, then every metadata block removed but an
+     * RGB colour profile, as a library image is (`webp()`). Its size is
+     * kept: what a visitor sends is evidence, not a page's picture.
+     *
+     * Through Imagick when it is here, else GD (which keeps no colour
+     * profile). A GIF is left as it is, and so is an animated PNG or WebP:
+     * neither carries a camera's metadata, and an animation would be lost.
+     *
+     * True when the file now carries no metadata, or is not a picture this
+     * reads; false when it could not be read or rewritten, and the caller
+     * should not keep it.
+     */
+    public static function scrub(string $path, string $mime): bool
+    {
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            return true;
+        }
+        $bytes = (string) @file_get_contents($path);
+        if ($bytes === '') {
+            return false;
+        }
+        if (self::animated($bytes, $mime)) {
+            return true;
+        }
+        try {
+            $out = extension_loaded('imagick') ? self::scrubbedImagick($bytes, $mime) : self::scrubbedGd($bytes, $mime, $path);
+        } catch (\Throwable $e) {
+            error_log('CMS media: a picture could not be read to remove its metadata — ' . $e->getMessage());
+            return false;
+        }
+        if ($out === null || $out === '') {
+            return false;
+        }
+        $tmp = $path . '.' . bin2hex(random_bytes(4));
+        if (@file_put_contents($tmp, $out) !== strlen($out) || !@rename($tmp, $path)) {
+            @unlink($tmp);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function scrubbedImagick(string $bytes, string $mime): ?string
+    {
+        $im = new \Imagick();
+        $im->readImageBlob($bytes);
+        if ($im->getNumberImages() > 1) {
+            $im->clear();
+            return null;
+        }
+        $quality = $im->getImageCompressionQuality();
+        self::upright($im);
+        // The colour profile stays, whatever its colours: it says nothing
+        // about the person, and the picture's colours depend on it.
+        $icc = $im->getImageProfiles('icc', true)['icc'] ?? null;
+        $im->stripImage();
+        if (is_string($icc)) {
+            $im->profileImage('icc', $icc);
+        }
+        if ($mime !== 'image/png') {
+            // The quality it was saved at, so a second save does not soften it.
+            $im->setImageCompressionQuality($quality > 0 ? min($quality, 95) : 90);
+        }
+        $out = $im->getImageBlob();
+        $im->clear();
+
+        return $out;
+    }
+
+    /** Without Imagick: GD keeps no metadata at all, colour profile included. */
+    private static function scrubbedGd(string $bytes, string $mime, string $path): ?string
+    {
+        if (!extension_loaded('gd')) {
+            return null;
+        }
+        $im = @imagecreatefromstring($bytes);
+        if ($im === false) {
+            return null;
+        }
+        if ($mime === 'image/jpeg' && function_exists('exif_read_data')) {
+            $exif = @exif_read_data($path);
+            $turn = [3 => 180, 6 => -90, 8 => 90][(int) ($exif['Orientation'] ?? 1)] ?? 0;
+            if ($turn !== 0) {
+                $turned = imagerotate($im, $turn, 0);
+                if ($turned !== false) {
+                    $im = $turned;
+                }
+            }
+        }
+        ob_start();
+        if ($mime === 'image/png') {
+            imagealphablending($im, false);
+            imagesavealpha($im, true);
+            $ok = imagepng($im);
+        } elseif ($mime === 'image/webp') {
+            imagealphablending($im, false);
+            imagesavealpha($im, true);
+            $ok = function_exists('imagewebp') && imagewebp($im, null, 90);
+        } else {
+            $ok = imagejpeg($im, null, 90);
+        }
+        $out = (string) ob_get_clean();
+
+        return $ok ? $out : null;
+    }
+
     /** @return array{bytes: string, width: int, height: int}|null */
     private static function encode(string $bytes): ?array
     {

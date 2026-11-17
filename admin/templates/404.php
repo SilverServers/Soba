@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Cms\Helpers\Asset;
-use Cms\Ui\Theme;
 
 /**
  * 404 — a standalone document, shared by BOTH sides.
@@ -19,7 +18,7 @@ use Cms\Ui\Theme;
  */
 ?>
 <!DOCTYPE html>
-<html lang="en" data-radius="<?= htmlspecialchars(Theme::DEFAULT_RADIUS) ?>">
+<html lang="<?= htmlspecialchars(\Cms\Site\Language::current()) ?>"<?= \Cms\Site\Look::htmlAttributes() ?>>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -28,10 +27,13 @@ use Cms\Ui\Theme;
     <?= \Cms\Site\Google::head() ?>
     <?php // audit-ok: the browser tab on a page that has no content to name. ?>
     <title>404 Not Found</title>
-    <?= \Cms\Ui\Brand::iconTags() ?>
+    <?= \Cms\Site\Look::iconTags() ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/reset.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/tokens-base.css')) ?>">
+<?php if (($_paletteSheet = \Cms\Site\Look::paletteSheet()) !== ''): ?>
+    <link rel="stylesheet" href="<?= htmlspecialchars($_paletteSheet) ?>">
+<?php endif; ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/theme.css')) ?>">
 <?php // The active theme's stylesheet, then the site's own, as base.php links them.
 if (($_themeCss = \Cms\Helpers\Theme::stylesheet()) !== null): ?>

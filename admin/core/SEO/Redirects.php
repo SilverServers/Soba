@@ -129,6 +129,43 @@ class Redirects
         ];
     }
 
+    /**
+     * The rule a request FOLLOWS: `forRequest()`'s, but never for the admin,
+     * never away from the sign-in page, and never one that points at the page
+     * it is on. The front controller follows what this returns, and
+     * `Site\Front::owns()` asks it too, so a site with its own router in front
+     * hands the CMS exactly the addresses whose rules it follows.
+     *
+     * A RULE THAT POINTS AT THE PAGE IT IS ON IS NOT FOLLOWED. `/about` →
+     * `/about/` is the commonest rule a site moved from another CMS brings with
+     * it, and the request's slash is trimmed before the lookup, so the
+     * destination would match its own rule again and the browser would give up
+     * on the loop. The page answers instead, and its controller settles the
+     * ending (`Url::settle()`). `pageOf()` is the same test the Redirects
+     * screen refuses a new rule with.
+     *
+     * AND THE SIGN-IN PAGE IS NEVER REDIRECTED AWAY. Every screen that can
+     * create a redirect refuses its address (`Slug::reservedFirstSegments()`),
+     * but a rule that arrives another way, an import or a row edited by hand,
+     * must not be able to take the only way into the admin.
+     *
+     * @param string $path  the request path shaped as the router shapes it
+     * @param string $query the request's query string, without its `?`
+     * @return array{id: int, type: int, to: string, location: string}|null
+     */
+    public static function followed(string $path, string $query = ''): ?array
+    {
+        if ($path === '/admin' || str_starts_with($path, '/admin/')) {
+            return null;
+        }
+        $rule = self::forRequest($path, $query);
+        if ($rule === null || $path === \Cms\Security\LoginUrl::path() || self::pageOf((string) $rule['to']) === $path) {
+            return null;
+        }
+
+        return $rule;
+    }
+
     /** A site path given the site's own ending (`Url::pagePath()`), its query and fragment kept; anything else as typed. */
     private static function inSiteShape(string $to): string
     {

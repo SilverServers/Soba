@@ -242,7 +242,7 @@ class Post
         // THE COLUMNS THE ROW DRAWS, not `p.*`: that carries every body on the
         // page along with it, and the list prints none of them.
         $stmt = $pdo->prepare(
-            "SELECT p.id, p.post_type, p.title, p.slug, p.status, p.published_at,
+            "SELECT p.id, p.post_type, p.title, p.slug, p.status, p.published_at, p.unpublish_at,
                     p.updated_at, p.created_at, p.author_id, p.parent_id, p.menu_order,
                     $date AS list_date, " . User::nameSql('u') . " AS author_name
                FROM posts p
@@ -286,11 +286,16 @@ class Post
         // come, and a password-protected entry with a date still to come is
         // Scheduled rather than Password — the same test isScheduled() makes,
         // so the filter finds exactly the rows wearing that chip.
-        $come = '(p.published_at IS NULL OR p.published_at <= UTC_TIMESTAMP())';
+        // Ended is the same kind of state: published or password-protected,
+        // with its unpublish date come (hasEnded()). A scheduled entry is
+        // Scheduled first, as its chip says.
+        $come  = '(p.published_at IS NULL OR p.published_at <= UTC_TIMESTAMP())';
+        $going = self::notEnded('p');
         $status = match ((string) ($q['status'] ?? '')) {
-            'published' => "p.status = 'published' AND $come",
-            'password'  => "p.status = 'password' AND $come",
+            'published' => "p.status = 'published' AND $come AND $going",
+            'password'  => "p.status = 'password' AND $come AND $going",
             'scheduled' => "p.status IN ('published', 'password') AND p.published_at > UTC_TIMESTAMP()",
+            'ended'     => "p.status IN ('published', 'password') AND $come AND NOT $going",
             'private'   => "p.status = 'private'",
             default     => null,
         };
@@ -521,10 +526,10 @@ class Post
         $stmt = $pdo->prepare(
             'INSERT INTO posts
                  (post_type, title, slug, content, excerpt, status, password_hash,
-                  featured_image_id, published_at, menu_order, author_id)
+                  featured_image_id, published_at, unpublish_at, menu_order, author_id)
              VALUES
                  (:post_type, :title, :slug, :content, :excerpt, :status, :password_hash,
-                  :featured_image_id, :published_at, :menu_order, :author_id)'
+                  :featured_image_id, :published_at, :unpublish_at, :menu_order, :author_id)'
         );
         $stmt->execute([
             ':post_type'         => $data['post_type']     ?? 'post',
@@ -536,6 +541,7 @@ class Post
             ':password_hash'     => $data['password_hash'] ?? null,
             ':featured_image_id' => !empty($data['featured_image_id']) ? (int) $data['featured_image_id'] : null,
             ':published_at'      => self::liveDate((string) ($data['status'] ?? 'private'), $data['published_at'] ?? null),
+            ':unpublish_at'      => self::shape('unpublish_at', $data['unpublish_at'] ?? null),
             ':menu_order'        => (int) ($data['menu_order'] ?? 0),
             ':author_id'         => $data['author_id'],
         ]);
@@ -727,7 +733,36 @@ class Post
     public static function live(string $alias = ''): string
     {
         $a = $alias !== '' ? $alias . '.' : '';
-        return "{$a}status = 'published' AND {$a}published_at <= UTC_TIMESTAMP()";
+        return "{$a}status = 'published' AND {$a}published_at <= UTC_TIMESTAMP() AND " . self::notEnded($alias);
+    }
+
+    /**
+     * Not taken off the site by its unpublish date, as SQL: none set, or one
+     * still to come. Pages have the same column and the same rule
+     * (`Page::live()`). `$alias` is a literal the caller writes.
+     */
+    public static function notEnded(string $alias = ''): string
+    {
+        $a = $alias !== '' ? $alias . '.' : '';
+        return "({$a}unpublish_at IS NULL OR {$a}unpublish_at > UTC_TIMESTAMP())";
+    }
+
+    /**
+     * Published or password-protected, with an unpublish date that has come —
+     * the state the admin shows as Ended. Derived like Scheduled: nothing runs
+     * at that moment, and from it on the entry or page answers a visitor as a
+     * private one does. Any row with `status` and `unpublish_at`, a page's
+     * too.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function hasEnded(array $row): bool
+    {
+        if (!in_array((string) ($row['status'] ?? ''), ['published', 'password'], true)) {
+            return false;
+        }
+        $at = trim((string) ($row['unpublish_at'] ?? ''));
+        return $at !== '' && ($ts = strtotime($at . ' UTC')) !== false && $ts <= time();
     }
 
     /**
@@ -770,7 +805,7 @@ class Post
      */
     private const UPDATABLE = [
         'title', 'slug', 'content', 'excerpt', 'status', 'password_hash',
-        'featured_image_id', 'published_at', 'menu_order',
+        'featured_image_id', 'published_at', 'unpublish_at', 'menu_order',
     ];
 
     /**
@@ -836,6 +871,7 @@ class Post
             'status'            => $value ?? 'private',
             'featured_image_id' => !empty($value) ? (int) $value : null,
             'menu_order'        => (int) ($value ?? 0),
+            'unpublish_at'      => is_string($value) && trim($value) !== '' ? trim($value) : null,
             default             => $value,
         };
     }
@@ -865,7 +901,9 @@ class Post
 
         // A block's end is a word boundary; stripping the tag alone glued
         // "…end of one paragraph" to "Start of the next…".
-        $text  = (string) preg_replace('~</(p|h[1-6]|li|div|blockquote|td|th)>|<br\s*/?>~i', ' ', (string) ($row['content'] ?? ''));
+        // The business's [phone] and the rest read as the page prints them.
+        $text  = \Cms\Site\Business::shortcodes((string) ($row['content'] ?? ''));
+        $text  = (string) preg_replace('~</(p|h[1-6]|li|div|blockquote|td|th)>|<br\s*/?>~i', ' ', $text);
         $plain = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
         $cut   = mb_substr($plain, 0, $max);
 
@@ -1085,6 +1123,8 @@ class Post
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare('DELETE FROM posts WHERE id = :id');
         $stmt->execute([':id' => $id]);
+        // Its share link names it by id, and nothing cascades to it.
+        \Cms\Content\Share::deleteFor('post', $id);
     }
 
     /**

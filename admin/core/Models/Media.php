@@ -5,13 +5,63 @@ declare(strict_types=1);
 namespace Cms\Models;
 
 use Cms\Database\Database;
+use Cms\Media\Exif;
 use Cms\Media\Optimizer;
 use PDO;
 
 class Media
 {
     /**
-     * Return a paginated, filtered list of attachments, newest first.
+     * HOW THE LIBRARY CAN BE ORDERED: the `sort` an address carries, and the
+     * words the Sort by control shows for it. The first is the order when none
+     * is asked for.
+     */
+    public const SORTS = [
+        'added-desc'      => 'Date added, newest first',
+        'added-asc'       => 'Date added, oldest first',
+        'taken-desc'      => 'Date taken, newest first',
+        'taken-asc'       => 'Date taken, oldest first',
+        'name-asc'        => 'Name, A to Z',
+        'name-desc'       => 'Name, Z to A',
+        'size-desc'       => 'File size, largest first',
+        'size-asc'        => 'File size, smallest first',
+        'type'            => 'Type',
+        'dimensions-desc' => 'Dimensions, largest first',
+        'dimensions-asc'  => 'Dimensions, smallest first',
+    ];
+
+    public const DEFAULT_SORT = 'added-desc';
+
+    /**
+     * Each order as SQL. EVERY ONE ENDS ON THE ID, so the order is total: an
+     * archive imported in one go shares its date added to the second, and
+     * without a last key the database may order those rows differently for
+     * page 2 than it did for page 1, showing a file twice and another never.
+     *
+     *   taken       the date taken where it is known, else the date added
+     *   name        the name the tile shows: the title, or the stored name
+     *               when the title is empty
+     *   type        by type, and the newest first within one
+     *   dimensions  by area; a file with none (a document, an SVG) comes last
+     *               either way
+     */
+    private const ORDERS = [
+        'added-desc'      => 'created_at DESC, id DESC',
+        'added-asc'       => 'created_at ASC, id ASC',
+        'taken-desc'      => 'COALESCE(taken_at, created_at) DESC, id DESC',
+        'taken-asc'       => 'COALESCE(taken_at, created_at) ASC, id ASC',
+        'name-asc'        => "CASE WHEN original_name = '' THEN filename ELSE original_name END ASC, id ASC",
+        'name-desc'       => "CASE WHEN original_name = '' THEN filename ELSE original_name END DESC, id DESC",
+        'size-desc'       => 'file_size DESC, id DESC',
+        'size-asc'        => 'file_size ASC, id ASC',
+        'type'            => 'mime_type ASC, created_at DESC, id DESC',
+        'dimensions-desc' => '(width IS NULL OR height IS NULL) ASC, width * height DESC, id DESC',
+        'dimensions-asc'  => '(width IS NULL OR height IS NULL) ASC, width * height ASC, id ASC',
+    ];
+
+    /**
+     * Return a paginated, filtered list of attachments, in the order asked for
+     * (`SORTS`; newest first when none is, or one this does not know).
      *
      * @param int         $page
      * @param int         $perPage
@@ -19,6 +69,7 @@ class Media
      * @param int|null    $folderId   null = all folders, 0 = root/uncategorized, >0 = specific folder
      * @param string|null $visibility 'public' | 'private' | null (all)
      * @param string|null $search     Search original_name
+     * @param string      $sort       a key of `SORTS`
      * @return array{ items: array<int, array<string, mixed>>, total: int }
      */
     public static function all(
@@ -27,7 +78,8 @@ class Media
         ?string $type = null,
         ?int $folderId = null,
         ?string $visibility = null,
-        ?string $search = null
+        ?string $search = null,
+        string $sort = self::DEFAULT_SORT
     ): array {
         $pdo    = Database::getInstance();
         $offset = ($page - 1) * $perPage;
@@ -69,9 +121,10 @@ class Media
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
-        // Fetch page
+        // Fetch page. The ORDER BY is one of `ORDERS`, never anything asked for.
+        $orderSql = self::ORDERS[$sort] ?? self::ORDERS[self::DEFAULT_SORT];
         $stmt = $pdo->prepare(
-            "SELECT * FROM attachments {$whereSql} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+            "SELECT * FROM attachments {$whereSql} ORDER BY {$orderSql} LIMIT :limit OFFSET :offset"
         );
         foreach ($params as $key => $val) {
             $stmt->bindValue($key, $val);
@@ -82,6 +135,21 @@ class Media
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return ['items' => $items, 'total' => $total];
+    }
+
+    /**
+     * The whole library's counts, whatever is filtered: every file, and the
+     * files in no folder. The folder row's All and Unfiled.
+     *
+     * @return array{total: int, unfiled: int}
+     */
+    public static function tally(): array
+    {
+        $row = Database::getInstance()
+            ->query('SELECT COUNT(*) AS total, COALESCE(SUM(folder_id IS NULL), 0) AS unfiled FROM attachments')
+            ->fetch(PDO::FETCH_ASSOC);
+
+        return ['total' => (int) ($row['total'] ?? 0), 'unfiled' => (int) ($row['unfiled'] ?? 0)];
     }
 
     /**
@@ -191,9 +259,24 @@ class Media
      * them apart. The source is COPIED and left where it is: a migration's
      * `www/images/…` keeps answering at the address it always had.
      *
-     * @param array{original_name?: string, folder_id?: ?int, visibility?: string, alt_text?: ?string} $opts
-     * @throws MediaRejected       the file was refused
-     * @throws \RuntimeException   it could not be saved
+     * ITS DATES CAN COME WITH IT. A migration moving another site's files
+     * carries that site's dates rather than dating every file today, which
+     * would put an archive above everything added since:
+     *
+     *   created_at  when the file was added (the source site's upload date).
+     *               Left out, it is now.
+     *   taken_at    when the photo was taken. Left out, it is read from the
+     *               file's EXIF (`Media\Exif`); given as null, it is not known.
+     *
+     * Each is anything `when()` reads: a `\DateTimeInterface`, a timestamp, or
+     * a string such as `2019-07-04 21:30:00`, which is UTC, the form the column
+     * holds, unless it names its own offset.
+     *
+     * @param array{original_name?: string, folder_id?: ?int, visibility?: string, alt_text?: ?string,
+     *              created_at?: \DateTimeInterface|int|string|null, taken_at?: \DateTimeInterface|int|string|null} $opts
+     * @throws MediaRejected               the file was refused
+     * @throws \InvalidArgumentException   a date that is not one; nothing was stored
+     * @throws \RuntimeException           it could not be saved
      */
     public static function importFile(string $path, array $opts = []): int
     {
@@ -205,7 +288,8 @@ class Media
      * HTTP upload's temporary file, which only `move_uploaded_file()` may
      * move; anything else is copied.
      *
-     * @param array{folder_id?: ?int, visibility?: string, alt_text?: ?string} $opts
+     * @param array{folder_id?: ?int, visibility?: string, alt_text?: ?string,
+     *              created_at?: \DateTimeInterface|int|string|null, taken_at?: \DateTimeInterface|int|string|null} $opts
      */
     public static function store(string $path, string $originalName, array $opts = [], bool $uploaded = false): int
     {
@@ -213,6 +297,14 @@ class Media
         $visibility = ($opts['visibility'] ?? 'public') === 'private' ? 'private' : 'public';
         $dir        = self::dirFor($visibility);
         $filename   = self::storedName($originalName);
+
+        // ITS DATES, BEFORE ANYTHING IS PLACED: a date that is not one stops
+        // here, with no file left behind. The date taken is read from the file
+        // as it came, because the copy kept below has no EXIF left.
+        $added = self::when($opts['created_at'] ?? null);
+        $taken = array_key_exists('taken_at', $opts)
+            ? self::when($opts['taken_at'])
+            : Exif::taken($path, $facts['mime_type']);
 
         // A NEW IMAGE IS STORED AS WEBP (`Optimizer`): its own name, ending .webp.
         $webp = Optimizer::webp($path, $facts['mime_type']);
@@ -237,7 +329,7 @@ class Media
         // A ROW OR NO FILE. A file with no row is invisible in the library and
         // never deleted by it.
         try {
-            return self::create([
+            $id = self::create([
                 'filename'      => $filename,
                 'original_name' => $originalName,
                 'mime_type'     => $facts['mime_type'],
@@ -247,15 +339,79 @@ class Media
                 'folder_id'     => $opts['folder_id'] ?? null,
                 'visibility'    => $visibility,
                 'alt_text'      => $opts['alt_text'] ?? null,
+                'taken_at'      => $taken,
+                'created_at'    => $added,
             ]);
         } catch (\Throwable $e) {
             @unlink($dest);
             throw $e;
         }
+        // Its smaller widths, for a browser to choose from (`Sizes`).
+        \Cms\Media\Sizes::make((array) self::find($id));
+
+        return $id;
+    }
+
+    /**
+     * A MOMENT TO STORE, from what an import or the command line says: a
+     * `\DateTimeInterface`, a Unix timestamp, or a string in one of these
+     * shapes:
+     *
+     *   2019-07-04 21:30:05            (or 21:30, or with a T for the space)
+     *   2019-07-04                     midnight
+     *   2019-07-04T14:30:05-07:00      with its own offset, or Z
+     *
+     * A string with no offset is UTC: the form `created_at` itself holds, so a
+     * date read from another site's database, or printed by
+     * `admin/bin/media-dates.php`, goes back in as it is. Nothing looser is read:
+     * "next friday" and 31 February are not dates here. Returned in UTC, as
+     * every stored moment is; null for null or ''.
+     *
+     * @throws \InvalidArgumentException  not a date, or one outside the years 1000 to 9999
+     */
+    public static function when(\DateTimeInterface|int|string|null $value): ?string
+    {
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return null;
+        }
+        $at = null;
+        if ($value instanceof \DateTimeInterface) {
+            $at = \DateTimeImmutable::createFromInterface($value);
+        } elseif (is_int($value)) {
+            $at = new \DateTimeImmutable('@' . $value);
+        } else {
+            $text = trim($value);
+            $own  = preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $text) === 1;
+            $text = $own ? (string) preg_replace('/Z$/', '+00:00', $text) : $text;
+            $shapes = $own
+                ? ['Y-m-d\\TH:i:sP', 'Y-m-d H:i:sP', 'Y-m-d\\TH:iP', 'Y-m-d H:iP']
+                : ['Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d\\TH:i:s', 'Y-m-d\\TH:i', 'Y-m-d'];
+            foreach ($shapes as $shape) {
+                $try  = \DateTimeImmutable::createFromFormat('!' . $shape, $text, $own ? null : new \DateTimeZone('UTC'));
+                $errs = \DateTimeImmutable::getLastErrors();
+                // 31 February parses, rolled into March with a warning: a date
+                // that had to be corrected is not the date given.
+                if ($try !== false && ($errs === false || ($errs['warning_count'] === 0 && $errs['error_count'] === 0))) {
+                    $at = $try;
+                    break;
+                }
+            }
+        }
+        $utc  = $at?->setTimezone(new \DateTimeZone('UTC'));
+        $year = $utc === null ? 0 : (int) $utc->format('Y');
+        if ($utc === null || $year < 1000 || $year > 9999) {
+            $shown = $value instanceof \DateTimeInterface ? $value->format(DATE_ATOM) : (string) $value;
+            throw new \InvalidArgumentException('Not a date: "' . $shown . '". Write it as 2019-07-04 or 2019-07-04 14:30.');
+        }
+
+        return $utc->format('Y-m-d H:i:s');
     }
 
     /**
      * Insert a new attachment record and return the new ID.
+     *
+     * `taken_at` and `created_at` are stored UTC moments (`when()`); with no
+     * `created_at` the row is dated now, as the column's default dates it.
      *
      * @param array<string, mixed> $data
      */
@@ -264,9 +420,11 @@ class Media
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO attachments
-                (filename, original_name, mime_type, file_size, width, height, folder_id, visibility, alt_text)
+                (filename, original_name, mime_type, file_size, width, height, folder_id, visibility, alt_text,
+                 taken_at, created_at)
              VALUES
-                (:filename, :original_name, :mime_type, :file_size, :width, :height, :folder_id, :visibility, :alt_text)'
+                (:filename, :original_name, :mime_type, :file_size, :width, :height, :folder_id, :visibility, :alt_text,
+                 :taken_at, COALESCE(:created_at, CURRENT_TIMESTAMP))'
         );
         $stmt->execute([
             ':filename'      => $data['filename'],
@@ -278,6 +436,8 @@ class Media
             ':folder_id'     => $data['folder_id'] ?? null,
             ':visibility'    => $data['visibility'] ?? 'public',
             ':alt_text'      => $data['alt_text'] ?? null,
+            ':taken_at'      => $data['taken_at'] ?? null,
+            ':created_at'    => $data['created_at'] ?? null,
         ]);
         return (int) $pdo->lastInsertId();
     }
@@ -285,14 +445,21 @@ class Media
     /**
      * Update attachment metadata.
      *
-     * @param array<string, mixed> $data  Accepted keys: original_name, alt_text, folder_id, visibility
+     * The two dates are stored UTC moments (`when()`): `taken_at` may be null
+     * (not known), `created_at` may not.
+     *
+     * @param array<string, mixed> $data  Accepted keys: original_name, alt_text, folder_id, visibility,
+     *                                    taken_at, created_at
      */
     public static function update(int $id, array $data): bool
     {
         $pdo     = Database::getInstance();
         $fields  = [];
         $params  = [':id' => $id];
-        $allowed = ['original_name', 'alt_text', 'folder_id', 'visibility'];
+        $allowed = ['original_name', 'alt_text', 'folder_id', 'visibility', 'taken_at', 'created_at'];
+        if (array_key_exists('created_at', $data) && $data['created_at'] === null) {
+            unset($data['created_at']);
+        }
 
         foreach ($allowed as $key) {
             if (array_key_exists($key, $data)) {
@@ -348,7 +515,8 @@ class Media
             return false;
         }
 
-        // Delete physical file
+        // Delete physical file, and its smaller widths
+        \Cms\Media\Sizes::forget($attachment);
         $filePath = self::getFilePath($attachment);
         if (file_exists($filePath)) {
             unlink($filePath);
@@ -385,6 +553,9 @@ class Media
             return true;
         }
 
+        // A private file has no smaller widths at a public address; a file
+        // made public gets them below.
+        \Cms\Media\Sizes::forget($attachment);
         $oldDir = self::getDirectory($oldVisibility);
         $newDir = self::getDirectory($newVisibility);
 
@@ -407,7 +578,13 @@ class Media
         foreach ($versions as $version) {
             $vOld = $oldDir . $version['filename'];
             $vNew = $newDir . $version['filename'];
+            // A version lives in `versions/` below its file's folder, which the
+            // other side may not have yet: without it the older copy of a file
+            // made private stayed at its public address.
             if (file_exists($vOld)) {
+                if (!is_dir(dirname($vNew))) {
+                    @mkdir(dirname($vNew), 0775, true);
+                }
                 rename($vOld, $vNew);
             }
         }
@@ -415,7 +592,12 @@ class Media
         // Update DB record
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare('UPDATE attachments SET visibility = :vis WHERE id = :id');
-        return $stmt->execute([':vis' => $newVisibility, ':id' => $id]);
+        $done = $stmt->execute([':vis' => $newVisibility, ':id' => $id]);
+        if ($done && $newVisibility === 'public') {
+            \Cms\Media\Sizes::make((array) self::find($id));
+        }
+
+        return $done;
     }
 
     /**

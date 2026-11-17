@@ -222,9 +222,10 @@ final class LoginUrl
     }
 
     /**
-     * A random address's parts — public because the screen's Randomize button
-     * (sign-in-address.js) makes its addresses from these same three, so the
-     * server's suggestion and the button's are one shape.
+     * A RANDOM ADDRESS'S PARTS, printed onto the screen's Randomize button
+     * (sign-in-address.js), which makes an address nobody will guess from
+     * them: an ordinary word, a hyphen and TAIL characters of ALPHABET, about
+     * 9 × 10^15 of them, in the shape `wellFormed()` accepts.
      *
      * The word it starts with: ordinary, so it reads as one.
      */
@@ -235,20 +236,4 @@ final class LoginUrl
 
     /** How many of them. */
     public const TAIL = 10;
-
-    /**
-     * A FRESH, UNGUESSABLE ADDRESS: an ordinary word, a hyphen and ten random
-     * characters, about 9 × 10^15 of them. The screen suggests one while none
-     * is stored, Randomize makes another in the box, and the owner may type
-     * their own instead.
-     */
-    public static function suggest(): string
-    {
-        $tail = '';
-        for ($i = 0; $i < self::TAIL; $i++) {
-            $tail .= self::ALPHABET[random_int(0, strlen(self::ALPHABET) - 1)];
-        }
-
-        return self::WORDS[random_int(0, count(self::WORDS) - 1)] . '-' . $tail;
-    }
 }

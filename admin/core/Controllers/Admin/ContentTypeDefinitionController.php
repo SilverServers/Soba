@@ -472,6 +472,11 @@ class ContentTypeDefinitionController
         } elseif (in_array($publicSlug, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
             $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug)
                 . ' already belongs to this site itself, so a type there could never be reached. Choose another.';
+        } elseif (in_array($publicSlug, \Cms\Site\Front::siteAddresses(), true)) {
+            // A SITE WITH ITS OWN ROUTER IN FRONT keeps its own addresses
+            // (`Site\Front`), and a type there would never be handed a request.
+            $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug)
+                . ' is one of the site\'s own pages, so a type there could never be reached. Choose another.';
         } else {
             foreach (Registry::all() as $otherKey => $other) {
                 if ((string) $otherKey !== $typeKey && (string) ($other['public_slug'] ?? '') === $publicSlug) {

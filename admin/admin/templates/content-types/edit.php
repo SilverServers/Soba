@@ -397,10 +397,9 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                                       // inch apart says nothing the second
                                       // time. Reads with its own control: "A
                                       // News item belongs to — nothing". ?>
+                                <?php $_parentNoun = strtolower($val('singular_label') !== '' ? $val('singular_label') : 'entry'); ?>
                                 <label class="label" for="f-parent-type">
-                                    A <?= h(strtolower($val('singular_label') !== ''
-                                        ? $val('singular_label')
-                                        : 'entry')) ?> belongs to
+                                    <?= preg_match('/^[aeiou]/', $_parentNoun) === 1 ? 'An' : 'A' ?> <?= h($_parentNoun) ?> belongs to
                                 </label>
                                 <select class="select" id="f-parent-type" name="parent_type">
                                     <?php // A NAMED FIRST OPTION, never a blank

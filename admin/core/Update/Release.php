@@ -38,7 +38,7 @@ final class Release
      */
     public static function health(string $version, string $manifestFile): array
     {
-        $row = ['label' => 'CMS Version', 'value' => $version, 'status' => 'ok', 'hint' => ''];
+        $row = ['label' => 'CMS version', 'value' => $version, 'status' => 'ok', 'hint' => ''];
         if ($version === '') {
             return ['value' => 'Unknown', 'status' => 'error', 'hint' => 'admin/VERSION is missing.'] + $row;
         }

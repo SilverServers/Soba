@@ -452,6 +452,38 @@ body {
   line-height: var(--lh);
 }
 
+/* A FILE TO CHOOSE is the browser's own control: with no script it alone says
+   which file is attached, and the keyboard reaches it. Its button is drawn as
+   a .btn, the chosen file's name beside it, at the width of what it holds.
+   Never `.input`: a text box's width and fill around a button and four words
+   is a grey bar the width of the card with a button stuck at one end. A form
+   of one file puts its action on the same row (`.input-row`). */
+.file-pick {
+  max-width: 100%;
+  min-height: var(--control-h);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.file-pick::file-selector-button {
+  margin-right: var(--sp-3);
+  padding: 8px 14px;
+  min-height: var(--control-h);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.file-pick::file-selector-button:hover { background: var(--surface-2); }
+.file-pick:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
 /* THE BODY-COPY TEXTAREA — the one a page exists to fill in. It was `rows="18"`
    in the template, which resolves to 560px: a half-screen of empty white under a
    three-word post, and the single biggest reason the two columns had no shared
@@ -553,6 +585,10 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
      one tight thing, in the same column.
      One value inside a field (4), one between fields (16). */
   margin-top: var(--sp-1);
+  /* A READING WIDTH. Under a control the width of the card a hint ran to 195
+     characters a line, and the eye lost its place going back to the start of
+     the next; 80 characters is a line read in one sweep. */
+  max-width: 80ch;
 }
 
 .form-grid {
@@ -1842,6 +1878,16 @@ a:hover > .icon--go,
 .md strong { font-weight: var(--fw-semi); }
 .md em { font-style: italic; }
 .md u { text-decoration: underline; }
+/* INLINE CODE ANYWHERE IN THE ADMIN is the design's mono face, a shade smaller
+   than the words around it and no taller than their line. Without it a help
+   line's `config.php` fell back to the browser's own monospace, a different
+   face from every mono field beside it, and grew its line by 5px. */
+code, kbd, samp {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1;
+}
+
 .md code, .md kbd {
   font-family: var(--font-mono);
   font-size: 0.92em;
@@ -1893,7 +1939,10 @@ a:hover > .icon--go,
 /* ═══ 20. KEY/VALUE DETAIL LISTS ══════════════════════════════════════════ */
 
 .kv-list { display: flex; flex-direction: column; gap: var(--sp-2); }
-.kv-list__row { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr); gap: var(--sp-3); }
+/* THE KEY'S COLUMN HOLDS A SHORT PHRASE ON ONE LINE: at 140px "A known spam
+   bot's signature" broke over two lines beside a value column with 900px to
+   spare. 13rem, so the values still start on one edge down the list. */
+.kv-list__row { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); gap: var(--sp-3); }
 .kv-list__key { font-size: var(--fs-xs); color: var(--ink-3); }
 /* `min-width: 0` lets the TRACK shrink; it does not let the TEXT break, and a
    kv row's value is very often one unbreakable token — a URL, a path, a

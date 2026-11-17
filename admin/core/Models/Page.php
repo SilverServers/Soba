@@ -152,10 +152,10 @@ class Page
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO pages
-                 (parent_id, title, slug, content, menu_order, status,
+                 (parent_id, title, slug, content, menu_order, status, unpublish_at,
                   password_hash, featured_image_id, seo_title, meta_description, author_id)
              VALUES
-                 (:parent_id, :title, :slug, :content, :menu_order, :status,
+                 (:parent_id, :title, :slug, :content, :menu_order, :status, :unpublish_at,
                   :password_hash, :featured_image_id, :seo_title, :meta_description, :author_id)'
         );
         $stmt->execute([
@@ -165,6 +165,7 @@ class Page
             ':content'           => Sanitizer::clean((string) ($data['content'] ?? '')),
             ':menu_order'        => $data['menu_order']        ?? 0,
             ':status'            => $data['status']            ?? 'private',
+            ':unpublish_at'      => self::unpublishAt($data['unpublish_at'] ?? null),
             ':password_hash'     => $data['password_hash']     ?? null,
             ':featured_image_id' => !empty($data['featured_image_id']) ? (int) $data['featured_image_id'] : null,
             ':seo_title'         => trim($data['seo_title']    ?? '') ?: null,
@@ -194,12 +195,17 @@ class Page
     /**
      * Update an existing page.
      *
+     * The unpublish date is written only when `$data` names it: the page's
+     * screen does, and a caller that knows nothing of it (an import, the
+     * assistant) leaves the date the owner set alone.
+     *
      * @param array<string, mixed> $data
      */
     public static function update(int $id, array $data): void
     {
-        $pdo  = Database::getInstance();
-        $stmt = $pdo->prepare(
+        $pdo    = Database::getInstance();
+        $ending = array_key_exists('unpublish_at', $data);
+        $stmt   = $pdo->prepare(
             'UPDATE pages
              SET parent_id         = :parent_id,
                  title             = :title,
@@ -207,13 +213,14 @@ class Page
                  content           = :content,
                  menu_order        = :menu_order,
                  status            = :status,
+                 ' . ($ending ? 'unpublish_at      = :unpublish_at,' : '') . '
                  password_hash     = :password_hash,
                  featured_image_id = :featured_image_id,
                  seo_title         = :seo_title,
                  meta_description  = :meta_description
              WHERE id = :id'
         );
-        $stmt->execute([
+        $stmt->execute(($ending ? [':unpublish_at' => self::unpublishAt($data['unpublish_at'])] : []) + [
             ':parent_id'         => $data['parent_id']         ?? null,
             ':title'             => $data['title'],
             ':slug'              => $data['slug'],
@@ -226,6 +233,24 @@ class Page
             ':meta_description'  => trim($data['meta_description'] ?? '') ?: null,
             ':id'                => $id,
         ]);
+    }
+
+    /**
+     * THE ONE RULE for "a visitor can see this page in a list": published,
+     * and not taken off by its unpublish date (`Post::notEnded()`, the same
+     * clause). As SQL, for a WHERE clause; `$alias` is a literal the caller
+     * writes.
+     */
+    public static function live(string $alias = ''): string
+    {
+        $a = $alias !== '' ? $alias . '.' : '';
+        return "{$a}status = 'published' AND " . \Cms\Models\Post::notEnded($alias);
+    }
+
+    /** An unpublish date as stored: a UTC date and time, or null for none. */
+    private static function unpublishAt(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     /**
@@ -253,6 +278,8 @@ class Page
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare('DELETE FROM pages WHERE id = :id');
         $stmt->execute([':id' => $id]);
+        // Its share link names it by id, and nothing cascades to it.
+        \Cms\Content\Share::deleteFor('page', $id);
     }
 
     /**
@@ -294,6 +321,30 @@ class Page
             $candidate = $base . '-' . $suffix;
             $suffix++;
         }
+    }
+
+    /**
+     * A copy's title: the page's own with "(copy)" after it, within the
+     * column's 500 characters.
+     */
+    public static function copyTitle(string $title): string
+    {
+        return mb_substr($title, 0, 493) . ' (copy)';
+    }
+
+    /**
+     * A copy's address: the page's own with `-copy` after it, or `-copy-2`,
+     * `-copy-3`… when that is taken or one of the site's own addresses.
+     */
+    public static function copySlug(string $slug): string
+    {
+        $base      = mb_substr($slug, 0, 480) . '-copy';
+        $candidate = $base;
+        for ($n = 2; self::slugExists($candidate)
+                || in_array($candidate, \Cms\Helpers\Slug::reservedFirstSegments(), true); $n++) {
+            $candidate = $base . '-' . $n;
+        }
+        return $candidate;
     }
 
     /**

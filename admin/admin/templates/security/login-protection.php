@@ -28,12 +28,11 @@ use Cms\Security\Throttle;
  * @var string                $tab
  * @var list<string>          $errors
  * @var bool                  $saved
- * @var array<string, string> $address   enabled, slug, redirect
+ * @var array<string, string> $address   slug (in force, or as typed), redirect
  * @var array<string, string> $limit     enabled, attempts, minutes, escalate_after, escalate_hours,
  *                                       account_enabled, account_attempts, account_minutes, message
  * @var bool                  $moved     is the sign-in page moved right now
  * @var string                $signInUrl where it is right now
- * @var string                $suggestion an address offered while none is stored, or ''
  * @var string                $siteUrl   the site's address, with its slash
  * @var array<string, mixed>  $usernames Usernames::settings()
  * @var array<string, mixed>  $passwords PasswordPolicy::settings() (min as typed, after a refused save)
@@ -111,48 +110,34 @@ $tabUrl = static fn (string $key): string => Url::admin('security/login-protecti
                         <?= panel_title('Sign-in address', 'sign-in-address') ?>
 
                         <div class="field">
-                            <label class="check-list__row" for="f-move">
-                                <input type="checkbox" id="f-move" name="enabled" value="1"
-                                       <?= $address['enabled'] === '1' ? 'checked' : '' ?>>
-                                <span>Move the sign-in page</span>
-                            </label>
-                        </div>
-
-                        <div class="field">
                             <label class="label" for="f-slug">Address</label>
-                            <?php // The site's address in front of the box, as
-                                  // it will be typed. With nothing
-                                  // stored, a fresh address is offered as the
-                                  // placeholder: a suggestion, not a setting.
-                                  // Randomize puts another one IN the box, from
-                                  // LoginUrl's own parts (sign-in-address.js);
+                            <?php // THE BOX IS THE SETTING. An address in it moves
+                                  // the sign-in page there; empty, the page stays
+                                  // at /admin/login. The site's address in front
+                                  // of the box, as it will be typed. Randomize
+                                  // puts an address nobody will guess IN the box,
+                                  // from LoginUrl's own parts (sign-in-address.js);
                                   // the owner keeps it, edits it or types their
                                   // own, and Save takes what the box holds. ?>
                             <div class="prefixed">
                                 <span class="prefixed__prefix"><?= h($siteUrl) ?></span>
                                 <input class="input input--mono" type="text" id="f-slug" name="slug"
                                        value="<?= h($address['slug']) ?>" autocomplete="off"
-                                       <?= $suggestion !== '' ? 'placeholder="' . h($suggestion) . '"' : '' ?>
                                        spellcheck="false" autocapitalize="none">
                                 <button type="button" class="btn" data-randomize="f-slug"
                                         data-words="<?= h(implode(' ', LoginUrl::WORDS)) ?>"
                                         data-alphabet="<?= h(LoginUrl::ALPHABET) ?>"
                                         data-length="<?= LoginUrl::TAIL ?>"><?= icon('shuffle', 'icon icon--sm') ?> Randomize</button>
                             </div>
-                            <?php if ($suggestion !== ''): ?>
-                                <input type="hidden" name="slug_suggestion" value="<?= h($suggestion) ?>">
-                                <p class="form-help">
-                                    Nothing is saved yet. <code data-suggestion><?= h($suggestion) ?></code> is a suggestion,
-                                    new on each visit: tick the box and save to use it, or type your own.
-                                </p>
-                            <?php endif; ?>
                             <p class="form-help">
                                 <?php if ($moved): ?>
                                     The sign-in page is at <a href="<?= h($signInUrl) ?>"><?= h($signInUrl) ?></a>.
                                     <code><?= h(Url::admin('login')) ?></code> shows the not-found page.
+                                    Empty the box and save to put it back there.
                                 <?php else: ?>
                                     The sign-in page is at <a href="<?= h($signInUrl) ?>"><?= h($signInUrl) ?></a>.
-                                    Moved, that shows the not-found page and only the address above signs anyone in.
+                                    Type an address, or press Randomize for one nobody will guess, and save: then
+                                    only that address signs anyone in, and the old one shows the not-found page.
                                 <?php endif; ?>
                             </p>
                         </div>

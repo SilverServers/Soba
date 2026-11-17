@@ -116,7 +116,7 @@ class HomeController
         // optional: an install with no `home` page gets the feed alone.
         $homeStmt = $pdo->prepare(
             "SELECT id, title, content FROM pages
-             WHERE slug = :slug AND status = 'published' LIMIT 1"
+             WHERE slug = :slug AND " . \Cms\Models\Page::live() . " LIMIT 1"
         );
         // The one name for that page, which its address is written from too.
         $homeStmt->execute([':slug' => \Cms\Helpers\Url::FRONT_PAGE]);
@@ -164,6 +164,7 @@ class HomeController
             'next'        => $paged['next'],
             'og_type'     => 'website',
             'schema_json' => Schema::encode($graph),
+            'feeds'       => \Cms\Content\Feed::types(),
         ]);
 
         ob_start();

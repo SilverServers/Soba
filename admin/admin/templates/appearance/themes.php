@@ -8,8 +8,8 @@ use Cms\Helpers\Url;
 use Cms\Security\Csrf;
 
 /**
- * APPEARANCE → THEMES — a card per theme, the active one first and named
- * "Active: …", Activate on each of the others; under them, the themes that are
+ * APPEARANCE → THEMES — a card per theme, the active one first and wearing
+ * an Active chip, Activate on each of the others; under them, the themes that are
  * there but cannot be used, each with what is wrong ("Broken themes").
  *
  * The card is the screenshot, the name and the actions, and the rest is short
@@ -90,7 +90,8 @@ ob_start();
                     <?php endif; ?>
                 </div>
                 <div class="card__head">
-                    <strong><?= $isActive ? 'Active: ' : '' ?><?= h((string) $theme['name']) ?></strong>
+                    <?php // The name alone: the Active chip below says which is in use. ?>
+                    <strong><?= h((string) $theme['name']) ?></strong>
                     <?php if ($theme['version'] !== ''): ?>
                         <span class="card__count"><?= h((string) $theme['version']) ?></span>
                     <?php endif; ?>

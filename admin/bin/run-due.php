@@ -3,12 +3,13 @@
 declare(strict_types=1);
 
 /**
- * THE SHOP'S DUE WORK, FROM A REAL CRON.
+ * THE SITE'S DUE WORK, FROM A REAL CRON: the shop's unpaid orders, and the
+ * backups (Tools → Backups).
  *
  *   php admin/bin/run-due.php
  *
- * A page request runs it at most every ten minutes (`Commerce\Lapse`), which
- * is all shared hosting allows. Where the host has cron, this runs it on a
+ * A page request runs it at most every ten minutes (`Commerce\Lapse`,
+ * `Site\Backups`), which is all shared hosting allows. Where the host has cron, this runs it on a
  * timetable instead, so an unpaid order lapses on time on a quiet site. It
  * prints what it did.
  */
@@ -37,9 +38,21 @@ defined('ADMIN_URL') || define('ADMIN_URL', BASE_URL . '/' . ADMIN_URL_SLUG);
 $days = \Cms\Commerce\Lapse::days();
 if ($days <= 0) {
     echo "Unpaid orders are kept until somebody cancels them (Settings → Shop).\n";
-    exit(0);
+} else {
+    $done = \Cms\Commerce\Lapse::run($days);
+    echo 'Reminded ' . $done['reminded'] . ' customer' . ($done['reminded'] === 1 ? '' : 's') . " to pay.\n";
+    echo 'Cancelled ' . $done['cancelled'] . ' unpaid order' . ($done['cancelled'] === 1 ? '' : 's')
+        . ' older than ' . $days . ' day' . ($days === 1 ? '' : 's') . ".\n";
 }
-$done = \Cms\Commerce\Lapse::run($days);
-echo 'Reminded ' . $done['reminded'] . ' customer' . ($done['reminded'] === 1 ? '' : 's') . " to pay.\n";
-echo 'Cancelled ' . $done['cancelled'] . ' unpaid order' . ($done['cancelled'] === 1 ? '' : 's')
-    . ' older than ' . $days . ' day' . ($days === 1 ? '' : 's') . ".\n";
+
+// BACKUPS ON THEIR TIMETABLE (Tools → Backups): one due is made whole here,
+// and one a visit left half made is finished.
+if (\Cms\Site\Backups::every() === 'never') {
+    echo "Backups are off (Tools → Backups).\n";
+} else {
+    while (!\Cms\Site\Backups::turn(60.0)) {
+        // a turn at a time, until nothing is left to do
+    }
+    $newest = \Cms\Site\Backups::all()[0] ?? null;
+    echo $newest === null ? "No backup yet.\n" : 'The newest backup is ' . $newest['id'] . ".\n";
+}

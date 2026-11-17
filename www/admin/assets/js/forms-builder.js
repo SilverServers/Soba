@@ -130,6 +130,8 @@
             // of three boxes serves all four.
             min: '', max: '', step: '', columns: '',
             scale_low: '', scale_high: '', source: '', embed_form: '',
+            // A file field's own kinds ("jpg, png"); empty takes every kind.
+            accept: '',
             // The appointment's availability. Defaults that describe a normal
             // working week, so the field books something the moment it is
             // dropped rather than after five boxes have been filled in.
@@ -784,7 +786,7 @@
         ['label', 'name', 'placeholder', 'options', 'description', 'text',
          'default', 'width', 'msg_required', 'msg_format',
          'min', 'max', 'step', 'columns', 'scale_low', 'scale_high',
-         'source', 'embed_form', 'appt_days', 'appt_from', 'appt_to',
+         'source', 'embed_form', 'accept', 'appt_days', 'appt_from', 'appt_to',
          'appt_minutes', 'appt_ahead'].forEach(function (k) {
             var el = optEl(k);
             if (el) { el.value = f[k] == null ? '' : String(f[k]); }
@@ -822,6 +824,8 @@
         // content, which is the whole point — so it gets this instead.
         show('source',     ['dynamic', 'lookup'].indexOf(f.type) !== -1);
         show('embed_form', f.type === 'embed');
+        show('accept',     f.type === 'file');
+        if (f.type === 'file') { noteKinds(); }
 
         // The appointment's four availability controls travel together — a
         // shape is only meaningful whole.
@@ -834,6 +838,28 @@
 
         fillLogic(f);
         suppress = false;
+    }
+
+    /* A FILE FIELD'S KINDS, READ BACK AS THEY WILL BE SAVED. The box takes
+       words; the save keeps only the kinds a form takes. The line under it
+       says which those are, and names any word that is not one, before the
+       save drops it. */
+    function noteKinds() {
+        var box  = optEl('accept');
+        var note = optsBox.querySelector('[data-accept-note]');
+        if (!box || !note) { return; }
+        var site  = (box.getAttribute('data-kinds') || '').split(',');
+        var taken = [], unknown = [];
+        (box.value.toLowerCase().match(/[a-z0-9]+/g) || []).forEach(function (w) {
+            var k = w === 'jpeg' ? 'jpg' : w;
+            if (site.indexOf(k) === -1) {
+                if (unknown.indexOf(w) === -1) { unknown.push(w); }
+            } else if (taken.indexOf(k) === -1) {
+                taken.push(k);
+            }
+        });
+        note.textContent = (taken.length ? 'Takes ' + taken.join(', ') + '.' : 'Takes every kind above.')
+            + (unknown.length ? ' Not a kind a form takes, so left out: ' + unknown.join(', ') + '.' : '');
     }
 
     /* ── 4b. THE LOGIC PANEL ───────────────────────────────────────────────── */
@@ -1534,7 +1560,7 @@
         ['label', 'name', 'placeholder', 'options', 'description', 'text',
          'default', 'width', 'msg_required', 'msg_format',
          'min', 'max', 'step', 'columns', 'scale_low', 'scale_high',
-         'source', 'embed_form', 'appt_days', 'appt_from', 'appt_to',
+         'source', 'embed_form', 'accept', 'appt_days', 'appt_from', 'appt_to',
          'appt_minutes', 'appt_ahead'].forEach(function (k) {
             var el = optEl(k);
             if (el) { f[k] = el.value; }
@@ -1559,6 +1585,7 @@
             }
         }
         if (e.target.matches('[data-opt="name"]')) { e.target.dataset.touched = '1'; }
+        if (e.target.matches('[data-opt="accept"]')) { noteKinds(); }
 
         readOptions();
         if (f.name) { f.name = uniqueName(f.name, state.selected); }

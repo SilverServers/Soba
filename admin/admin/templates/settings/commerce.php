@@ -869,7 +869,12 @@ $shopCountry = Countries::isValid($opt('commerce_country')) ? strtoupper($opt('c
                     </div>
                 </div>
 
-                <div class="form-actions">
+                <?php // THE SETTINGS FOOTER every other settings form has: its
+                      // own section, set in from the card's edge, Cancel then
+                      // Save at the right. ?>
+                <div class="form-card__section form-actions">
+                    <a class="link link--xs" href="<?= h(Url::admin('settings')) ?>">Cancel</a>
+                    <div class="form-actions__spacer"></div>
                     <button type="submit" class="btn btn--primary">Save changes</button>
                 </div>
             </div>

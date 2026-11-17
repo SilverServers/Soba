@@ -11,7 +11,8 @@ use Cms\Models\Option;
  *
  * Output as <script type="application/ld+json"> in the <head>.
  *
- * Always outputs: WebSite, Organization/LocalBusiness.
+ * Always outputs: WebSite, Organization/LocalBusiness, the latter filled from
+ * Settings → Business details (`Site\Business::schema()`).
  * Per-content-type: Article, Event, Product, WebPage.
  */
 class Schema
@@ -47,8 +48,9 @@ class Schema
             'publisher' => ['@id' => self::id('organization')],
         ];
 
-        // Organization or LocalBusiness
-        $orgName = $opts['seo_org_name'] ?: $opts['site_name'];
+        // Organization or LocalBusiness. Its name is the one given here, else
+        // the business's own (Settings → Business details), else the site's.
+        $orgName = $opts['seo_org_name'] ?: (\Cms\Site\Business::get()['name'] ?: $opts['site_name']);
         $org = [
             '@type' => $opts['seo_org_type'] === 'LocalBusiness' ? 'LocalBusiness' : 'Organization',
             '@id'   => self::id('organization'),
@@ -60,7 +62,7 @@ class Schema
         if ($opts['seo_org_logo'] !== '') {
             $org['logo'] = $opts['seo_org_logo'];
         }
-        $graph[] = $org;
+        $graph[] = \Cms\Site\Business::schema($org, $org['@type'] === 'LocalBusiness');
 
         return $graph;
     }

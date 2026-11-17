@@ -68,6 +68,8 @@ final class Sections
 
             // ── Forms ───────────────────────────────────────────────────────
             'notifications'   => 'envelope',
+            // A form's confirmation to whoever sent it (`Forms\Notify::confirm()`).
+            'confirmation'    => 'paper-plane',
             'after-submit'    => 'paper-plane',
             'answers'         => 'list-check',
             'received'        => 'clock',
@@ -102,22 +104,40 @@ final class Sections
             'assistant'       => 'comment',
             'sender'          => 'user',
             'sending-server'  => 'tower-broadcast',
+            // A test sent through a form, to see it arrive.
+            'test-submissions' => 'paper-plane',
+            'test-email'       => 'paper-plane',
             'homepage'        => 'window-maximize',
             'sharing-image'   => 'image',
             // A pattern is a template for a line of text.
             'title-patterns'  => 'quote-left',
             'organisation'    => 'user-group',
             'robots'          => 'shield-halved',
+            // Settings → Business details.
+            'contact'         => 'phone',
+            'opening-hours'   => 'clock',
+            'place'           => 'location-dot',
+            'service-areas'   => 'location-pin',
+            'social-profiles' => 'share-from-square',
             // Settings → SEO → Google: what is measured, the site's proof of
             // owning itself, and the events it sends.
             'google-measurement'  => 'signal',
             'google-verification' => 'tag',
             'google-events'       => 'bolt',
+            'google-consent'      => 'hand-spock',
             'add-redirect'    => 'plus',
             // The SAME panel in its other state, so the mark says which one you
             // are in — one form does both on Tools → Redirects.
             'edit-redirect'   => 'pen-to-square',
             'redirects'       => 'share',
+            // How often a backup is made (`Site\Backups`).
+            'backup-timetable' => 'clock',
+            // Addresses visitors asked for and did not find (`SEO\NotFound`):
+            // what somebody went looking for.
+            'not-found'       => 'binoculars',
+            // A page or an entry not on the site yet, shared by a link
+            // (`Content\Share`).
+            'share-draft'     => 'share-from-square',
             'pages'           => 'copy',
             'content-types'   => 'layer-group',
             'moving-an-address' => 'arrow-right-arrow-left',
@@ -196,6 +216,12 @@ final class Sections
             // says it is — the Branding row's own mark — and how it looks.
             'brand-identity'      => 'star',
             'brand-look'          => 'droplet',
+            // Appearance → Customizer (`Site\Look`): the public site's colours,
+            // its fonts, the header's logo and the tab's icon.
+            'look-colours'        => 'droplet',
+            'look-fonts'          => 'quote-left',
+            'look-logo'           => 'image',
+            'look-icon'           => 'window-maximize',
             // Its Sign-in tab: the logo, what is behind the card,
             // and the owner's own CSS.
             'signin-logo'         => 'image',
@@ -213,6 +239,10 @@ final class Sections
             // none.
             'export'          => 'cloud-arrow-down',
             'import'          => 'upload',
+            // Tools → Static copy: the copy, a file to take away; and where
+            // the next one will be published, the form's first question.
+            'static-copy-file' => 'file-arrow-down',
+            'static-copy-make' => 'location-dot',
             'environment'     => 'hard-drive',
             'content'         => 'database',
             // THE ENTRY'S BODY, and NOT `content`'s database mark — that key is

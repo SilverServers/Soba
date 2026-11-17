@@ -91,7 +91,7 @@ ob_start();
           // than a click handler, which is what gives it keyboard, middle-click
           // and open-in-new-tab for free. `data-row-href` would need a delegated
           // handler, and no such handler ships in this package. ?>
-    <div class="card-grid">
+    <div class="card-grid card-grid--stats">
         <?php // THIS MONTH'S SALES, first, on a site that sells: the figure a
               // shop opens its admin for, linking to the report it is read from. ?>
         <?php if (\Cms\Helpers\Modules::enabled('commerce') && \Cms\ContentType\Registry::withArchetype('product') !== []): ?>
@@ -150,7 +150,7 @@ ob_start();
                 <p class="empty__title">Nothing edited yet</p>
             </div>
         <?php else: ?>
-            <div class="list entry-list">
+            <div class="list entry-list entry-list--read">
                 <?php foreach ($recentPosts as $post): ?>
                     <?php
                     $type = \Cms\ContentType\Registry::get((string) $post['post_type']);
@@ -185,10 +185,9 @@ ob_start();
                             <time datetime="<?= h(date('c', strtotime((string) $post['updated_at']))) ?>"><?= h(Dates::short((string) $post['updated_at'])) ?></time>
                         </div>
 
-                        <?php // The action rail is reserved but empty here: this
-                              // list's job is to get you back into an entry, and
-                              // the whole row already does that. ?>
-                        <div class="list__row-actions"></div>
+                        <?php // NO ACTION RAIL: this list's job is to get you back
+                              // into an entry, and the whole row already does that
+                              // (`.entry-list--read`). ?>
                     </div>
                 <?php endforeach; ?>
             </div>

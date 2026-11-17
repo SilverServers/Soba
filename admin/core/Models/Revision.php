@@ -31,7 +31,7 @@ class Revision
     /** Columns copied verbatim from the source row into the snapshot. */
     private const SNAPSHOT_COLUMNS = [
         'title', 'slug', 'content', 'excerpt', 'status', 'featured_image_id', 'menu_order',
-        'post_type', 'parent_id', 'published_at', 'seo_title', 'meta_description',
+        'post_type', 'parent_id', 'published_at', 'unpublish_at', 'seo_title', 'meta_description',
     ];
 
     /**
@@ -56,22 +56,20 @@ class Revision
             return null;
         }
 
-        // Both have meta now. Pages gained custom fields in migration 036 — the
-        // hero headline, the button labels — and this comment used to say meta
-        // was a posts-only concern, so page revisions quietly captured none of
-        // it. Undo then reported success and changed nothing, which is worse than
-        // failing: the owner believes their site went back and it did not.
+        // An entry's fields are its meta (`post_meta`), and the snapshot holds
+        // every one. A page has no fields, only its row, so its snapshot is
+        // the row.
         $meta = $objectType === self::TYPE_POST ? Meta::getAll($objectId) : [];
 
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO revisions
                  (object_type, object_id, title, slug, content, excerpt, status,
-                  featured_image_id, menu_order, post_type, parent_id, published_at,
+                  featured_image_id, menu_order, post_type, parent_id, published_at, unpublish_at,
                   seo_title, meta_description, meta_json, reason, note, change_set_id, author_id)
              VALUES
                  (:object_type, :object_id, :title, :slug, :content, :excerpt, :status,
-                  :featured_image_id, :menu_order, :post_type, :parent_id, :published_at,
+                  :featured_image_id, :menu_order, :post_type, :parent_id, :published_at, :unpublish_at,
                   :seo_title, :meta_description, :meta_json, :reason, :note, :change_set_id, :author_id)'
         );
 
@@ -89,6 +87,8 @@ class Revision
             ':post_type'         => $row['post_type'] ?? null,
             ':parent_id'         => $row['parent_id'] ?? null,
             ':published_at'      => $row['published_at'] ?? null,
+            // Migration 110: the date it comes off the site, a page's or an entry's.
+            ':unpublish_at'      => $row['unpublish_at'] ?? null,
             ':seo_title'         => $row['seo_title'] ?? null,
             ':meta_description'  => $row['meta_description'] ?? null,
             ':meta_json'         => $meta === [] ? null : json_encode($meta, JSON_UNESCAPED_UNICODE),
@@ -206,6 +206,7 @@ class Revision
                 'password_hash'     => $live['password_hash'] ?? null,
                 'featured_image_id' => $revision['featured_image_id'],
                 'published_at'      => $revision['published_at'],
+                'unpublish_at'      => $revision['unpublish_at'] ?? null,
                 // Snapshotted since this table was written (see COLUMNS above)
                 // and never restored, because Post::update() did not carry it.
                 // Undoing a reorder put the words back and left the order wrong.
@@ -219,8 +220,7 @@ class Revision
                 Meta::set($objectId, (string) $key, $value);
             }
         } else {
-            // Same wholesale replace as posts: keys added after this revision go,
-            // which is what "roll back to that version" has to mean.
+            // The row, every column the snapshot holds: a page has no meta.
             Page::update($objectId, [
                 'parent_id'         => $revision['parent_id'],
                 'title'             => $revision['title'],
@@ -228,6 +228,7 @@ class Revision
                 'content'           => $revision['content'] ?? '',
                 'menu_order'        => $revision['menu_order'],
                 'status'            => $revision['status'],
+                'unpublish_at'      => $revision['unpublish_at'] ?? null,
                 'password_hash'     => $live['password_hash'] ?? null,
                 'featured_image_id' => $revision['featured_image_id'],
                 'seo_title'         => $revision['seo_title'],

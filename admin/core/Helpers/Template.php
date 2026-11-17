@@ -95,6 +95,8 @@ final class Template
     public static function notFound(?string $key = null): void
     {
         http_response_code(404);
+        // Counted for Tools → Redirects (`SEO\NotFound`), whoever draws it.
+        \Cms\SEO\NotFound::record();
         if (Theme::renderNotFound()) {
             return;
         }

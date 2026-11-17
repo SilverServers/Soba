@@ -27,23 +27,23 @@ use Cms\Ui\VariableEditor;
  *                fields. There is no `$meta` here and nothing to render from
  *                `FieldRenderer` except the featured image picker.
  *
- * There is no revision card: `PageController` never calls `Revision::snapshot()`
- * on update, so a History panel would be a box that is always empty — an
- * element that looks like a feature and is a stub. When the controller
- * snapshots, add the card with it. (`Revision` already supports `TYPE_PAGE`;
- * only the call site is missing.)
+ *   HISTORY      as an entry's: `PageController` keeps the page as it was before
+ *                each save (`Revision::snapshot()`), and the card lists the
+ *                newest five, each with Restore.
  *
  * @var array<string, mixed>|null  $page           null on create
  * @var list<array<string, mixed>> $parentOptions  id + title, this page excluded
  * @var list<string>               $errors
  * @var bool                       $saved
  * @var array<string, mixed>       $user
+ * @var list<array<string, mixed>> $revisions      newest first; none on create
  */
 
-$isNew  = ($page ?? null) === null;
-$id     = $isNew ? 0 : (int) $page['id'];
-$errors = $errors ?? [];
-$saved  = $saved  ?? false;
+$isNew     = ($page ?? null) === null;
+$id        = $isNew ? 0 : (int) $page['id'];
+$errors    = $errors ?? [];
+$saved     = $saved  ?? false;
+$revisions = $revisions ?? [];
 
 /**
  * What to show in a field: what was TYPED while the save has not happened, and
@@ -91,7 +91,7 @@ ob_start();
       // has to come from the page down; a class further in cannot invent one. ?>
 <div class="page page--editor">
 
-    <form method="post" action="<?= h($action) ?>" class="editor-form">
+    <form method="post" action="<?= h($action) ?>" class="editor-form"<?= \Cms\Ui\KeepWriting::attributes('page:' . ($isNew ? 'new' : (int) $page['id']), $saved, $errors !== [], $isNew ? null : 'page:' . (int) $page['id']) ?>>
         <?= Csrf::field() ?>
 
         <?php // THE BACK LINK AND THE SAVE BUTTON SHARE ONE ROW, at the top —
@@ -125,6 +125,8 @@ ob_start();
             </div>
         </div>
     <?php endif; ?>
+
+    <?php require ROOT_PATH . '/admin/templates/partials/keep-writing.php'; ?>
 
         <div class="panel__grid">
 
@@ -225,7 +227,7 @@ ob_start();
                         <div class="panel-head">
                             <?= panel_title('Visibility', 'visibility') ?>
                             <?php if (!$isNew): ?>
-                                <?= Status::render((string) $page['status']) ?>
+                                <?= Status::render(Status::forEntry($page)) ?>
                             <?php endif; ?>
                         </div>
 
@@ -261,7 +263,39 @@ ob_start();
                                    autocomplete="off"<?= $status === 'password' ? '' : ' disabled' ?>
                                    placeholder="<?= h(!$isNew && !empty($page['password_hash']) ? 'Unchanged' : '') ?>">
                         </div>
+
+                        <?php // ── WHEN IT COMES OFF ────────────────────────────
+                              // An entry's Unpublish date, the same control and
+                              // conversions (`Dates::toInput()`/`fromInput()`):
+                              // empty keeps the page on the site, a date takes it
+                              // off then (`Page::live()`), as Private would. ?>
+                        <?php
+                        $unpublishLocal = (!$saved && isset($_POST['unpublish_local']) && !is_array($_POST['unpublish_local']))
+                            ? (string) $_POST['unpublish_local']
+                            : \Cms\Helpers\Dates::toInput($isNew ? null : ($page['unpublish_at'] ?? null));
+                        ?>
+                        <div class="field">
+                            <label class="label" for="f-unpublish">Unpublish date</label>
+                            <input class="input" type="datetime-local" id="f-unpublish" name="unpublish_local"
+                                   value="<?= h($unpublishLocal) ?>">
+                            <p class="form-help">
+                                Empty keeps it on the site; a date takes it off then.
+                                Site time: <?= h(\Cms\Helpers\Dates::zone()->getName()) ?>.
+                            </p>
+                        </div>
                     </div>
+
+                    <?php // A PAGE NOT ON THE SITE, SHARED BY A LINK
+                          // (`Content\Share`): Private, or its unpublish date
+                          // come. A live page needs none. ?>
+                    <?php
+                    $shareable = !$isNew && $viewUrl !== null
+                        && ((string) ($page['status'] ?? '') === 'private' || \Cms\Models\Post::hasEnded($page));
+                    ?>
+                    <?php if ($shareable): ?>
+                        <?php [$sharePart, $shareType, $shareId, $shareAdmin, $shareUrl] = ['panel', 'page', $id, 'pages/' . $id, (string) $viewUrl]; ?>
+                        <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>
+                    <?php endif; ?>
 
                     <div class="form-card__section">
                         <?= panel_title('Placement', 'group-structure') ?>
@@ -346,6 +380,32 @@ ob_start();
                         </div>
                     </div>
 
+                    <?php if (!$isNew && $revisions !== []): ?>
+                        <?php // THE ENTRY FORM'S HISTORY CARD, the same rows: each
+                              // is its own POST, by `form=`, because a restore is a
+                              // write and a form cannot sit inside this one. ?>
+                        <div class="form-card__section">
+                            <?= panel_title('History', 'history') ?>
+                            <div class="list list--bleed">
+                                <?php foreach (array_slice($revisions, 0, 5) as $revision): ?>
+                                    <div class="list__row">
+                                        <div class="entry-list__main">
+                                            <div class="list__row-title"><?= h((string) $revision['title']) ?></div>
+                                            <div class="list__row-sub">
+                                                <time datetime="<?= h(date('c', strtotime((string) $revision['created_at']))) ?>">
+                                                    <?= h(\Cms\Helpers\Dates::stamp((string) $revision['created_at'])) ?>
+                                                </time>
+                                            </div>
+                                        </div>
+                                        <div class="list__row-actions">
+                                            <button type="submit" class="btn btn--sm"
+                                                    form="restore-<?= (int) $revision['id'] ?>">Restore</button>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
 
                     <?php if (!$isNew): ?>
                         <?php // A PLAIN TEXT LINK at the foot of the panel, not a
@@ -375,6 +435,17 @@ ob_start();
               action="<?= h(Url::admin('pages/' . $id . '/trash')) ?>" hidden>
             <?= Csrf::field() ?>
         </form>
+        <?php if (!empty($shareable)): ?>
+            <?php $sharePart = 'forms'; ?>
+            <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>
+        <?php endif; ?>
+
+        <?php foreach (array_slice($revisions, 0, 5) as $revision): ?>
+            <form id="restore-<?= (int) $revision['id'] ?>" method="post"
+                  action="<?= h(Url::admin('revisions/' . (int) $revision['id'] . '/restore')) ?>" hidden>
+                <?= Csrf::field() ?>
+            </form>
+        <?php endforeach; ?>
     <?php endif; ?>
 
 </div>
@@ -395,6 +466,9 @@ ob_start();
       // editor binds. ?>
 <script src="<?= h(\Cms\Helpers\Asset::admin('js/prompt.js')) ?>" defer></script>
 <script src="<?= h(\Cms\Helpers\Asset::admin('js/editor.js')) ?>" defer></script>
+<?php // AFTER editor.js, deferred too, so the editor has bound its box before
+      // this reads the writing (`Ui\KeepWriting`). ?>
+<script src="<?= h(\Cms\Helpers\Asset::admin('js/keep-writing.js')) ?>" defer></script>
 <?php
 $pageContent = ob_get_clean();
 require ROOT_PATH . '/admin/templates/layout.php';

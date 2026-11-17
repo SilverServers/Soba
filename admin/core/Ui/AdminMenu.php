@@ -25,7 +25,7 @@ use Cms\Helpers\Url;
  *     Files & media   Library · Galleries
  *     Forms           All forms · Submissions · Spam
  *     Structure       Content types · Field groups · Taxonomies
- *     Appearance      Menus · Theme builder · Customizer
+ *     Appearance      Themes · Branding · Menus
  *     Tools           Import and export · Redirects · System health
  *     Settings        General · SEO · Permalinks · Email · Users
  *     Security        Overview · Login protection · Activity log
@@ -466,17 +466,13 @@ final class AdminMenu
             Sidebar::link('Themes', Url::admin('appearance/themes'), self::under($here, '/admin/appearance/themes'), 'themes'),
             // The CMS in the site's own name (`Ui\Brand`), and the sign-in
             // page's look.
+            // The public site's own look (`Site\Look`).
+            Sidebar::link('Customizer', Url::admin('appearance/customizer'), self::under($here, '/admin/appearance/customizer'), 'customizer'),
             Sidebar::link('Branding', Url::admin('appearance/branding'), self::under($here, '/admin/appearance/branding'), 'branding'),
             // The menus module's rows (`Helpers\Modules`); Themes and Branding
             // are the CMS's own and stay. A null row is dropped.
             Modules::enabled('menus')
                 ? Sidebar::link('Menus', Url::admin('appearance/menus'), self::under($here, '/admin/appearance/menus'), 'menus')
-                : null,
-            Modules::enabled('menus')
-                ? Sidebar::link('Theme builder', Url::admin('appearance/theme-builder'), $here === '/admin/appearance/theme-builder', 'theme-builder')
-                : null,
-            Modules::enabled('menus')
-                ? Sidebar::link('Customizer', Url::admin('appearance/customizer'), $here === '/admin/appearance/customizer', 'customizer')
                 : null,
         ], self::under($here, '/admin/appearance'));
     }
@@ -486,6 +482,9 @@ final class AdminMenu
         $rows = $isAdmin ? [
             Sidebar::link('Import and export', Url::admin('tools/import-export'), $here === '/admin/tools/import-export', 'import-export'),
             Sidebar::link('Redirects', Url::admin('tools/redirects'), $here === '/admin/tools/redirects', 'redirects'),
+            Sidebar::link('Static copy', Url::admin('tools/static-copy'), $here === '/admin/tools/static-copy', 'static-copy'),
+            Sidebar::link('Broken links', Url::admin('tools/broken-links'), $here === '/admin/tools/broken-links', 'broken-links'),
+            Sidebar::link('Backups', Url::admin('tools/backups'), $here === '/admin/tools/backups', 'backups'),
             Sidebar::link('System health', Url::admin('tools/system-health'), $here === '/admin/tools/system-health', 'system-health'),
         ] : [];
         // THE SITE'S OWN TOOLS, after the CMS's (`Site\Tools`): each answers
@@ -509,6 +508,7 @@ final class AdminMenu
     {
         return Sidebar::group('settings', 'Settings', 'group-settings', Url::admin('settings/general'), [
             Sidebar::link('General', Url::admin('settings/general'), $here === '/admin/settings/general', 'settings'),
+            Sidebar::link('Business details', Url::admin('settings/business'), $here === '/admin/settings/business', 'business'),
             Sidebar::link('SEO', Url::admin('settings/seo'), $here === '/admin/settings/seo', 'seo'),
             Sidebar::link('Permalinks', Url::admin('settings/permalinks'), $here === '/admin/settings/permalinks', 'permalinks'),
             Sidebar::link('Email', Url::admin('settings/email'), $here === '/admin/settings/email', 'email'),

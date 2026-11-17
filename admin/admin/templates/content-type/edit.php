@@ -163,7 +163,7 @@ ob_start();
       // has to come from the page down; a class further in cannot invent one. ?>
 <div class="page page--editor">
 
-    <form method="post" action="<?= h($action) ?>" class="editor-form">
+    <form method="post" action="<?= h($action) ?>" class="editor-form"<?= \Cms\Ui\KeepWriting::attributes($adminSlug . ':' . ($isNew ? 'new' : $id), $saved, $errors !== [], $isNew ? null : 'post:' . $id) ?>>
         <?= Csrf::field() ?>
 
         <?php // THE BACK LINK AND THE SAVE BUTTON SHARE ONE ROW, at the top —
@@ -207,6 +207,8 @@ ob_start();
             </div>
         </div>
     <?php endif; ?>
+
+    <?php require ROOT_PATH . '/admin/templates/partials/keep-writing.php'; ?>
 
         <div class="panel__grid">
 
@@ -674,7 +676,41 @@ ob_start();
                                 back until then. Site time: <?= h(Dates::zone()->getName()) ?>.
                             </p>
                         </div>
+
+                        <?php // ── WHEN IT COMES OFF ────────────────────────────
+                              // The same control and the same two conversions.
+                              // Empty keeps it on the site; a date takes it off
+                              // then (Post::live()), as Private would, with
+                              // nothing that has to run at that moment, and the
+                              // chip says Ended. ?>
+                        <?php
+                        $unpublishLocal = (!$saved && isset($_POST['unpublish_local']) && !is_array($_POST['unpublish_local']))
+                            ? (string) $_POST['unpublish_local']
+                            : Dates::toInput($isNew ? null : ($post['unpublish_at'] ?? null));
+                        ?>
+                        <div class="field">
+                            <label class="label" for="f-unpublish">Unpublish date</label>
+                            <input class="input" type="datetime-local" id="f-unpublish" name="unpublish_local"
+                                   value="<?= h($unpublishLocal) ?>">
+                            <p class="form-help">
+                                Empty keeps it on the site; a date takes it off then.
+                            </p>
+                        </div>
                     </div>
+
+                    <?php // AN ENTRY NOT ON THE SITE, SHARED BY A LINK
+                          // (`Content\Share`): Private, its publish date still to
+                          // come, or its unpublish date gone by. A live entry
+                          // needs none, and a type with no address has nowhere
+                          // to send anyone. ?>
+                    <?php
+                    $shareable = !$isNew && $viewUrl !== null
+                        && ((string) $post['status'] === 'private' || \Cms\Models\Post::isScheduled($post) || \Cms\Models\Post::hasEnded($post));
+                    ?>
+                    <?php if ($shareable): ?>
+                        <?php [$sharePart, $shareType, $shareId, $shareAdmin, $shareUrl] = ['panel', 'post', $id, $adminSlug . '/' . $id, (string) $viewUrl]; ?>
+                        <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>
+                    <?php endif; ?>
 
                     <?php // ── WHO WROTE IT ──────────────────────────────────
                           // An Author box, for an editor or admin; an author
@@ -977,6 +1013,10 @@ ob_start();
               action="<?= h(Url::admin($adminSlug . '/' . $id . '/trash')) ?>" hidden>
             <?= Csrf::field() ?>
         </form>
+        <?php if (!empty($shareable)): ?>
+            <?php $sharePart = 'forms'; ?>
+            <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>
+        <?php endif; ?>
 
         <?php foreach (array_slice($revisions, 0, 5) as $revision): ?>
             <form id="restore-<?= (int) $revision['id'] ?>" method="post"
@@ -1022,6 +1062,9 @@ ob_start();
       // editor binds. ?>
 <script src="<?= h(\Cms\Helpers\Asset::admin('js/prompt.js')) ?>" defer></script>
 <script src="<?= h(\Cms\Helpers\Asset::admin('js/editor.js')) ?>" defer></script>
+<?php // AFTER editor.js, deferred too, so the editor has bound its box before
+      // this reads the writing (`Ui\KeepWriting`). ?>
+<script src="<?= h(\Cms\Helpers\Asset::admin('js/keep-writing.js')) ?>" defer></script>
 <?php
 $pageContent = ob_get_clean();
 require ROOT_PATH . '/admin/templates/layout.php';

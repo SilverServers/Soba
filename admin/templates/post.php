@@ -58,9 +58,10 @@ $linkText = static function (string $url): string {
             <p class="post-header__meta">
                 By <?= htmlspecialchars($post['author_name']) ?>
                 &mdash;
-                <?php // The theme's format, the SITE's day (Dates::format) — a
-                      // late-evening post in Kamloops is already tomorrow in UTC. ?>
-                <?= htmlspecialchars(\Cms\Helpers\Dates::format((string) $post['published_at'], 'F j, Y')) ?>
+                <?php // The owner's format (Settings → General), the SITE's day
+                      // (`Dates::short()`): a late-evening post in Kamloops is
+                      // already tomorrow in UTC. ?>
+                <?= htmlspecialchars(\Cms\Helpers\Dates::short((string) $post['published_at'])) ?>
             </p>
         <?php endif; ?>
     </header>
@@ -78,7 +79,10 @@ $linkText = static function (string $url): string {
     ?>
     <?php if ($cover !== null): ?>
         <figure class="post-featured"<?= $shopProduct !== null ? ' data-product-photo' : '' ?>>
+            <?php // Its smaller widths, for a browser to choose from: the column is 860px at most. ?>
+            <?php $coverSet = \Cms\Media\Sizes::srcset($cover); ?>
             <img src="<?= htmlspecialchars(\Cms\Models\Media::getUrl((int) $cover['id'])) ?>"
+                 <?php if ($coverSet !== ''): ?>srcset="<?= htmlspecialchars($coverSet) ?>" sizes="(min-width: 860px) 860px, 100vw"<?php endif; ?>
                  alt="<?= htmlspecialchars((string) ($cover['alt_text'] ?? '')) ?>"
                  <?php if ((int) ($cover['width'] ?? 0) > 0 && (int) ($cover['height'] ?? 0) > 0): ?>
                      width="<?= (int) $cover['width'] ?>" height="<?= (int) $cover['height'] ?>"
@@ -103,7 +107,8 @@ $linkText = static function (string $url): string {
                 <?php $shotUrl = \Cms\Models\Media::getUrl((int) $shot['id']); ?>
                 <a class="product-thumbs__item" href="<?= htmlspecialchars($shotUrl) ?>"
                    data-photo-thumb data-full="<?= htmlspecialchars($shotUrl) ?>"<?= $n === 0 ? ' aria-current="true"' : '' ?>>
-                    <img src="<?= htmlspecialchars($shotUrl) ?>" alt="<?= htmlspecialchars((string) ($shot['alt_text'] ?? '')) ?>" loading="lazy">
+                    <?php $shotSet = \Cms\Media\Sizes::srcset($shot); ?>
+                    <img src="<?= htmlspecialchars($shotUrl) ?>"<?= $shotSet !== '' ? ' srcset="' . htmlspecialchars($shotSet) . '" sizes="64px"' : '' ?> alt="<?= htmlspecialchars((string) ($shot['alt_text'] ?? '')) ?>" loading="lazy">
                 </a>
             <?php endforeach; ?>
         </div>
@@ -116,29 +121,39 @@ $linkText = static function (string $url): string {
            "September 10, 2026 at 6:30 PM" above "September 10, 2026 at 8:30 PM".
            A person writes that as a range, so the page does too, and only spells
            out the second date when the event genuinely crosses a day. */
-        $start = $val('event_start_date') !== '' ? strtotime($val('event_start_date')) : null;
-        $end   = $val('event_end_date') !== '' ? strtotime($val('event_end_date')) : null;
+        /* Each date and time AS TYPED (the site's wall-clock time), in the
+           owner's formats (Settings → General). */
+        $start = $val('event_start_date');
+        $end   = $val('event_end_date');
+        $day   = static fn (string $v): string => htmlspecialchars(\Cms\Helpers\Dates::asTyped($v, \Cms\Helpers\Dates::dateFormat()));
+        $clock = static fn (string $v): string => htmlspecialchars(\Cms\Helpers\Dates::asTyped($v, \Cms\Helpers\Dates::timeFormat()));
+        $at    = static fn (string $v): string => \Cms\Helpers\Dates::asTyped($v, 'Y-m-d H:i:s');
 
         $when = '';
-        if ($start !== null) {
-            $when = date('F j, Y', $start) . ' &middot; ' . date('g:i A', $start);
-            if ($end !== null && $end > $start) {
-                $when .= ' &ndash; ' . (date('Y-m-d', $end) === date('Y-m-d', $start)
-                    ? date('g:i A', $end)
-                    : date('F j, Y', $end) . ' &middot; ' . date('g:i A', $end));
+        if ($at($start) !== '') {
+            $when = $day($start) . ' &middot; ' . $clock($start);
+            if ($at($end) !== '' && $at($end) > $at($start)) {
+                $when .= ' &ndash; ' . (substr($at($end), 0, 10) === substr($at($start), 0, 10)
+                    ? $clock($end)
+                    : $day($end) . ' &middot; ' . $clock($end));
             }
         }
         ?>
         <?php if ($when !== '' || $val('event_location') !== '' || $val('event_url') !== ''): ?>
             <div class="entry-meta entry-meta--event">
                 <?php if ($when !== ''): ?>
-                    <p class="entry-meta__when"><?= $when // built from dates above; no user input ?></p>
+                    <p class="entry-meta__when"><?= $when // each part escaped above ?></p>
                 <?php endif; ?>
                 <?php if ($val('event_location') !== ''): ?>
                     <p class="entry-meta__where"><?= htmlspecialchars($val('event_location')) ?></p>
                 <?php endif; ?>
                 <?php if ($val('event_url') !== ''): ?>
                     <p><a href="<?= htmlspecialchars($val('event_url')) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($linkText($val('event_url'))) ?></a></p>
+                <?php endif; ?>
+                <?php // THE EVENT IN A VISITOR'S OWN CALENDAR (`Content\Calendar`),
+                      // once it has a time to put there. ?>
+                <?php if ($when !== '' && \Cms\Content\Calendar::has((string) ($post['post_type'] ?? ''))): ?>
+                    <p class="entry-meta__calendar"><a href="<?= htmlspecialchars(\Cms\Content\Calendar::eventUrl((string) $post['post_type'], (string) $post['slug'])) ?>" download>Add to calendar</a></p><?php /* audit-ok: the link's own verb, which the system draws */ ?>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
@@ -283,8 +298,10 @@ $linkText = static function (string $url): string {
                     <p class="shop-add__unavailable u-text-muted">
                         Every option is out of stock at the moment.<?php /* audit-ok: the SYSTEM describing its own state: stock decided this, and an editable version could contradict it */ ?>
                     </p>
-                <?php elseif ($product !== null && $product['purchasable']): ?>
-                    <?php /* A POST WITH A CSRF TOKEN. A link would let any page
+                <?php elseif ($product !== null && $product['purchasable'] && !defined('CMS_EXPORT')): ?>
+                    <?php /* NOT IN A STATIC COPY (`Export\StaticCopy`), which
+                             has no basket: there its products are a catalogue.
+                             A POST WITH A CSRF TOKEN. A link would let any page
                              on the internet fill a visitor's basket with an
                              <img> tag, and would let the browser prefetch it.
                              `ShopController` answers 303 so a refresh does not
@@ -418,7 +435,7 @@ $linkText = static function (string $url): string {
                     }
                 }
                 ?>
-                <?php if ($soldOut !== []): ?>
+                <?php if ($soldOut !== [] && !defined('CMS_EXPORT')): /* a static copy keeps no list of who is waiting */ ?>
                     <form class="shop-waitlist" method="post" action="<?= htmlspecialchars(\Cms\Helpers\Url::page('shop/notify')) ?>" data-waitlist><?php /* audit-ok: a route on this site */ ?>
                         <?= \Cms\Security\Csrf::field() ?>
                         <input type="hidden" name="product_id" value="<?= (int) $product['id'] ?>">

@@ -1,0 +1,42 @@
+/* THE QUESTION BEFORE GOOGLE'S TAGS LOAD (`Site\Google::asks()`,
+   `measure.js`): a bar across the foot of the window with the owner's words,
+   the page they link to, and Accept and Decline drawn alike, so neither is the
+   easier one to press. Linked beside the tags wherever they print, so a theme
+   that loads none of this site's stylesheets still has it, and a page whose
+   Content-Security-Policy refuses inline styles needs none. Its colours are
+   the theme's where the theme has them, and the browser's own otherwise. */
+.cms-consent {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem 1.5rem;
+  padding: 1rem 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--ink, CanvasText);
+  background: var(--surface, Canvas);
+  border-top: 1px solid var(--border-strong, GrayText);
+}
+.cms-consent[hidden] { display: none; }
+.cms-consent__words { margin: 0; max-width: 60rem; }
+.cms-consent__more { color: inherit; text-decoration: underline; }
+.cms-consent__actions { display: flex; gap: 0.75rem; }
+.cms-consent__button {
+  min-width: 7rem;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--r, 0);
+  cursor: pointer;
+}
+.cms-consent__button:hover { background: var(--surface-2, ButtonFace); }
+.cms-consent__button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

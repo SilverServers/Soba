@@ -86,7 +86,7 @@ ob_start();
     </form>
 
     <?php // FOUR FIGURES, each a link to the table it is read from. ?>
-    <div class="card-grid report-figures" data-report-figures>
+    <div class="card-grid card-grid--stats report-figures" data-report-figures>
         <a class="card stat" href="#report-sales">
             <div class="card__head"><?= icon('arrow-trend-up', 'card__glyph icon icon--lg') ?><strong>Net sales</strong></div>
             <p class="stat__n"><?= h($money($summary['net'])) ?></p>

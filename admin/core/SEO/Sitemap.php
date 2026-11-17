@@ -147,7 +147,7 @@ class Sitemap
         // sitemap exactly as an entry's does.
         $stmt = $pdo->query(
             "SELECT slug, updated_at, featured_image_id FROM pages
-             WHERE status = 'published' ORDER BY menu_order ASC, title ASC"
+             WHERE " . \Cms\Models\Page::live() . " ORDER BY menu_order ASC, title ASC"
         );
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -175,7 +175,7 @@ class Sitemap
     public static function contentType(string $contentTypeKey): string
     {
         $ct = Registry::get($contentTypeKey);
-        if ($ct === null) {
+        if ($ct === null || trim((string) ($ct['public_slug'] ?? '')) === '') {
             return self::emptyUrlSet();
         }
 

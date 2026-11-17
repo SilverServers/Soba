@@ -32,10 +32,11 @@ class Head
      * Set the SEO data for the current page.
      * Called by the public controller before rendering.
      *
-     * @param array<string, string|null> $data Keys: title, description, canonical,
+     * @param array<string, mixed> $data Keys: title, description, canonical,
      *   prev, next, robots, og_title, og_description, og_image, og_type, og_url,
      *   twitter_card, twitter_title, twitter_description, twitter_image,
-     *   schema_json
+     *   schema_json, and `feeds`: the types whose feeds the page names
+     *   (`Content\Feed`)
      */
     public static function set(array $data): void
     {
@@ -65,8 +66,9 @@ class Head
             $html .= '<meta name="description" content="' . htmlspecialchars($description) . '">' . "\n";
         }
 
-        // 3. <meta name="robots">
-        $robots = $d['robots'] ?? 'index, follow';
+        // 3. <meta name="robots">. A page shown through its share link
+        // (`Content\Share`) is not for search engines, whatever it says.
+        $robots = \Cms\Content\Share::shown() ? 'noindex, nofollow' : ($d['robots'] ?? 'index, follow');
         $html .= '<meta name="robots" content="' . htmlspecialchars($robots) . '">' . "\n";
 
         // 4. <link rel="canonical">
@@ -83,6 +85,14 @@ class Head
             if ($href !== '') {
                 $html .= '<link rel="' . $rel . '" href="' . htmlspecialchars($href) . '">' . "\n";
             }
+        }
+
+        // 4c. THE FEEDS OF WHAT THE PAGE LISTS (`Content\Feed`): the home
+        // page's every one, a type's pages their type's; an events type's
+        // calendar beside its feed (`Content\Calendar`).
+        if (is_array($d['feeds'] ?? null) && $d['feeds'] !== []) {
+            $html .= \Cms\Content\Feed::links(array_map('strval', $d['feeds']));
+            $html .= \Cms\Content\Calendar::links(array_map('strval', $d['feeds']));
         }
 
         // 5. Open Graph tags

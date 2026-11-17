@@ -68,8 +68,21 @@
 
    Controls keep `--surface` and lean on the hairline rather than on a tone
    step, which is the house separation anyway.                              */
+/* THE OWNER'S FONTS (Appearance → Customizer, `Site\Look`): attributes on
+   <html>, so no page needs an inline style. Inter is served by the site
+   (fonts.css); the other two are the visitor's own and load nothing. The
+   text takes --font-body; the headings and the site's name --font-head; code
+   keeps the code face. */
+:root[data-font-body="inter"] { --font-body: var(--font-sans); }
+:root[data-font-body="sans"]  { --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+:root[data-font-body="serif"] { --font-body: Georgia, 'Times New Roman', Times, serif; }
+:root[data-font-head="inter"] { --font-head: var(--font-sans); }
+:root[data-font-head="sans"]  { --font-head: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+:root[data-font-head="serif"] { --font-head: Georgia, 'Times New Roman', Times, serif; }
+h1, h2, h3, h4, h5, h6, .site-header__name { font-family: var(--font-head, var(--font-body, var(--font-sans))); }
+
 body {
-  font-family: var(--font-sans);
+  font-family: var(--font-body, var(--font-sans));
   font-size: var(--fs-lg);
   line-height: 1.7;
   color: var(--ink);
@@ -99,6 +112,11 @@ body {
   color: var(--ink);
 }
 .site-header__name:hover { color: var(--accent); }
+/* THE LOGO (`Site\Look::brand()`): a line and a half of the name tall, the
+   name beside it when the owner keeps it there. */
+.site-header__name--logo { display: inline-flex; align-items: center; gap: var(--sp-3); }
+.site-header__logo { display: block; height: 2.5rem; width: auto; max-width: 12rem; object-fit: contain; }
+.site-header__text[hidden] { display: none; }
 
 /* ── The primary menu ───────────────────────────────────────────────────────
    Helpers\MenuRenderer emits a nested <ul> for a menu item with children, and
@@ -438,6 +456,17 @@ body {
    the HEADER's menu. `display: contents` stays, so the nav does not add a box
    between the footer's flex row and its list. */
 .site-footer .menu { display: contents; }
+/* COOKIE SETTINGS (`Site\Google::consentLink()`): a button, since it opens
+   something on this page, worded and coloured as the footer's links are. */
+.site-footer__consent {
+  padding: 0;
+  font: inherit;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.site-footer__consent:hover { color: var(--ink); }
 
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -591,6 +620,19 @@ body {
   color: var(--ink-2);
 }
 
+/* AN EVENTS LIST AS A CALENDAR TO SUBSCRIBE TO (`Content\Calendar`): under
+   the heading, small, and a link that looks like one, as the event's own
+   "Add to calendar" does in its panel. */
+.archive-header__calendar {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.archive-header__calendar a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ── The entry list ─────────────────────────────────────────────────────────
    Rows separated by a hairline, not by boxes. The house separation is a crisp
    1px border; a list of cards would turn a reading surface into a dashboard. */
@@ -715,6 +757,42 @@ body {
   margin-top: var(--sp-7);
   padding-top: var(--sp-5);
   border-top: 1px solid var(--border);
+}
+
+/* The way past the header (`base.php`): out of sight until a key reaches it,
+   then at the top corner. The admin's own skip link, the design language's
+   core.css rule, on the public site's tokens. */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--accent);
+  color: var(--ink-on-strong);
+  font-weight: var(--fw-semi);
+  font-size: var(--fs-sm);
+  border-radius: var(--r);
+  text-decoration: none;
+  z-index: 99999;
+  transition: top var(--t-fast);
+}
+.skip-link:focus {
+  top: var(--sp-3);
+  outline: 2px solid var(--ink-on-strong);
+  outline-offset: 2px;
+}
+.site-content:focus { outline: none; }
+
+/* An events list's past: what is over, after what is still to come, under a
+   heading of its own. Spaced from the list above it as "Related" is; at the
+   top of a page of past events it sits under the archive's header. */
+.post-list + .post-list-past {
+  margin-top: var(--sp-7);
+}
+.post-list-past__title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  margin-bottom: var(--sp-4);
 }
 .post-related__title {
   font-size: var(--fs-lg);

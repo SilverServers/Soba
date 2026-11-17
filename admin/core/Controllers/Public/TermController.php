@@ -189,6 +189,7 @@ class TermController
             // that ships fifty of those is fifty thin pages in an index.
             'robots'      => $total === 0 ? 'noindex, follow' : '',
             'schema_json' => Schema::encode($graph),
+            'feeds'       => array_values((array) ($taxonomy['content_types'] ?? [])),
         ]);
 
         // ── THE TEMPLATE IS THE PAGE'S BODY, NOT THE PAGE ───────────────────

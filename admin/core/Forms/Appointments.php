@@ -98,14 +98,14 @@ final class Appointments
                 $slots[] = [
                     'key'   => $key,
                     'at'    => $at->format('Y-m-d H:i:s'),
-                    'label' => $at->format('g:i A'),
+                    'label' => $at->format(\Cms\Helpers\Dates::timeFormat()),
                 ];
             }
 
             // A DAY WITH NOTHING LEFT IS NOT SHOWN. A heading over an empty
             // list reads as a broken control rather than as a full day.
             if ($slots !== []) {
-                $out[$day->format('l, j F')] = $slots;
+                $out[self::day($day)] = $slots;
             }
         }
 
@@ -193,7 +193,20 @@ final class Appointments
     {
         $at = self::slotTime($formId, $fieldName, $slotKey);
 
-        return $at === null ? '' : $at->format('l, j F Y \a\t g:i A');
+        return $at === null ? '' : self::day($at) . ' at ' . $at->format(\Cms\Helpers\Dates::timeFormat());
+    }
+
+    /**
+     * A DAY AS A BOOKING READS IT: its weekday, then the date in the owner's
+     * format (Settings → General), "Friday, Nov 13, 2026". The weekday is what
+     * a person choosing a time looks for, so it is added unless the owner's
+     * format already writes one.
+     */
+    private static function day(\DateTimeImmutable $at): string
+    {
+        $format = \Cms\Helpers\Dates::dateFormat();
+
+        return preg_match('/(?<!\\\\)[lD]/', $format) === 1 ? $at->format($format) : $at->format('l') . ', ' . $at->format($format);
     }
 
     // ── The shape, read from the field ──────────────────────────────────────

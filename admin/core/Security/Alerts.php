@@ -553,7 +553,8 @@ final class Alerts
             }
 
             return Mailer::send($to, '[' . $site . '] ' . $message['subject'], $message['text'])
-                ? 'Handed to ' . (trim((string) Option::get('smtp_host', '')) !== '' ? trim((string) Option::get('smtp_host', '')) : "this host's own mail") . ' for ' . count($to) . (count($to) === 1 ? ' address' : ' addresses')
+                ? 'Handed to ' . (Mailer::transport() === 'brevo' ? 'Brevo'
+                    : (trim((string) Option::get('smtp_host', '')) !== '' ? trim((string) Option::get('smtp_host', '')) : "this host's own mail")) . ' for ' . count($to) . (count($to) === 1 ? ' address' : ' addresses')
                 : 'The mail could not be sent (Settings → Email).';
         }
 

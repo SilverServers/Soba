@@ -60,7 +60,7 @@ final class Sources
 
         $out = [];
         foreach (Post::all($type) as $row) {
-            if (($row['status'] ?? '') !== 'published') {
+            if (($row['status'] ?? '') !== 'published' || Post::isScheduled($row) || Post::hasEnded($row)) {
                 continue;
             }
             $title = trim((string) ($row['title'] ?? ''));

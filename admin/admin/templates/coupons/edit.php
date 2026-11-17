@@ -112,7 +112,7 @@ ob_start();
 
                         <div class="field">
                             <label class="label" for="f-code">Code</label>
-                            <input class="input input--mono" type="text" id="f-code" name="code"
+                            <input class="input input--mono input--short" type="text" id="f-code" name="code"
                                    value="<?= h($val('code')) ?>" required
                                    autocomplete="off" spellcheck="false"
                                    autocapitalize="characters">
@@ -144,7 +144,7 @@ ob_start();
 
                             <div class="field">
                                 <label class="label" for="f-amount">How much</label>
-                                <input class="input" type="text" id="f-amount" name="amount"
+                                <input class="input input--short" type="text" id="f-amount" name="amount"
                                        value="<?= h((string) $amountShown) ?>"
                                        autocomplete="off" spellcheck="false"
                                        inputmode="decimal">
@@ -230,21 +230,9 @@ ob_start();
                     <div class="form-card__section">
                         <?= panel_title('When it works', 'tax') ?>
 
+                        <?php // THE AMOUNTS, THEN THE DAYS: each pair on one row, the
+                              // dates side by side rather than one under another. ?>
                         <div class="form-grid form-grid--2">
-                            <div class="field">
-                                <label class="label" for="f-min">Minimum spend</label>
-                                <input class="input" type="text" id="f-min" name="min_spend"
-                                       value="<?= h((string) $minShown) ?>"
-                                       autocomplete="off" spellcheck="false"
-                                       inputmode="decimal">
-                                <p class="form-help">
-                                    The goods have to come to at least this much.
-                                    Blank for no minimum. Measured before
-                                    delivery, so a customer cannot reach it by
-                                    choosing dearer postage.
-                                </p>
-                            </div>
-
                             <div class="field">
                                 <label class="label" for="f-limit">How many times</label>
                                 <input class="input" type="number" id="f-limit" name="usage_limit"
@@ -260,9 +248,6 @@ ob_start();
                                     <?php endif; ?>
                                 </p>
                             </div>
-                        </div>
-
-                        <div class="form-grid form-grid--2">
                             <div class="field">
                                 <label class="label" for="f-per-customer">Uses per customer</label>
                                 <input class="input" type="number" id="f-per-customer" name="per_customer"
@@ -273,7 +258,9 @@ ob_start();
                                     0 for no limit of its own.
                                 </p>
                             </div>
+                        </div>
 
+                        <div class="form-grid form-grid--2">
                             <div class="field">
                                 <label class="label" for="f-starts">First day it works</label>
                                 <input class="input" type="date" id="f-starts" name="starts_at"
@@ -282,21 +269,36 @@ ob_start();
                                     In this site's own days. Blank for straight away.
                                 </p>
                             </div>
+                            <div class="field">
+                                <label class="label" for="f-expires">Last day it works</label>
+                                <input class="input" type="date" id="f-expires" name="expires_at"
+                                       value="<?= h($val('expires_at')) ?>">
+                                <?php // THE DAY ITSELF, NOT THE DAY BEFORE. A code
+                                      // that expires on the 30th works ON the 30th,
+                                      // because nobody reads a date field as "the
+                                      // day before this" and an owner typing the
+                                      // last day of a sale would end it early. ?>
+                                <p class="form-help">
+                                    The code still works on this day and stops the
+                                    day after. Blank for never.
+                                </p>
+                            </div>
                         </div>
 
-                        <div class="field">
-                            <label class="label" for="f-expires">Last day it works</label>
-                            <input class="input" type="date" id="f-expires" name="expires_at"
-                                   value="<?= h($val('expires_at')) ?>">
-                            <?php // THE DAY ITSELF, NOT THE DAY BEFORE. A code
-                                  // that expires on the 30th works ON the 30th,
-                                  // because nobody reads a date field as "the
-                                  // day before this" and an owner typing the
-                                  // last day of a sale would end it early. ?>
-                            <p class="form-help">
-                                The code still works on this day and stops the
-                                day after. Blank for never.
-                            </p>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-min">Minimum spend</label>
+                                <input class="input input--short" type="text" id="f-min" name="min_spend"
+                                       value="<?= h((string) $minShown) ?>"
+                                       autocomplete="off" spellcheck="false"
+                                       inputmode="decimal">
+                                <p class="form-help">
+                                    The goods have to come to at least this much.
+                                    Blank for no minimum. Measured before
+                                    delivery, so a customer cannot reach it by
+                                    choosing dearer postage.
+                                </p>
+                            </div>
                         </div>
 
                         <div class="field">
@@ -315,6 +317,15 @@ ob_start();
                                 you can turn it back on.
                             </p>
                         </div>
+                    </div>
+
+                    <?php // THE FORM'S OWN FOOT, as every settings form has it:
+                          // the page header's buttons scroll away long before
+                          // the last field. ?>
+                    <div class="form-card__section form-actions">
+                        <a class="link link--xs" href="<?= h(Url::admin('coupons')) ?>">Cancel</a>
+                        <div class="form-actions__spacer"></div>
+                        <button type="submit" class="btn btn--primary"><?= $isNew ? 'Create code' : 'Save changes' ?></button>
                     </div>
 
                 </div>

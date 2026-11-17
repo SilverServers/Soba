@@ -10,8 +10,9 @@ declare(strict_types=1);
  *
  * An entry is drawn by the SAME card every other list of entries uses
  * (`partials/post-card.php`), handed its own type, as the term archive does —
- * a results list holds several types at once. A page gets the same shape by
- * hand: a title that is a link, and the start of what it says.
+ * a results list holds several types at once. A page gets the same shape from
+ * `partials/page-result.php`: a title that is a link, and the start of what it
+ * says. A static copy's search draws both the same way.
  */
 ?>
 
@@ -45,26 +46,8 @@ declare(strict_types=1);
                     <?php $p = $result['row']; $cardType = $result['type']; ?>
                     <?php require \Cms\Helpers\Template::locate('partials/post-card.php'); ?>
                 <?php elseif ($result['kind'] === 'page'): ?>
-                    <?php
-                    $row     = $result['row'];
-                    // `Post::summary()` — this template's own cut was the one
-                    // that knew a block's end is a word boundary ("in one
-                    // place.</p><p>News" stripped to "place.News", measured on
-                    // the seed's home page). That knowledge lives there now, for
-                    // the card and the home page too. A page has no excerpt, so
-                    // it always gets the start of its text.
-                    $summary = \Cms\Models\Post::summary($row);
-                    ?>
-                    <li class="post-list__item">
-                        <h2 class="post-list__title">
-                            <a href="<?= htmlspecialchars(\Cms\Helpers\Url::page((string) $row['slug'])) ?>"><?= htmlspecialchars((string) $row['title']) ?></a>
-                        </h2>
-                        <?php if ($summary['text'] !== ''): ?>
-                            <p class="post-list__excerpt">
-                                <?= htmlspecialchars($summary['text']) ?><?= $summary['cut'] ? '&hellip;' : '' ?>
-                            </p>
-                        <?php endif; ?>
-                    </li>
+                    <?php $row = $result['row']; ?>
+                    <?php require \Cms\Helpers\Template::locate('partials/page-result.php'); ?>
                 <?php endif; ?>
             <?php endforeach; ?>
         </ul>

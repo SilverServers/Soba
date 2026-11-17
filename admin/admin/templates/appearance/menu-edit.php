@@ -849,23 +849,23 @@ ob_start();
                           // from the ticks above — see the partial. ?>
                     <?php if (!$isNew) { require __DIR__ . '/_menu-location-cards.php'; } ?>
 
-                    <?php // ── SAVE AND DELETE ON ONE ROW ────────────────────
-                          // A primary Save and a red Delete alongside
-                          // it. Delete is a LINK and not a
-                          // button because it is not the action this screen is
-                          // for — and it posts to its own form below, since a
-                          // second submit inside this one would be one Enter
-                          // keypress in the name box from firing. ?>
+                    <?php // ── THE FOOTER EVERY FORM HAS ──────────────────────
+                          // Cancel at the left, the primary Save at the right.
+                          // Delete is a LINK beside Cancel, and not a button,
+                          // because it is not the action this screen is for —
+                          // and it posts to its own form below, since a second
+                          // submit inside this one would be one Enter keypress
+                          // in the name box from firing. ?>
                     <div class="form-card__section form-actions">
-                        <button type="submit" class="btn btn--primary">
-                            <?= $isNew ? 'Create menu' : 'Save menu' ?>
-                        </button>
+                        <a class="link link--xs" href="<?= h(Url::admin('appearance/menus')) ?>">Cancel</a>
                         <?php if (!$isNew): ?>
                             <button type="submit" class="link link--xs"
                                     form="menu-delete-form">Delete menu</button>
                         <?php endif; ?>
                         <div class="form-actions__spacer"></div>
-                        <a class="link link--xs" href="<?= h(Url::admin('appearance/menus')) ?>">Cancel</a>
+                        <button type="submit" class="btn btn--primary">
+                            <?= $isNew ? 'Create menu' : 'Save menu' ?>
+                        </button>
                     </div>
 
                 </div>

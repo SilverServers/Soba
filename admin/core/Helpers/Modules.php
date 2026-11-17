@@ -18,14 +18,14 @@ namespace Cms\Helpers;
  * switching it back on restores it as it was.
  *
  * Appearance itself is not a module: Themes and Branding are the CMS's own and
- * stay. `menus` takes Menus and the theme builder and customizer screens.
+ * stay. `menus` takes Menus.
  */
 final class Modules
 {
     /** @var array<string, string> every switchable module => what switching it off removes */
     public const ALL = [
         'pages'        => 'static pages: their admin screens, the public page address (/{slug}), the pages sitemap and export',
-        'menus'        => 'Appearance → Menus, the menu API, and the theme builder and customizer screens',
+        'menus'        => 'Appearance → Menus and the menu API',
         'search'       => 'the public site search (/search)',
         'commerce'     => 'the shop: cart, checkout, order receipts, orders, discount codes, shop settings',
         'appointments' => 'the Appointment field type in the form builder',
@@ -58,8 +58,6 @@ final class Modules
         '/api/v1/menu-sources/pages'      => 'pages',
         '/sitemap-pages.xml'              => 'pages',
         '/admin/appearance/menus'         => 'menus',
-        '/admin/appearance/theme-builder' => 'menus',
-        '/admin/appearance/customizer'    => 'menus',
         '/api/v1/menus'                   => 'menus',
         '/api/v1/menu-sources'            => 'menus',
         '/search'                         => 'search',

@@ -30,7 +30,7 @@ use Cms\Security\Csrf;
  *                                                  list the form is off-screen
  *
  * Left out: bulk-action checkboxes, groups, search and filter bars, a repeated
- * footer header, and Log / 404s / Import / Export tabs. The Code column keeps
+ * footer header, and Log / Import / Export tabs. The Code column keeps
  * the word with the code after it rather than a bare `301`, because a status
  * code is not what the owner of the site came here knowing.
  *
@@ -43,7 +43,15 @@ use Cms\Security\Csrf;
  * NO DISABLED CONTROLS AND NO ROWS WITHOUT VERBS. Every rule here is editable
  * and deletable, because every rule here was typed in here.
  *
+ * ── NOT FOUND ───────────────────────────────────────────────────────────────
+ * Under the rules, the addresses visitors asked for that answered "not found"
+ * (`SEO\NotFound`), the most asked-for first: how often, when last, and what
+ * linked there. Add redirect fills the form below with the address, for the
+ * owner to say where it goes; once a rule answers it, it leaves this list.
+ * Absent when there are none.
+ *
  * @var list<array<string, mixed>>   $redirects
+ * @var array{rows: list<array<string, mixed>>, total: int} $notFound
  * @var array<string, mixed>|null    $form       rule under edit, or a rejected
  *                                               submission handed back
  * @var list<string>                 $errors
@@ -232,6 +240,77 @@ ob_start();
                     </div>
                 </div>
             <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($notFound['rows'] !== []): ?>
+        <div class="form-card rd-missing" id="not-found">
+            <div class="form-card__section">
+                <div class="panel-head">
+                    <?= panel_title('Not found', 'not-found') ?>
+                    <form class="form-inline" method="post"
+                          action="<?= h(Url::admin('tools/redirects/not-found/clear')) ?>"
+                          data-confirm="Clear the list of addresses not found?"
+                          data-confirm-detail="It fills again as visitors ask for addresses that are not there."
+                          data-confirm-verb="Clear list">
+                        <?= Csrf::field() ?>
+                        <button type="submit" class="btn btn--sm">Clear list</button>
+                    </form>
+                </div>
+                <?php // The redirects list's cells and labels, so the two read
+                      // alike: the address (and what linked to it) where a
+                      // rule's addresses are, then its count and its date. A
+                      // list of its own, so nothing reading the rules reads
+                      // these as rules. ?>
+                <div class="list list--bleed rd-missing__list">
+                    <div class="list__row rd-list__head">
+                        <div class="rd-list__main">URL</div>
+                        <div class="rd-list__count">Hits</div>
+                        <div class="rd-list__seen">Last asked for</div>
+                        <div class="list__row-actions" aria-hidden="true"></div>
+                    </div>
+                    <?php foreach ($notFound['rows'] as $miss): ?>
+                        <?php
+                        $mPath = (string) $miss['path'];
+                        $mHits = (int) $miss['hits'];
+                        $mRef  = trim((string) ($miss['referrer'] ?? ''));
+                        $mAdd  = Url::admin('tools/redirects') . '?from=' . rawurlencode($mPath) . '#redirect-form';
+                        ?>
+                        <div class="list__row" data-missing="<?= h($mPath) ?>">
+                            <div class="rd-list__main">
+                                <a class="list__row-link list__row-title rd-list__from" href="<?= h($mAdd) ?>"><?= h($mPath) ?></a>
+                                <?php if ($mRef !== ''): ?>
+                                    <div class="list__row-sub rd-list__to">
+                                        <?= icon('link', 'rd-list__arrow icon icon--sm') ?>
+                                        <span class="rd-list__target"><?= h($mRef) ?></span>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <div class="rd-list__count">
+                                <?= h(number_format($mHits)) ?><span class="rd-list__unit">
+                                    <?= $mHits === 1 ? 'hit' : 'hits' ?></span>
+                            </div>
+                            <div class="rd-list__seen">
+                                <span class="rd-list__unit rd-list__seen-label">Last asked for</span>
+                                <?= h(Dates::short((string) $miss['last_seen'])) ?>
+                            </div>
+                            <div class="list__row-actions">
+                                <a class="btn btn--sm" href="<?= h($mAdd) ?>">Add redirect</a>
+                                <form class="form-inline" method="post"
+                                      action="<?= h(Url::admin('tools/redirects/not-found/' . (int) $miss['id'] . '/dismiss')) ?>">
+                                    <?= Csrf::field() ?>
+                                    <button type="submit" class="link link--xs">Dismiss</button>
+                                </form>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php if ($notFound['total'] > count($notFound['rows'])): ?>
+                    <p class="form-help rd-missing__more">
+                        <?= h(number_format($notFound['total'] - count($notFound['rows']))) ?> more, asked for less often.
+                    </p>
+                <?php endif; ?>
+            </div>
         </div>
     <?php endif; ?>
 

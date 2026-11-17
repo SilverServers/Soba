@@ -42,8 +42,8 @@ final class FieldDisplay
             'rich_text'    => Sanitizer::clean((string) $stored),
             'textarea'     => nl2br(self::text((string) $stored), false),
             'number'       => self::text((string) $stored),
-            'date'         => self::when((string) $stored, 'F j, Y'),
-            'datetime'     => self::when((string) $stored, 'F j, Y · g:i A'),
+            'date'         => self::when((string) $stored, false),
+            'datetime'     => self::when((string) $stored, true),
             'select'       => self::text((string) (($field['options'] ?? [])[$stored] ?? $stored)),
             // A TICK SAYS YES OR NOTHING. "No" under a label reads as a claim
             // the owner never made; an unticked box is the field not applying.
@@ -63,20 +63,26 @@ final class FieldDisplay
     }
 
     /**
-     * A DATE AS THE OWNER MEANT IT, in the theme's format ("October 1, 2019",
-     * as the single prints a publish date).
+     * A DATE AS THE OWNER MEANT IT, in the owner's formats (Settings →
+     * General), as every date on the site is printed.
      *
-     * Not through `Dates`, which reads a stored MOMENT as UTC and moves it into
-     * the site's zone — right for a publish time, wrong here. A field holds the
-     * owner's own local date, and moving it would print 30 September for a
-     * 1 October event in Vancouver. Parsed and printed in the same zone, as
-     * the single's event block does, so nothing moves.
+     * As typed (`Dates::asTyped()`), not as a stored moment (`Dates::short()`,
+     * which reads UTC and moves it into the site's zone: right for a publish
+     * time, wrong here). A field holds the owner's own local date, and moving
+     * it would print 30 September for a 1 October event in Vancouver. What is
+     * not a date is printed as it was typed.
      */
-    private static function when(string $stored, string $format): string
+    private static function when(string $stored, bool $withTime): string
     {
-        $ts = strtotime(FieldRenderer::plain($stored));
+        $plain = FieldRenderer::plain($stored);
+        $day   = \Cms\Helpers\Dates::asTyped($plain, \Cms\Helpers\Dates::dateFormat());
+        if ($day === '') {
+            return self::text($stored);
+        }
 
-        return $ts === false ? self::text($stored) : htmlspecialchars(date($format, $ts), ENT_QUOTES, 'UTF-8');
+        return htmlspecialchars($withTime
+            ? $day . ' · ' . \Cms\Helpers\Dates::asTyped($plain, \Cms\Helpers\Dates::timeFormat())
+            : $day, ENT_QUOTES, 'UTF-8');
     }
 
     /** A web or mail address is a link; anything else is text. */
@@ -104,7 +110,10 @@ final class FieldDisplay
         $w = (int) ($row['width'] ?? 0);
         $h = (int) ($row['height'] ?? 0);
 
+        $set = \Cms\Media\Sizes::srcset($row);
+
         return '<img src="' . htmlspecialchars(Media::getUrl($id), ENT_QUOTES, 'UTF-8') . '"'
+            . ($set !== '' ? ' srcset="' . htmlspecialchars($set, ENT_QUOTES, 'UTF-8') . '" sizes="(min-width: 860px) 860px, 100vw"' : '')
             . ' alt="' . htmlspecialchars((string) ($row['alt_text'] ?? ''), ENT_QUOTES, 'UTF-8') . '"'
             . ($w > 0 && $h > 0 ? ' width="' . $w . '" height="' . $h . '"' : '')
             . ' loading="lazy">';
@@ -142,7 +151,7 @@ final class FieldDisplay
         $links = [];
         foreach ((array) json_decode($stored, true) as $id) {
             $post = Post::find((int) $id);
-            if ($post === null || $post['status'] !== 'published' || Post::isScheduled($post)) {
+            if ($post === null || $post['status'] !== 'published' || Post::isScheduled($post) || Post::hasEnded($post)) {
                 continue;
             }
             $type = Registry::get((string) $post['post_type']);

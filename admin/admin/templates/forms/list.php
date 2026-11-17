@@ -61,7 +61,7 @@ ob_start();
             </div>
         </div>
     <?php else: ?>
-        <div class="list entry-list user-list">
+        <div class="list entry-list user-list form-list">
             <?php foreach ($forms as $form): ?>
                 <?php
                 $formId  = (int) $form['id'];
@@ -127,6 +127,15 @@ ob_start();
                     </div>
 
                     <div class="list__row-actions">
+                        <?php // A FORM COPIED to start the next one: its fields
+                              // and settings, not its submissions or its place. ?>
+                        <form method="post" action="<?= h(Url::admin('forms/' . $formId . '/copy')) ?>">
+                            <?= Csrf::field() ?>
+                            <button type="submit" class="icon-btn"
+                                    data-tip="Copy form" aria-label="Copy form">
+                                <?= icon('copy', 'icon') ?>
+                            </button>
+                        </form>
                         <form method="post"
                               action="<?= h(Url::admin('forms/' . $formId . '/delete')) ?>"
                               data-confirm="Delete the <?= h((string) $form['title']) ?> form?"

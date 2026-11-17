@@ -270,8 +270,10 @@ $tabUrl = static fn (string $key): string
 
                         <div class="field">
                             <label class="label" for="f-org-name">Name</label>
+                            <?php // Empty, the business's name stands in (Business details). ?>
                             <input class="input" type="text" id="f-org-name" name="seo_org_name"
-                                   value="<?= h($opt('seo_org_name')) ?>">
+                                   value="<?= h($opt('seo_org_name')) ?>"
+                                   placeholder="<?= h(\Cms\Site\Business::get()['name'] ?: \Cms\SEO\Head::globalTokens()['site_name']) ?>">
                         </div>
 
                         <div class="field">
@@ -357,6 +359,38 @@ $tabUrl = static fn (string $key): string
                         </div>
                     </div>
 
+                    <?php // ASKED FIRST (`Site\Google::asks()`): on until the box is
+                          // unticked, for every site, those from before it too. ?>
+                    <div class="form-card__section">
+                        <?= panel_title('Asking visitors', 'google-consent') ?>
+                        <div class="field">
+                            <label class="check-list__row" for="f-google-consent">
+                                <input type="checkbox" id="f-google-consent" name="google_consent" value="1"
+                                       <?= $opt('google_consent') === '0' ? '' : 'checked' ?>>
+                                <span>Ask visitors before measuring</span>
+                            </label>
+                            <p class="form-help">
+                                Nothing loads from Google until a visitor accepts, as Quebec's Law 25 and the GDPR ask.
+                                The answer is kept for a year, and the footer's Cookie settings asks again.
+                            </p>
+                        </div>
+                        <div class="field">
+                            <label class="label" for="f-google-consent-words">What the question says</label>
+                            <textarea class="textarea" id="f-google-consent-words" name="google_consent_words" rows="2"
+                                      maxlength="500" placeholder="<?= h(\Cms\Site\Google::CONSENT_WORDS) ?>"><?= h($opt('google_consent_words')) ?></textarea>
+                        </div>
+                        <div class="field field--narrow">
+                            <label class="label" for="f-google-consent-page">The page it links to</label>
+                            <select class="select" id="f-google-consent-page" name="google_consent_page">
+                                <option value="">None</option>
+                                <?php foreach (\Cms\Models\Page::all() as $_consentPage): ?>
+                                    <?php if ((string) $_consentPage['status'] !== 'published') { continue; } ?>
+                                    <option value="<?= (int) $_consentPage['id'] ?>"<?= $opt('google_consent_page') === (string) $_consentPage['id'] ? ' selected' : '' ?>><?= h((string) $_consentPage['title']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="form-card__section">
                         <?= panel_title('Events', 'google-events') ?>
                         <div class="field">
@@ -371,6 +405,12 @@ $tabUrl = static fn (string $key): string
                                 A form's own event is set on the form, under After submitting.
                             </p>
                         </div>
+                        <?php if (\Cms\Site\Google::siteSendsConversions()): ?>
+                            <p class="form-help">
+                                This site's own pages send its form conversions (<code>site_sends_conversions</code> in config.php):
+                                each real submission's is carried to its form's after-sending page, which takes it.
+                            </p>
+                        <?php endif; ?>
                         <?php if (!\Cms\Site\Google::sends()): ?>
                             <p class="form-help">
                                 This copy of the site is not in production (<code>app_env</code> in config.php), so its pages

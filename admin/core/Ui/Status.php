@@ -69,13 +69,20 @@ final class Status
     {
         return [
             'scheduled' => ['label' => 'Scheduled', 'icon' => 'clock', 'class' => ''],
+            // Published or password-protected, and its unpublish date has
+            // come (Post::hasEnded()): off the site, as Private is. Neutral,
+            // for the same reason; the hourglass is time that has run out.
+            'ended'     => ['label' => 'Ended', 'icon' => 'hourglass', 'class' => ''],
         ];
     }
 
-    /** The state an entry's chip shows: stored, or derived from its date. */
+    /** The state an entry's or a page's chip shows: stored, or derived from its dates. */
     public static function forEntry(array $row): string
     {
-        return \Cms\Models\Post::isScheduled($row) ? 'scheduled' : (string) ($row['status'] ?? '');
+        if (\Cms\Models\Post::isScheduled($row)) {
+            return 'scheduled';
+        }
+        return \Cms\Models\Post::hasEnded($row) ? 'ended' : (string) ($row['status'] ?? '');
     }
 
     /** Just the labels — for the STATUS SELECT, which offers what can be stored. */
@@ -86,7 +93,7 @@ final class Status
 
     /**
      * Labels for a LIST FILTER: what can be stored plus what can be shown, with
-     * Scheduled beside Published. A derived state is not something you choose
+     * Scheduled and Ended beside Published. A derived state is not something you choose
      * in the entry's select — it is a date you set — but it is something you
      * look for in a list.
      *

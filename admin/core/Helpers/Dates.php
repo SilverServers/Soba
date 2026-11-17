@@ -80,14 +80,52 @@ final class Dates
     }
 
     /**
-     * A stored moment in a format the THEME chooses — the public templates
-     * print "September 23, 2026" whatever the admin's own format is — but
-     * always in the site's zone. A date on the site and the same date in the
-     * admin must not disagree about which day it was.
+     * A stored moment in a format the CALLER chooses (a time zone's name, a
+     * machine's format), always in the site's zone. A date a person reads is
+     * `short()` or `stamp()`, in the owner's format, on the site as in the
+     * admin: the two must not disagree about which day it was, or how it is
+     * written.
      */
     public static function format(string|int|null $when, string $format): string
     {
         return self::render($when, $format);
+    }
+
+    /**
+     * A WALL-CLOCK TIME AS TYPED (an event's start, a field's value) in
+     * `$format`, with no zone applied: it is the site's local time already,
+     * and converting it as `format()` converts a stored moment would move it.
+     * '' for none, or for what is not a time.
+     */
+    public static function asTyped(?string $value, string $format): string
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+        try {
+            return (new \DateTimeImmutable($value, new \DateTimeZone('UTC')))->format($format);
+        } catch (\Exception) {
+            return '';
+        }
+    }
+
+    /**
+     * The owner's date format (Settings → General), for a date typed as the
+     * site's own (an event's day, a date field) printed with `asTyped()`.
+     */
+    public static function dateFormat(): string
+    {
+        return self::formats()['date'];
+    }
+
+    /**
+     * The owner's time format (Settings → General), for a time typed as the
+     * site's own: a 24-hour site's evening meeting is at 18:30.
+     */
+    public static function timeFormat(): string
+    {
+        return self::formats()['time'];
     }
 
     /**

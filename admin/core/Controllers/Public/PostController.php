@@ -32,16 +32,19 @@ class PostController
             return;
         }
 
-        // Private: require login
-        if ($post['status'] === 'private' && !Auth::check()) {
+        // Private: require login — or the entry's share link while it works
+        // (`Content\Share`), which opens it as signing in would.
+        $shared = !Auth::check() && \Cms\Content\Share::grants('post', (int) $post['id']);
+        if ($post['status'] === 'private' && !Auth::check() && !$shared) {
             Template::notFound($this->postTypeKey);
             return;
         }
 
         // SCHEDULED: published, with a date still to come. A visitor gets the
         // 404 a private entry gives; a signed-in owner gets the page, so the
-        // address works as a preview of what goes out.
-        if (Post::isScheduled($post) && !Auth::check()) {
+        // address works as a preview of what goes out. ENDED, its unpublish
+        // date come, is the same to a visitor.
+        if ((Post::isScheduled($post) || Post::hasEnded($post)) && !Auth::check() && !$shared) {
             Template::notFound($this->postTypeKey);
             return;
         }
@@ -178,6 +181,7 @@ class PostController
             'og_type'     => 'article',
             'og_image'    => $ogImage,
             'schema_json' => Schema::encode($graph),
+            'feeds'       => [(string) $this->postTypeKey],
         ]);
 
         // A WHOLE-PAGE THEME renders the entire page when it has a template

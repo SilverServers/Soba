@@ -35,7 +35,13 @@ use Cms\Security\Csrf;
  * also says where it came from — the page, the browser — and whether the
  * notification email went.
  *
+ * ── AN EMAIL THAT COULD NOT BE SENT CAN BE SENT AGAIN ───────────────────────
+ * "Send the email again" in the header, only while the panel says "Could not
+ * be sent" (`FormController::handleResend()`); what came of it shows at the
+ * top, once.
+ *
  * @var array<string, mixed> $submission  id, form_id, data, status, spam_reason, source_page, is_read, ip_address, user_agent, notified, submitted_at
+ * @var array<string, mixed>|null $resent  what "Send the email again" just did: sent, to, why
  * @var array<string, mixed> $form
  * @var array<string, mixed> $user
  */
@@ -43,6 +49,8 @@ use Cms\Security\Csrf;
 $sid       = (int) $submission['id'];
 $formId    = (int) $form['id'];
 $isSpam    = ($submission['status'] ?? 'received') === 'spam';
+$resent    = $resent ?? null;
+$failed    = !$isSpam && ($submission['notified'] ?? null) !== null && (int) $submission['notified'] === 0;
 $pageTitle = 'Submission #' . $sid;
 if ($isSpam) {
     $sidebarHere = '/admin/forms/spam';
@@ -118,6 +126,12 @@ ob_start();
                     <button type="submit" class="btn btn--primary">Not spam</button>
                 </form>
             <?php else: ?>
+                <?php if ($failed): ?>
+                    <form method="post" action="<?= h(Url::admin('forms/submissions/' . $sid . '/resend')) ?>" data-resend>
+                        <?= Csrf::field() ?>
+                        <button type="submit" class="btn btn--primary">Send the email again</button>
+                    </form>
+                <?php endif; ?>
                 <form method="post" action="<?= h(Url::admin('forms/submissions/' . $sid . '/spam')) ?>">
                     <?= Csrf::field() ?>
                     <button type="submit" class="btn">Mark as spam</button>
@@ -133,6 +147,20 @@ ob_start();
             </form>
         </div>
     </div>
+
+    <?php if ($resent !== null && !empty($resent['sent'])): ?>
+        <div class="flashes">
+            <div class="flash flash--success" data-resent="sent">The email went to <?= h((string) $resent['to']) ?>.</div>
+        </div>
+    <?php elseif ($resent !== null): ?>
+        <div class="alert alert--danger" data-resent="failed">
+            <?= icon('triangle-exclamation', 'alert__icon icon', '', 18) ?>
+            <div class="alert__body">
+                <p class="alert__title">The email still could not be sent</p>
+                <p class="alert__text"><?= h(ucfirst((string) $resent['why'])) ?>.</p>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <div class="form-main">
         <div class="form-card">
@@ -229,6 +257,14 @@ ob_start();
                         <div class="kv-list__row">
                             <span class="kv-list__key">Email</span>
                             <span class="kv-list__val"><?= (int) $submission['notified'] === 1 ? 'Sent' : 'Could not be sent' ?></span>
+                        </div>
+                    <?php endif; ?>
+                    <?php // A TEST, sent from the form's test address: its email
+                          // went to the test inbox alone. ?>
+                    <?php if ((int) ($submission['is_test'] ?? 0) === 1): ?>
+                        <div class="kv-list__row" data-test-mark>
+                            <span class="kv-list__key">Test</span>
+                            <span class="kv-list__val">Sent from the test address; its email went to the test inbox alone</span>
                         </div>
                     <?php endif; ?>
                 </div>

@@ -91,9 +91,24 @@
 
         q('[data-md-name]').textContent     = current.name;
         q('[data-md-mime]').textContent     = current.mime;
-        q('[data-md-uploaded]').textContent = current.uploaded;
         q('[data-md-size]').textContent     = current.size +
             (current.width && current.height ? ' · ' + current.width + ' × ' + current.height : '');
+
+        // THE DATES: boxes for an editor, facts for anyone else — the template
+        // draws one or the other. Date taken is a photo's, so a document has
+        // no box for it and no empty row.
+        var added = q('[data-md-added]');
+        if (added) { added.value = current.added || ''; }
+        var taken = q('[data-md-taken]');
+        if (taken) { taken.value = current.taken || ''; }
+        var takenField = q('[data-md-taken-field]');
+        if (takenField) { takenField.hidden = !current.is_image; }
+        var addedText = q('[data-md-added-text]');
+        if (addedText) { addedText.textContent = current.added_text || ''; }
+        var takenText = q('[data-md-taken-text]');
+        if (takenText) { takenText.textContent = current.taken_text || ''; }
+        var takenRow = q('[data-md-taken-row]');
+        if (takenRow) { takenRow.hidden = !current.taken_text; }
 
         // PREVIEW. An image previews as itself; anything else shows the tile's
         // own glyph rather than a broken <img>, which is what an `<img>` with a
@@ -256,6 +271,22 @@
         if (folder) { body.append('folder_id', folder.value); }
         var vis = q('[data-md-visibility]');
         if (vis) { body.append('visibility', vis.value); }
+        // A DATE IS SENT ONLY WHEN IT WAS CHANGED. The box holds minutes, and
+        // the server keeps the stored seconds for a date that comes back as
+        // it went out — but a date nobody touched has no reason to travel.
+        // A DATE THAT CANNOT BE SAVED IS SAID HERE, before anything is sent: a
+        // file always has a date added, and a box with half a date in it
+        // (`badInput`) reads as empty. The server refuses both as well.
+        var added = q('[data-md-added]');
+        if (added && added.value !== (current.added || '')) {
+            if (added.value === '' || !added.validity.valid) { say('Date added needs a date and a time.', true); return; }
+            body.append('created_at', added.value);
+        }
+        var taken = q('[data-md-taken]');
+        if (taken && current.is_image && (taken.value !== (current.taken || '') || !taken.validity.valid)) {
+            if (!taken.validity.valid) { say('Date taken needs a date and a time, or nothing.', true); return; }
+            body.append('taken_at', taken.value);
+        }
 
         btn.disabled = true;
         CMS.post('/api/v1/media/' + current.id + '/update', body)
@@ -272,6 +303,8 @@
                 current.alt        = alt ? alt.value : current.alt;
                 current.folder_id  = folder ? (folder.value === '' ? null : parseInt(folder.value, 10)) : current.folder_id;
                 current.visibility = vis ? vis.value : current.visibility;
+                if (added) { current.added = added.value; }
+                if (taken && current.is_image) { current.taken = taken.value; }
                 if (data && data.url) { current.url = data.url; q('[data-md-url]').value = data.url; }
 
                 if (tile) {

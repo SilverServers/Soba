@@ -404,7 +404,7 @@ $action = $isNew
                               // `content-types` is the registered key the sidebar
                               // row uses, so the panel and the destination it is
                               // about cannot end up wearing different marks. ?>
-                        <?= panel_title('Files', 'content-types') ?>
+                        <?= panel_title('Used by', 'content-types') ?>
                         <?php if ($allContentTypes === []): ?>
                             <p class="form-help">
                                 No content types are registered, so this taxonomy

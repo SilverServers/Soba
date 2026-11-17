@@ -25,6 +25,8 @@ use Cms\Ui\Icons;
  * Supported shortcodes:
  *   [gallery id="N"]  — renders a gallery's images
  *   [form id="N"]     — renders a contact form
+ *   [phone], [phone key], [sms], [email], [hours]
+ *                     — the business's details (`Site\Business::shortcodes()`)
  *   [video youtube="ID" start="S" title="T"]
  *                     — a YouTube video an earlier release stored this way,
  *                       drawn as YouTube's own embed. A video is pasted as
@@ -55,6 +57,8 @@ class Shortcode
 
         // [video …] — `videos()`, which a whole-page theme also calls alone.
         $content = self::videos($content);
+        // [phone], [email], [hours] … — the business's details as they are now.
+        $content = \Cms\Site\Business::shortcodes($content);
 
         return $content;
     }
@@ -152,7 +156,12 @@ class Shortcode
                 $html .= '<a href="' . htmlspecialchars($href) . '"'
                        . ($lightbox ? ' data-lightbox="gallery-' . $galleryId . '"' : '') . '>';
             }
-            $html .= '<img src="' . htmlspecialchars($thumb !== '' ? $thumb : $url) . '" alt="' . $alt . '" loading="lazy">';
+            // Without a thumbnail, the image's own smaller widths, at a column's width.
+            $set   = $thumb === '' && $visibility !== 'private' ? \Cms\Media\Sizes::srcset((int) $item['attachment_id']) : '';
+            $html .= '<img src="' . htmlspecialchars($thumb !== '' ? $thumb : $url) . '"'
+                   . ($set !== '' ? ' srcset="' . htmlspecialchars($set) . '" sizes="(min-width: 860px) ' . (int) ceil(860 / max(1, $columns))
+                       . 'px, ' . (int) ceil(100 / max(1, $columns)) . 'vw"' : '')
+                   . ' alt="' . $alt . '" loading="lazy">';
             if ($href !== '') {
                 $html .= '</a>';
             }
@@ -263,6 +272,14 @@ class Shortcode
             return '<!-- Form #' . $formId . ' has no fields -->';
         }
 
+        // A STATIC COPY (`Export\StaticCopy`) DRAWS A FORM ONLY WHERE IT CAN
+        // SEND IT, to its own handler (`Export\Forms`); anywhere else the
+        // form's place shows the words given for it.
+        $exporting = defined('CMS_EXPORT') && is_array(CMS_EXPORT);
+        if ($exporting && \Cms\Export\Forms::unsendable($form, (bool) (CMS_EXPORT['php'] ?? false)) !== null) {
+            return \Cms\Export\Forms::instead($formId, (string) (CMS_EXPORT['instead'] ?? ''));
+        }
+
         // ESCAPED ONCE, for the button and for the attribute form.js reads
         // when it puts the button back after a failed send: the browser hands
         // the script the words as typed, so "Send & go" comes back as itself.
@@ -273,7 +290,9 @@ class Shortcode
         // PATH (`Url::path()`): the post goes to whichever host the page was
         // read on, so a site answering on `www.` and on its bare name, with a
         // Content-Security-Policy of `form-action 'self'`, takes it on both.
-        $actionUrl      = \Cms\Helpers\Url::path('forms/' . $formId . '/submit');
+        $actionUrl      = $exporting
+            ? \Cms\Export\Forms::action($formId)
+            : \Cms\Helpers\Url::path('forms/' . $formId . '/submit');
 
         // SENT WITHOUT JAVASCRIPT. A browser
         // that posted the form itself comes back to this page marked
@@ -457,8 +476,12 @@ class Shortcode
             // A CAPTCHA IS A CHALLENGE, NOT A QUESTION. It collects nothing
             // that is stored: `Forms\Captcha` checks it before any field is
             // read, and `input: false` keeps it out of the submission.
+            // IN THE WRAPPER THE LOOP OPENED, closed once like every other
+            // field's. A second wrapper here, closed alone, left the first
+            // open: the browser put the form's thank-you inside the form,
+            // which form.js hides once the message has gone, so a form with a
+            // captcha thanked nobody.
             if ($type === 'captcha') {
-                $html .= '<div class="cms-form__field" data-field="_captcha">';
                 if ($label !== '') {
                     $html .= '<span class="cms-form__label">' . $label . '</span>';
                 }
@@ -596,7 +619,7 @@ class Shortcode
                     // The Options list names the columns; `repeater.js` clones
                     // the first row and renumbers. It posts `name[row][column]`
                     // — the same array shape Name and Address established, so
-                    // `readValue` reads it with the machinery already there.
+                    // `Forms\Answers::read()` reads it with the machinery already there.
                     //
                     // ONE ROW IS RENDERED SERVER-SIDE, so a visitor with no
                     // JavaScript can still answer once. That is a smaller
@@ -760,10 +783,13 @@ class Shortcode
                     // client is free to ignore.
                     $html .= '<input type="file" name="' . $name . '" id="' . $inputId . '"'
                            . ' class="cms-form__file"'
-                           . ' accept="' . htmlspecialchars(Upload::acceptAttribute()) . '"'
+                           . ' accept="' . htmlspecialchars(Upload::acceptAttribute($field)) . '"'
                            . $descAttr . $reqAttr . '>';
+                    // The kinds it takes when the field names some, and the size.
                     $limitMb = round(Upload::limitFor($field) / 1024 / 1024, 1);
-                    $html .= '<p class="cms-form__hint">Up to ' . $limitMb . ' MB.</p>';
+                    $kinds   = Upload::namesFor($field);
+                    $html .= '<p class="cms-form__hint">'
+                           . ($kinds !== '' ? htmlspecialchars($kinds) . ', up to ' : 'Up to ') . $limitMb . ' MB.</p>';
                     $hasUpload = true;
                     break;
 
@@ -865,7 +891,7 @@ class Shortcode
                     // A SCALE ASKED SEVERAL TIMES. Each row is a statement from
                     // the Options list and posts its own answer under
                     // `name[row]`, which is the same array shape Name and
-                    // Address post — so `readValue`'s composite branch reads it
+                    // Address post — so `Forms\Answers::read()`'s composite branch reads it
                     // and nothing new is needed to store it.
                     $rows = self::choices($field);
                     $cols = self::likertColumns($field);
@@ -901,7 +927,7 @@ class Shortcode
                     // ON OR OFF, AND IT READS AS BOTH. A checkbox is "tick this
                     // if it applies"; a toggle is a setting with two states, so
                     // it gets a track and a knob rather than a box. It posts the
-                    // same '1' or nothing, so `readValue`'s checkbox branch
+                    // same '1' or nothing, so `Forms\Answers::read()`'s checkbox branch
                     // covers it and nothing downstream knows the difference.
                     $html .= '<label class="cms-form__toggle">';
                     $html .= '<input type="checkbox" name="' . $name . '" value="1"'
@@ -1031,6 +1057,18 @@ class Shortcode
         if ($hasRanking) {
             $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/reorder.js')) . '"></script>';
             $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/ranking.js')) . '"></script>';
+        }
+
+        // IN A STATIC COPY the page was drawn when the copy was made, and so
+        // was its token: form-copy.js asks the copy's handler for a fresh one
+        // as the page loads. Without a script nothing can, so the visitor is
+        // told, with the words given for a form the copy cannot send.
+        // Opened from a folder, nothing can send it either: the words wait,
+        // hidden, for form-copy.js to put them in the form's place.
+        if ($exporting) {
+            $html .= \Cms\Export\Forms::noscript((string) (CMS_EXPORT['instead'] ?? ''));
+            $html .= \Cms\Export\Forms::offline($formId, (string) (CMS_EXPORT['instead'] ?? ''));
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/form-copy.js')) . '"></script>';
         }
 
         // SENT BY SCRIPT, from this site's file (form.js) and nothing

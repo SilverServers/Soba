@@ -15,6 +15,32 @@ use PDO;
  */
 class MediaFolder
 {
+    /** The longest name a folder may have, in characters: what the name boxes allow. */
+    public const NAME_MAX = 100;
+
+    /**
+     * WHY A NAME CANNOT BE USED, or null when it can: for a new folder, or for
+     * folder `$id` renamed. One rule for every door that names a folder, the
+     * admin's and the API's, so a name refused in one is refused in all.
+     *
+     * The name is taken as given; trim it first. "Already a folder" is decided
+     * by the column's collation, so "Photos" and "photos" are one name.
+     */
+    public static function refusal(string $name, ?int $id = null): ?string
+    {
+        if ($name === '') {
+            return 'Give the folder a name.';
+        }
+        if (mb_strlen($name) > self::NAME_MAX) {
+            return 'A folder name can be ' . self::NAME_MAX . ' characters long at most.';
+        }
+        if (self::nameExists($name, $id)) {
+            return 'There is already a folder called "' . $name . '".';
+        }
+
+        return null;
+    }
+
     /**
      * Return all folders sorted by name, each with a file_count.
      *

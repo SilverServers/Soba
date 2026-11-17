@@ -357,6 +357,11 @@ class TaxonomyController
                 $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug) . ' starts with /'
                     . htmlspecialchars($segments[0]) . ', which this site already uses for something else.';
                 $publicSlug = '';
+            } elseif ($segments !== [] && in_array($segments[0], \Cms\Site\Front::siteAddresses(), true)) {
+                // A site with its own router in front keeps its own addresses (`Site\Front`).
+                $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug) . ' starts with /'
+                    . htmlspecialchars($segments[0]) . ', one of the site\'s own pages, so its terms could never be reached.';
+                $publicSlug = '';
             }
 
             foreach (Registry::all() as $ctKey => $ct) {

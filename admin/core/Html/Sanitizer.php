@@ -286,6 +286,17 @@ final class Sanitizer
      * Empty in, empty out. Anything unparseable comes back as escaped text
      * rather than as nothing — losing an author's work to a parse error is a
      * worse failure than showing them their own angle brackets.
+     *
+     * WHAT COMES BACK IS WRITTEN AFRESH, NOT COPIED. The fragment is parsed and
+     * written out again, so what is kept is kept in one spelling: a named or
+     * numbered character reference becomes its character (`&eacute;` → é,
+     * `&nbsp;` → the no-break space itself, `&#x2014;` → —), and `&quot;` a
+     * plain `"`, an attribute holding one then written between single quotes.
+     * Only `&lt;`, `&gt;` and `&amp;` stay written out, and
+     * an `&` on its own, in text or in an address (`?a=1&b=2`), comes back as
+     * `&amp;`, which is what HTML has always taken it to mean. A page reads
+     * and links the same, but its source is not byte for byte what was typed,
+     * pasted or imported, and a second clean changes nothing more.
      */
     public static function clean(string $html): string
     {

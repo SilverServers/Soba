@@ -157,6 +157,7 @@ ob_start();
             </div>
 
             <div class="form-card__section form-actions">
+                <div class="form-actions__spacer"></div>
                 <button type="submit" class="btn btn--primary">Save counts</button>
             </div>
             </div>

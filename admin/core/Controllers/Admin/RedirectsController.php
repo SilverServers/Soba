@@ -6,6 +6,7 @@ namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
 use Cms\Helpers\Slug;
+use Cms\SEO\NotFound;
 use Cms\SEO\Redirects;
 
 /**
@@ -68,7 +69,14 @@ class RedirectsController
         Auth::requireRole('admin');
 
         $editing = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
-        $this->render($editing > 0 ? Redirects::find($editing) : null);
+        if ($editing > 0) {
+            $this->render(Redirects::find($editing));
+            return;
+        }
+        // ADD REDIRECT FROM A ROW OF NOT FOUND: the form comes filled with
+        // the address asked for, for the owner to say where it goes.
+        $from = isset($_GET['from']) && !is_array($_GET['from']) ? self::normalisePath((string) $_GET['from']) : '';
+        $this->render($from !== '' ? ['id' => 0, 'from_path' => $from, 'to_url' => '', 'type' => 301] : null);
     }
 
     /** POST /admin/tools/redirects — add a rule. */
@@ -93,6 +101,8 @@ class RedirectsController
         }
 
         Redirects::create($from, $to, $type);
+        // It is found now: off the list of addresses that were not.
+        NotFound::forget($from);
         $this->render(null, [], true);
     }
 
@@ -139,6 +149,26 @@ class RedirectsController
         exit;
     }
 
+    /** POST /admin/tools/redirects/not-found/{id}/dismiss — take one address off the list. */
+    public function dismissNotFound(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+
+        NotFound::dismiss((int) ($vars['id'] ?? 0));
+        header('Location: ' . ADMIN_URL . '/tools/redirects#not-found', true, 303);
+        exit;
+    }
+
+    /** POST /admin/tools/redirects/not-found/clear — empty the list. */
+    public function clearNotFound(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+
+        NotFound::clear();
+        header('Location: ' . ADMIN_URL . '/tools/redirects', true, 303);
+        exit;
+    }
+
     // ----------------------------------------------------------------
     // Rendering
     // ----------------------------------------------------------------
@@ -153,6 +183,7 @@ class RedirectsController
     {
         $user      = Auth::user();
         $redirects = Redirects::all();
+        $notFound  = NotFound::list(50);
 
         $pageTitle   = 'Redirects';
         $currentPage = 'redirects';

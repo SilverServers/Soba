@@ -228,9 +228,9 @@ final class Sidebar
             'themes'         => 'window-restore',
             // The site's own mark on the CMS (`Ui\Brand`).
             'branding'       => 'star',
+            // The public site's look: its dials (`Site\Look`).
+            'customizer'     => 'sliders',
             'menus'          => 'list-ul',
-            'theme-builder'  => 'table-columns',
-            'customizer'     => 'droplet',
 
             // Structure
             'content-types'  => 'layer-group',
@@ -268,8 +268,17 @@ final class Sidebar
             'commerce'       => 'box-open',
             'import-export'  => 'arrow-right-arrow-left',
             'redirects'      => 'share',
+            // THE SITE, TWICE: a copy of it for another host. NOT `copy`,
+            // which is Pages.
+            'static-copy'    => 'clone',
+            // A LINK, followed to see that it reaches something.
+            'broken-links'   => 'link',
+            // THE DISK THEY ARE KEPT ON.
+            'backups'        => 'hard-drive',
             'system-health'  => 'shield-halved',
             'settings'       => 'sliders',
+            // THE FRONT DESK: where a business meets the people it serves.
+            'business'       => 'bell-concierge',
 
             // Security
             'security-overview' => 'binoculars',

@@ -10,6 +10,11 @@
  * with a page or a redirect, and a fetch that did not say so would get that
  * page and report "Something went wrong" for a message that was sent. A real
  * submission's answer can carry its conversion, which `measure.js` sends.
+ *
+ * A FORM WITH AN AFTER-SENDING PAGE answers with it (`redirect`, a path on
+ * this site), and the browser goes there instead of showing the thank-you
+ * here, its button still disabled; the conversion, if any, waits for that
+ * page in a cookie.
  */
 (function () {
     'use strict';
@@ -26,6 +31,13 @@
         var wrap = form.closest('.cms-form');
         var msg = wrap ? wrap.querySelector('.cms-form__alert') : null;
         var label = form.getAttribute('data-submit-label') || 'Submit';
+
+        // BACK FROM THE AFTER-SENDING PAGE, a page the browser kept as it was
+        // left has its button disabled: it can send again.
+        window.addEventListener('pageshow', function (e) {
+            var btn = form.querySelector('.cms-form__submit');
+            if (e.persisted && btn) { btn.disabled = false; btn.textContent = label; }
+        });
 
         form.addEventListener('submit', function (e) {
             e.preventDefault();
@@ -44,6 +56,11 @@
                 .then(function (d) {
                     if (!d.success) {
                         failed(d.message || 'Something went wrong.');
+                        return;
+                    }
+                    // Only a path on this site: one slash, not two, and no backslash.
+                    if (typeof d.redirect === 'string' && /^\/(?![\/\\])/.test(d.redirect)) {
+                        window.location.assign(d.redirect);
                         return;
                     }
                     if (msg) {

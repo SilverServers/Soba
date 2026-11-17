@@ -39,10 +39,14 @@ class SeoController
     {
         $slug = $vars['slug'] ?? '';
 
-        // Find the Content Type key from its public slug
+        // THE TYPE PUBLISHED AT THIS ADDRESS. A type with no public address has
+        // no pages, so it has no map: its key is not an address, and a map
+        // under it would list `/{entry}` addresses that are all not found.
+        // Such a type is left out of the index, the routes and search alike.
         $contentTypeKey = null;
         foreach (Registry::all() as $key => $ct) {
-            if (($ct['public_slug'] ?? $key) === $slug) {
+            $public = trim((string) ($ct['public_slug'] ?? ''));
+            if ($public !== '' && $public === $slug) {
                 $contentTypeKey = $key;
                 break;
             }

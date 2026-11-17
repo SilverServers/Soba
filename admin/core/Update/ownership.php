@@ -67,10 +67,20 @@ return [
         // The operator scripts, by name: nothing else in admin/bin/ ships.
         // security.php is the way back in when the sign-in page has been moved
         // and nobody remembers where. run-due.php is what a host's cron runs.
+        // backup.php lists, makes and puts back the site's backups.
+        // export-static.php makes a static copy of the site where the admin
+        // cannot start PHP to make one. media-sizes.php makes the smaller
+        // widths of images added before they were made.
+        // media-dates.php corrects the library's dates, an imported archive's
+        // above all.
         'admin/bin/migrate.php',
         'admin/bin/update.php',
         'admin/bin/security.php',
         'admin/bin/run-due.php',
+        'admin/bin/backup.php',
+        'admin/bin/export-static.php',
+        'admin/bin/media-sizes.php',
+        'admin/bin/media-dates.php',
         '@admin',
         'www/assets/',
         'www/uploads/.htaccess',
@@ -93,6 +103,13 @@ return [
         'admin/site/',
         // Update backups, staged releases and the update history.
         'admin/updates/',
+        // Static copies of the site, and their archives (`Export\StaticCopy`).
+        'admin/exports/',
+        // The site's backups (`Site\Backups`).
+        'admin/backups/',
+        // WordPress exports waiting to be imported, and the imports' reports
+        // (`Content\WordPressImport`).
+        'admin/imports/',
         'admin/logs/',
         'www/uploads/',
         // The site's public files. www/site/theme.css and www/site/admin.css

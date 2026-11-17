@@ -25,6 +25,17 @@ use Cms\Security\Csrf;
  * status slot when the list holds more than one form, and when it arrived where
  * the entry list puts its date.
  *
+ * ── TESTS ───────────────────────────────────────────────────────────────────
+ * A test (`Forms\Notify::testInbox()`) says so beside its date. A list of
+ * received submissions that holds any offers a choice above it: every one,
+ * tests left out, or tests alone (`?test=none`, `?test=only`), a GET form, as
+ * `.filterbar--apply` is. A list with no test draws nothing new.
+ *
+ * ── AN EMAIL THAT COULD NOT BE SENT ────────────────────────────────────────
+ * says so beside its date, and the bulk bar's "Send the email again" sends the
+ * ticked ones that could not be sent (`FormController::resendMany()`); the
+ * report says how many went, how many still could not, and why.
+ *
  * ── A PAGE AT A TIME ────────────────────────────────────────────────────────
  * `FormController::listPage()` reads one page; the pager under the list is the
  * entry list's, plus a "Number of items per page" box. Nothing here ever holds
@@ -38,7 +49,11 @@ use Cms\Security\Csrf;
 $isSpam   = $list['status'] === FormSubmission::SPAM;
 $formId   = $list['formId'];
 $manyForm = $formId === null;
-$listUrl  = static fn (int $page): string => Url::admin((string) $list['path']) . ($page > 1 ? '?page=' . $page : '');
+$testQ    = ($list['test'] ?? null) === true ? 'only' : (($list['test'] ?? null) === false ? 'none' : '');
+$listUrl  = static function (int $page) use ($list, $testQ): string {
+    $query = http_build_query(array_filter(['page' => $page > 1 ? $page : null, 'test' => $testQ !== '' ? $testQ : null]));
+    return Url::admin((string) $list['path']) . ($query !== '' ? '?' . $query : '');
+};
 $noun     = static fn (int $n): string => $n . ' ' . ($n === 1 ? 'submission' : 'submissions');
 $report   = $list['report'];
 ?>
@@ -54,8 +69,18 @@ $report   = $list['report'];
                     'unread'   => $noun($done) . ' marked as unread.',
                     'not_spam' => $noun($done) . ' put back among the submissions, unread.',
                     'empty'    => 'Spam emptied: ' . $noun($done) . ' deleted.',
+                    'resend'   => ($done === 1 ? 'One email' : $done . ' emails') . ' sent again.',
                     default    => $noun($done) . ($isSpam ? ' deleted for good.' : ' deleted.'),
                 }) ?>
+            </div>
+        </div>
+    <?php endif; ?>
+    <?php if ((int) ($report['failed'] ?? 0) > 0): ?>
+        <div class="alert alert--danger alert--compact" data-bulk-failed>
+            <?= icon('triangle-exclamation', 'alert__icon icon', '', 15) ?>
+            <div>
+                <p class="alert__title"><?= (int) $report['failed'] === 1 ? 'One email' : (int) $report['failed'] . ' emails' ?> still could not be sent</p>
+                <p class="alert__text"><?= h(ucfirst((string) ($report['why'] ?? ''))) ?>.</p>
             </div>
         </div>
     <?php endif; ?>
@@ -65,8 +90,13 @@ $report   = $list['report'];
         <div class="alert alert--danger alert--compact" data-bulk-left>
             <?= icon('triangle-exclamation', 'alert__icon icon', '', 15) ?>
             <div>
-                <p class="alert__title"><?= h($noun((int) $report['left'])) ?> still in spam</p>
-                <p class="alert__text">Empty spam again to delete the rest.</p>
+                <?php if (($report['action'] ?? '') === 'resend'): ?>
+                    <p class="alert__title"><?= (int) $report['left'] === 1 ? 'One email' : (int) $report['left'] . ' emails' ?> still to send</p>
+                    <p class="alert__text">Send the email again on the same rows to send the rest.</p>
+                <?php else: ?>
+                    <p class="alert__title"><?= h($noun((int) $report['left'])) ?> still in spam</p>
+                    <p class="alert__text">Empty spam again to delete the rest.</p>
+                <?php endif; ?>
             </div>
         </div>
     <?php endif; ?>
@@ -75,16 +105,34 @@ $report   = $list['report'];
             <?= icon('triangle-exclamation', 'alert__icon icon', '', 15) ?>
             <div>
                 <p class="alert__title"><?= h($noun((int) $report['skipped'])) ?> not changed</p>
-                <p class="alert__text">No longer in this list.</p>
+                <p class="alert__text"><?= ($report['action'] ?? '') === 'resend' ? 'Their email had gone, or none was due.' : 'No longer in this list.' ?></p>
             </div>
         </div>
     <?php endif; ?>
 <?php endif; ?>
 
+<?php if (!empty($list['hasTests']) || $testQ !== ''): ?>
+    <form class="filterbar filterbar--apply" method="get" action="<?= h(Url::admin((string) $list['path'])) ?>" data-test-filter>
+        <div class="filterbar__group">
+            <label class="filterbar__field">
+                <span class="filterbar__label">Show</span>
+                <select class="select" name="test">
+                    <option value=""<?= $testQ === '' ? ' selected' : '' ?>>Every submission</option>
+                    <option value="none"<?= $testQ === 'none' ? ' selected' : '' ?>>Tests left out</option>
+                    <option value="only"<?= $testQ === 'only' ? ' selected' : '' ?>>Tests alone</option>
+                </select>
+            </label>
+        </div>
+        <div class="filterbar__actions">
+            <button type="submit" class="btn btn--sm">Apply</button>
+        </div>
+    </form>
+<?php endif; ?>
+
 <?php if ((int) $list['total'] === 0): ?>
     <div class="empty">
         <?= icon($emptyGlyph, 'empty__glyph', '', 28) ?>
-        <p class="empty__title"><?= h($emptyTitle) ?></p>
+        <p class="empty__title"><?= h($testQ === 'only' ? 'No tests' : $emptyTitle) ?></p>
     </div>
 <?php return; endif; ?>
 
@@ -116,6 +164,7 @@ $report   = $list['report'];
                 <option value="spam">Mark as spam</option>
                 <option value="read">Mark as read</option>
                 <option value="unread">Mark as unread</option>
+                <option value="resend">Send the email again</option>
                 <option value="delete">Delete</option>
             <?php endif; ?>
         </select>
@@ -176,6 +225,8 @@ $report   = $list['report'];
 
             <div class="list__row-meta">
                 <?php if ($isNew): ?><span>Unread</span><?php endif; ?>
+                <?php if ((int) ($s['is_test'] ?? 0) === 1): ?><span data-test-mark>Test</span><?php endif; ?>
+                <?php if (!$isSpam && ($s['notified'] ?? null) !== null && (int) $s['notified'] === 0): ?><span data-email-failed>Email not sent</span><?php endif; ?>
                 <time datetime="<?= h(date('c', strtotime((string) $s['submitted_at'] . ' UTC'))) ?>">
                     <?= h(Dates::stamp((string) $s['submitted_at'])) ?>
                 </time>
@@ -222,6 +273,7 @@ $report   = $list['report'];
 
         <?php if ($list['pages'] > 1): ?>
             <form class="pager__jump" method="get" action="<?= h(Url::admin((string) $list['path'])) ?>">
+                <?php if ($testQ !== ''): ?><input type="hidden" name="test" value="<?= h($testQ) ?>"><?php endif; ?>
                 <label class="pager__status">
                     Page
                     <input class="input input--sm input--count" type="number" name="page" min="1"
@@ -238,6 +290,7 @@ $report   = $list['report'];
         <?php endif; ?>
 
         <form class="pager__jump" method="get" action="<?= h(Url::admin((string) $list['path'])) ?>">
+            <?php if ($testQ !== ''): ?><input type="hidden" name="test" value="<?= h($testQ) ?>"><?php endif; ?>
             <label class="pager__status">
                 Per page
                 <input class="input input--sm input--count" type="number" name="per_page" min="1" max="999"

@@ -24,7 +24,10 @@ class PageController
         }
 
         // Private: require login
-        if ($page['status'] === 'private' && !Auth::check()) {
+        // ENDED, its unpublish date come, is private to a visitor. Either opens
+        // for whoever has its share link while that works (`Content\Share`).
+        if (($page['status'] === 'private' || \Cms\Models\Post::hasEnded($page)) && !Auth::check()
+            && !\Cms\Content\Share::grants('page', (int) $page['id'])) {
             Template::notFound();
             return;
         }

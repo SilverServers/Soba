@@ -73,7 +73,7 @@ use Cms\Security\Session;
 final class Tools
 {
     /** The CMS's own pages under /admin/tools/ — never a site tool's path. */
-    public const CORE = ['import-export', 'import', 'redirects', 'system-health'];
+    public const CORE = ['import-export', 'import', 'redirects', 'static-copy', 'broken-links', 'backups', 'system-health'];
 
     /** Who may use a site's tool whose row names no role: the administrators. */
     public const ROLE = 'admin';

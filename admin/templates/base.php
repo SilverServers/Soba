@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use Cms\Helpers\Asset;
 use Cms\Models\Option;
-use Cms\Ui\Theme;
 
 /**
  * THE PUBLIC THEME'S LAYOUT.
@@ -18,33 +17,33 @@ use Cms\Ui\Theme;
  * Order matters and is the package's: faces, then reset, then tokens, then
  * components — see the header of `www/assets/css/theme.css`.
  *
- * ── data-radius, AND WHY THERE IS NO data-theme ─────────────────────────────
- * `Theme`'s two axes are stored per USER (`users.theme_preset`,
- * `users.radius_pref`), which a public visitor does not have. A site's public
- * look is the owner's, not whichever operator last opened the admin, so the
- * palette here is the token layer's own default — `tokens-base.css`'s bare
- * `:root`, which carries the full default palette precisely so a page is
- * tokenized before any attribute is stamped.
- *
- * `data-radius` IS stamped, from `Theme::DEFAULT_RADIUS` rather than the
- * literal string, so the front end cannot drift from the admin's default the
- * day someone changes that constant. Without the attribute the bare `:root`
- * resolves to the rounded tier, which would put 6px on the public site's
- * controls while the admin ships flat.
+ * ── THE OWNER'S LOOK, STAMPED ───────────────────────────────────────────────
+ * The admin's palette and corners are each user's (`users.theme_preset`,
+ * `users.radius_pref`); the public site's are the owner's, chosen once on
+ * Appearance → Customizer (`Site\Look`) and the same for every visitor. They
+ * are attributes on `<html>`: `data-theme`, `data-radius`, `data-font-body`,
+ * `data-font-head`. The palette's family sheet follows the base tokens when the
+ * palette is not the default, whose tokens `tokens-base.css`'s bare `:root`
+ * already carries, so a page is tokenized before any attribute is read.
+ * Without `data-radius` the bare `:root` resolves to the rounded tier, which
+ * is why it is always stamped, square unless the owner chose rounded.
  *
  * @var string $pageContent  the rendered inner template
  */
 ?>
 <!DOCTYPE html>
-<html lang="en" data-radius="<?= htmlspecialchars(Theme::DEFAULT_RADIUS) ?>">
+<html lang="<?= htmlspecialchars(\Cms\Site\Language::current()) ?>"<?= \Cms\Site\Look::htmlAttributes() ?>>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <?= \Cms\SEO\Head::render() ?>
-    <?= \Cms\Ui\Brand::iconTags() ?>
+    <?= \Cms\Site\Look::iconTags() ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/reset.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/tokens-base.css')) ?>">
+<?php if (($_paletteSheet = \Cms\Site\Look::paletteSheet()) !== ''): ?>
+    <link rel="stylesheet" href="<?= htmlspecialchars($_paletteSheet) ?>">
+<?php endif; ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/theme.css')) ?>">
     <?php // THE ONE COMPONENT THE ADMIN RENDERS TOO. The gallery editor links
           // this same file, so the tiles it arranges are laid out by the rules
@@ -67,10 +66,15 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
 </head>
 <body>
 <?= \Cms\Site\Google::body() ?>
+<?php // THE WAY PAST THE HEADER, first in the page and seen only when a key
+      // reaches it: a keyboard or a switch goes straight to what the page is
+      // for, not through every link of the menu again (WCAG 2.4.1). ?>
+<?php // audit-ok: the keyboard's way past the header, the admin's own words for it. ?>
+<a class="skip-link" href="#main">Skip to content</a>
 
 <?php $_publicSiteName = \Cms\SEO\Head::globalTokens()['site_name']; ?>
 <header class="site-header">
-    <a href="<?= htmlspecialchars(BASE_URL . '/') ?>" class="site-header__name"><?= htmlspecialchars($_publicSiteName) ?></a>
+    <?= \Cms\Site\Look::brand($_publicSiteName) ?>
     <?= \Cms\Helpers\MenuRenderer::render('primary', 'site-header__nav') ?>
     <?php
     /* THE BASKET LINK APPEARS WHEN THERE IS SOMETHING TO SELL, AND NOT BEFORE.
@@ -80,8 +84,10 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
        products would look like a broken link.
 
        An install with no product type is not a shop, and a "Basket (0)" in the
-       header of a plumber's brochure site is a control that leads nowhere. */
-    if (\Cms\ContentType\Registry::withArchetype('product') !== []):
+       header of a plumber's brochure site is a control that leads nowhere.
+       NOR IN A STATIC COPY (`Export\StaticCopy`): its products are a
+       catalogue, with no basket or orders to lead to. */
+    if (\Cms\ContentType\Registry::withArchetype('product') !== [] && !defined('CMS_EXPORT')):
         $_cartCount = \Cms\Commerce\Cart::count();
     ?>
         <?php /* A CUSTOMER'S ORDERS, beside the basket: their way back to
@@ -99,7 +105,8 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
     <?php endif; ?>
 </header>
 
-<main class="site-content">
+<?php // tabindex="-1" so the skip link moves focus here, not only the view. ?>
+<main class="site-content" id="main" tabindex="-1">
     <?php
     /* THE SHOP'S ONE-SHOT MESSAGE, RENDERED WHEREVER THE VISITOR LANDS.
        "Add to basket" sends the customer back to the product page they were
@@ -151,10 +158,16 @@ $_footerMenus = array_filter([
              Settings → General is what an owner types, and blank keeps this
              rather than emptying the footer of a site that never chose. */ ?>
     <div class="site-footer__text">
+        <?php // Escaped first, so the owner's text stays text; then the
+              // business's [phone], [email], [hours] in it become what they say. ?>
         <?= $_footerText !== ''
-            ? htmlspecialchars($_footerText)
+            ? \Cms\Site\Business::shortcodes(htmlspecialchars($_footerText))
             : '&copy; ' . date('Y') . ' ' . htmlspecialchars($_publicSiteName) ?>
     </div>
+
+    <?php // THE WAY BACK TO THE COOKIE QUESTION, where the site asks it
+          // (`Site\Google::consentLink()`); nothing where it does not. ?>
+    <?= \Cms\Site\Google::consentLink() ?>
 
     <?php if ($_footerMenus !== []): ?>
         <div class="site-footer__menus">

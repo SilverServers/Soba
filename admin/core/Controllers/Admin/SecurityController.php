@@ -491,30 +491,25 @@ final class SecurityController
      */
     private function saveAddress(): array
     {
-        $enabled     = ($_POST['enabled'] ?? '') === '1';
+        // AN ADDRESS IN THE BOX MOVES THE SIGN-IN PAGE THERE; AN EMPTY BOX
+        // LEAVES IT AT /admin/login. There is no other switch. A tick box
+        // beside the address, saying whether the address counted, was a
+        // second control for one decision, and nobody ticked it.
+        $typed       = trim((string) ($_POST['slug'] ?? ''));
         $slug        = Slug::clean((string) ($_POST['slug'] ?? ''));
-        // The box left empty while nothing is stored: the address it offered
-        // (its placeholder) is the one taken.
-        if ($slug === '' && $enabled) {
-            $slug = Slug::clean((string) ($_POST['slug_suggestion'] ?? ''));
-        }
+        $enabled     = $slug !== '';
         $redirectRaw = trim((string) ($_POST['redirect'] ?? ''));
         $redirect    = $redirectRaw === '/' ? '/' : Slug::cleanPath($redirectRaw);
         $redirect    = ($redirect === '' || $redirect === '/') ? $redirect : '/' . $redirect;
 
-        $posted = ['enabled' => $enabled ? '1' : '0', 'slug' => $slug, 'redirect' => $redirect];
+        $posted = ['slug' => $enabled ? $slug : $typed, 'redirect' => $redirect];
         $errors = [];
 
-        // Switched off, an empty or half-typed address is simply not in use —
-        // refusing to save "off" because of it would trap the owner in "on".
-        if ($enabled) {
-            $problem = LoginUrl::problem($slug);
-            if ($problem !== null) {
-                $errors[] = $problem;
-            }
-        } elseif ($slug !== '' && !LoginUrl::wellFormed($slug)) {
-            $slug = LoginUrl::slug();
-            $posted['slug'] = $slug;
+        // Something typed that is no address at all ("!!!") is refused, not
+        // read as an empty box: the owner meant to move the page.
+        $problem = $enabled ? LoginUrl::problem($slug) : ($typed !== '' ? LoginUrl::problem($typed) : null);
+        if ($problem !== null) {
+            $errors[] = $problem;
         }
 
         if ($redirect !== '' && $redirect !== '/') {
@@ -1033,15 +1028,13 @@ final class SecurityController
         $user = Auth::user();
 
         $address = [
-            'enabled'  => $posted['enabled'] ?? (LoginUrl::enabled() ? '1' : '0'),
-            'slug'     => $posted['slug'] ?? LoginUrl::slug(),
+            // THE ADDRESS IN FORCE, or what a refused save typed. One stored
+            // while the page was not moved (an earlier release's switch left
+            // off, `security.php login-url off`) is not shown: an address in
+            // the box says the sign-in page is there.
+            'slug'     => $posted['slug'] ?? (LoginUrl::enabled() ? LoginUrl::slug() : ''),
             'redirect' => $posted['redirect'] ?? LoginUrl::redirect(),
         ];
-        // NOTHING STORED: a fresh address is offered — an empty box asks the
-        // owner to invent a secret, and the one they invent is "login". It is
-        // the box's PLACEHOLDER, so it reads as a suggestion and never as an
-        // address already set; saving with the box left empty takes it.
-        $suggestion = $address['slug'] === '' ? LoginUrl::suggest() : '';
         $limit = $posted !== [] && $tab === 'attempts'
             ? $posted
             : (static function (): array {
@@ -1107,7 +1100,7 @@ final class SecurityController
         $redirectUsers = $tab === 'redirection' ? User::all() : [];
 
         $this->render('security/login-protection.php', 'Login protection', compact(
-            'user', 'tab', 'errors', 'saved', 'address', 'suggestion', 'limit', 'moved', 'signInUrl', 'siteUrl',
+            'user', 'tab', 'errors', 'saved', 'address', 'limit', 'moved', 'signInUrl', 'siteUrl',
             'usernames', 'passwords', 'pending', 'asked', 'enforced', 'inactive', 'suspended', 'restored',
             'redirection', 'editing', 'redirectPages', 'redirectUsers'
         ));

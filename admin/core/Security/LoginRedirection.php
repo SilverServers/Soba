@@ -164,7 +164,8 @@ final class LoginRedirection
             $row = ($page ?? static fn (int $id): ?array => Page::find($id))((int) $value);
 
             // Its address as the menus write it (`MenuItem::resolveUrl()`).
-            return $row !== null && ($row['status'] ?? '') === 'published' ? Url::pagePath((string) $row['slug']) : null;
+            return $row !== null && ($row['status'] ?? '') === 'published' && !\Cms\Models\Post::hasEnded($row)
+                ? Url::pagePath((string) $row['slug']) : null;
         }
         if (($target['type'] ?? '') !== 'url') {
             return null;

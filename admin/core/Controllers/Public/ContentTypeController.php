@@ -100,22 +100,33 @@ class ContentTypeController
             ? 'p.menu_order ASC, p.published_at DESC, p.id DESC'
             : 'p.published_at DESC, p.id DESC';
 
-        $stmt = $pdo->prepare(
-            'SELECT p.*, ' . \Cms\Models\User::bylineSql('u') . ' AS author_name
-             FROM posts p
-             JOIN users u ON u.id = p.author_id
-             WHERE p.post_type = :pt AND ' . \Cms\Models\Post::live('p') . '
-             ORDER BY ' . $order
-             // No LIMIT at all for a type listed whole (0 to a page).
-             . ($limit > 0 ? ' LIMIT :lim OFFSET :off' : '')
-        );
-        $stmt->bindValue(':pt',  $this->contentTypeKey, PDO::PARAM_STR);
-        if ($limit > 0) {
-            $stmt->bindValue(':lim', $limit,  PDO::PARAM_INT);
-            $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+        // ── AN EVENTS LIST IS IN THE ORDER OF ITS DATES, ACROSS EVERY PAGE ──
+        // What is still to come first, soonest first, then what is over,
+        // latest first (`Content\Events`). Decided for the whole type before
+        // the page is cut: sorted within one page, which page an event fell on
+        // was decided by when it was published.
+        $events = in_array('event', $archetypes, true) ? \Cms\Content\Events::ordered($this->contentTypeKey) : null;
+
+        if ($events !== null) {
+            $posts = self::rowsInOrder(array_column($limit > 0 ? array_slice($events, $offset, $limit) : $events, 'id'));
+        } else {
+            $stmt = $pdo->prepare(
+                'SELECT p.*, ' . \Cms\Models\User::bylineSql('u') . ' AS author_name
+                 FROM posts p
+                 JOIN users u ON u.id = p.author_id
+                 WHERE p.post_type = :pt AND ' . \Cms\Models\Post::live('p') . '
+                 ORDER BY ' . $order
+                 // No LIMIT at all for a type listed whole (0 to a page).
+                 . ($limit > 0 ? ' LIMIT :lim OFFSET :off' : '')
+            );
+            $stmt->bindValue(':pt',  $this->contentTypeKey, PDO::PARAM_STR);
+            if ($limit > 0) {
+                $stmt->bindValue(':lim', $limit,  PDO::PARAM_INT);
+                $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+            }
+            $stmt->execute();
+            $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
-        $stmt->execute();
-        $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Archive cards render archetype fields (price, event date, job title), so
         // each row needs its meta — in ONE query for the page, since the page
@@ -133,7 +144,9 @@ class ContentTypeController
         $shopQuery = '';
         if (\Cms\Commerce\Product::isSellableType($this->contentTypeKey)) {
             \Cms\Commerce\Variation::prime(array_map(static fn (array $r): int => (int) $r['id'], $posts));
-            $shopTools = $this->shopTools();
+            // NO SORT OR FILTER IN A STATIC COPY (`Export\StaticCopy`): each is
+            // a question in the address, which a static host does not read.
+            $shopTools = defined('CMS_EXPORT') ? null : $this->shopTools();
 
             // ── SORTED OR FILTERED: THE WHOLE TYPE, THEN THE PAGE ────────────
             // What a product costs NOW (its sale, its dates, its options) and
@@ -142,9 +155,10 @@ class ContentTypeController
             // sorted or filtered list reads every live product of the type,
             // keeps and orders them here, and cuts the same page window the
             // SQL would have. A shop's catalogue is hundreds, not millions.
-            if ($shopTools['active']) {
+            if ($shopTools !== null && $shopTools['active']) {
                 $shopQuery = $shopTools['query'];
-                [$posts, $total] = $this->shopList($shopTools, $order, $limit, $offset);
+                [$posts, $total] = $this->shopList($shopTools, $order, $limit, $offset,
+                    $events !== null ? array_flip(array_column($events, 'id')) : null);
                 $totalPages = Paging::pages($total, $perPage, $extra);
                 if ($page > $totalPages) {
                     Template::notFound($this->contentTypeKey);
@@ -153,15 +167,17 @@ class ContentTypeController
             }
         }
 
-        // Event archives read chronologically, not by publish date — nobody wants
-        // next week's webinar listed above tomorrow's. Sorted here rather than in
-        // SQL because the date lives in post_meta, not a column.
-        if (in_array('event', $contentType['archetypes'] ?? [], true)) {
-            usort($posts, static function (array $a, array $b): int {
-                $aDate = strtotime((string) ($a['meta']['event_start_date'] ?? '')) ?: PHP_INT_MAX;
-                $bDate = strtotime((string) ($b['meta']['event_start_date'] ?? '')) ?: PHP_INT_MAX;
-                return $aDate <=> $bDate;
-            });
+        // WHERE THE PAST BEGINS ON THIS PAGE, for its heading: the first event
+        // that is over, when every one after it is over too. A list a shop has
+        // sorted by price mixes them, and gets no heading.
+        $pastFrom = null;
+        if ($events !== null) {
+            $over  = array_column($events, 'past', 'id');
+            $flags = array_map(static fn (array $p): bool => $over[(int) $p['id']] ?? false, $posts);
+            $first = array_search(true, $flags, true);
+            if ($first !== false && !in_array(false, array_slice($flags, (int) $first), true)) {
+                $pastFrom = (int) $first;
+            }
         }
 
         $navPages  = [];
@@ -211,6 +227,7 @@ class ContentTypeController
             'next'        => $paged['next'],
             'og_type'     => 'website',
             'schema_json' => Schema::encode($graph),
+            'feeds'       => [$this->contentTypeKey],
         ]);
 
         // A WHOLE-PAGE THEME renders the entire page when it has a template
@@ -222,6 +239,7 @@ class ContentTypeController
                 'contentType'    => $contentType,
                 'contentTypeKey' => $this->contentTypeKey,
                 'posts'          => $posts,
+                'pastFrom'       => $pastFrom,
                 'page'           => $page,
                 'perPage'        => $perPage,
                 'firstPageExtra' => $extra,
@@ -306,7 +324,7 @@ class ContentTypeController
      *
      * @return array{0: list<array<string, mixed>>, 1: int} the page's rows, and how many in all
      */
-    private function shopList(array $tools, string $order, int $limit, int $offset): array
+    private function shopList(array $tools, string $order, int $limit, int $offset, ?array $rank = null): array
     {
         $stmt = Database::getInstance()->prepare(
             'SELECT p.*, ' . \Cms\Models\User::bylineSql('u') . ' AS author_name
@@ -335,7 +353,8 @@ class ContentTypeController
             }
             $kept[] = [
                 'row'      => $row,
-                'position' => $position,
+                // An events list's own order, where it is one (`Content\Events`).
+                'position' => $rank !== null ? ($rank[(int) $row['id']] ?? PHP_INT_MAX) : $position,
                 'price'    => \Cms\Commerce\Variation::bounds($product['variations'], $product)['low'],
                 'date'     => (string) ($row['published_at'] ?? ''),
             ];
@@ -357,6 +376,32 @@ class ContentTypeController
         $page = $limit > 0 ? array_slice($kept, $offset, $limit) : $kept;
 
         return [array_map(static fn (array $k): array => $k['row'], $page), count($kept)];
+    }
+
+    /**
+     * These entries, live, with their author's byline, in the order given.
+     *
+     * @param list<int> $ids
+     * @return list<array<string, mixed>>
+     */
+    private static function rowsInOrder(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $stmt = Database::getInstance()->prepare(
+            'SELECT p.*, ' . \Cms\Models\User::bylineSql('u') . ' AS author_name
+             FROM posts p
+             JOIN users u ON u.id = p.author_id
+             WHERE p.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'
+        );
+        $stmt->execute($ids);
+        $byId = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $byId[(int) $row['id']] = $row;
+        }
+
+        return array_values(array_filter(array_map(static fn (int $id): ?array => $byId[$id] ?? null, $ids)));
     }
 
     /**

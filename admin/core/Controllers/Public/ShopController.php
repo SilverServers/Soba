@@ -76,6 +76,14 @@ class ShopController
         $quantity = max(1, $quantity);
 
         $product = Product::find($postId);
+        // ONLY WHAT A VISITOR CAN SEE IS SOLD. A product that is private, has
+        // a publish date still to come or has had its unpublish date answers
+        // 404 at its address, and a post made by hand reaches no further.
+        $row = $product !== null ? \Cms\Models\Post::find($postId) : null;
+        if ($row !== null && (!in_array((string) $row['status'], ['published', 'password'], true)
+                || \Cms\Models\Post::isScheduled($row) || \Cms\Models\Post::hasEnded($row))) {
+            $product = null;
+        }
 
         if ($product === null) {
             $this->notice('That product is no longer available.', 'error');

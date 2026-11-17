@@ -25,11 +25,17 @@ class ToolsController
         $sectionTitle = 'Tools';
         $sectionLede  = 'Maintenance jobs: moving content in and out, fixing old links, and checking the server.';
         $sections     = [
-            ['label' => 'Import / Export', 'icon' => 'import-export', 'url' => ADMIN_URL . '/tools/import-export',
+            ['label' => 'Import and export', 'icon' => 'import-export', 'url' => ADMIN_URL . '/tools/import-export',
              'text'  => 'Take a copy of your content, or bring content in from elsewhere.'],
             ['label' => 'Redirects', 'icon' => 'redirects',       'url' => ADMIN_URL . '/tools/redirects',
              'text'  => 'Send an old web address to a new one, so links to a page you moved still land.'],
-            ['label' => 'System Health', 'icon' => 'system-health',   'url' => ADMIN_URL . '/tools/system-health',
+            ['label' => 'Static copy', 'icon' => 'static-copy',   'url' => ADMIN_URL . '/tools/static-copy',
+             'text'  => 'The whole site as files, for a web host that runs no CMS.'],
+            ['label' => 'Broken links', 'icon' => 'broken-links', 'url' => ADMIN_URL . '/tools/broken-links',
+             'text'  => 'Every link on the site to one of its own pages or files that finds nothing.'],
+            ['label' => 'Backups', 'icon' => 'backups', 'url' => ADMIN_URL . '/tools/backups',
+             'text'  => 'The database and the uploads, kept on the server every day or every week.'],
+            ['label' => 'System health', 'icon' => 'system-health',   'url' => ADMIN_URL . '/tools/system-health',
              'text'  => 'What this site is running on, and whether anything needs attention.'],
         ];
 
@@ -59,7 +65,7 @@ class ToolsController
         $phpVersion = PHP_VERSION;
         $phpOk      = version_compare($phpVersion, '8.2.0', '>=');
         $checks['php'] = [
-            'label'  => 'PHP Version',
+            'label'  => 'PHP version',
             'value'  => $phpVersion,
             'status' => $phpOk ? 'ok' : 'error',
             'hint'   => $phpOk ? 'PHP 8.2+ required' : 'PHP 8.2+ required — current version is too old',
@@ -100,7 +106,7 @@ class ToolsController
         $uploadsPath = PUBLIC_PATH . '/uploads';
         $uploadsWritable = is_dir($uploadsPath) && is_writable($uploadsPath);
         $checks['uploads_writable'] = [
-            'label'  => 'Uploads Directory',
+            'label'  => 'Uploads folder',
             'value'  => $uploadsWritable ? 'Writable' : 'Not writable',
             'status' => $uploadsWritable ? 'ok' : 'error',
             'hint'   => $uploadsPath,
@@ -127,7 +133,7 @@ class ToolsController
             }
         }
         $checks['disk_usage'] = [
-            'label'  => 'Uploads Disk Usage',
+            'label'  => 'Uploads disk usage',
             'value'  => $diskUsage,
             'status' => 'info',
             'hint'   => '',
@@ -178,7 +184,7 @@ class ToolsController
         }
         $counts['Users'] = User::count();
 
-        $pageTitle   = 'System Health';
+        $pageTitle   = 'System health';
         $currentPage = 'system-health';
         require ROOT_PATH . '/admin/templates/tools/system-health.php';
     }
@@ -199,7 +205,7 @@ class ToolsController
         $importError = null;
         $importDone  = null;
 
-        $pageTitle   = 'Import / Export';
+        $pageTitle   = 'Import and export';
         $currentPage = 'import-export';
         require ROOT_PATH . '/admin/templates/tools/import-export.php';
     }

@@ -9,7 +9,8 @@ declare(strict_types=1);
  *                                              limit, and who is locked out
  *   php admin/bin/security.php login-url       print the sign-in address
  *   php admin/bin/security.php login-url off   put the sign-in page back at
- *                                              /admin/login
+ *                                              /admin/login, its address
+ *                                              forgotten
  *   php admin/bin/security.php unlock <addr>   lift the lockouts on one address
  *   php admin/bin/security.php unlock <name>   let a locked name in from anywhere
  *   php admin/bin/security.php unlock all      lift every lockout in force
@@ -155,7 +156,9 @@ switch ($command) {
 
     case 'login-url':
         if (($args[1] ?? '') === 'off') {
-            Option::set(LoginUrl::ENABLED_KEY, '0');
+            // THE ADDRESS GOES WITH THE SWITCH: the screen's box is the
+            // setting, and an address left stored would read as in force.
+            Option::setMany([LoginUrl::ENABLED_KEY => '0', LoginUrl::SLUG_KEY => '']);
             LoginUrl::forget();
             echo 'The sign-in page is back at ' . LoginUrl::url() . "\n";
             exit(0);

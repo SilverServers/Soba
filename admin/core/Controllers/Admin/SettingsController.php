@@ -39,6 +39,8 @@ class SettingsController
         $sections     = [
             ['label' => 'General', 'icon' => 'settings',    'url' => ADMIN_URL . '/settings/general',
              'text'  => 'Site title, tagline, timezone, date formats and spam protection.'],
+            ['label' => 'Business details', 'icon' => 'business', 'url' => ADMIN_URL . '/settings/business',
+             'text'  => 'Phone numbers, email, opening hours, where you are and where you work.'],
             // NO "and redirects" — they are Tools → Redirects now, and a section
             // card is a promise about what is behind it.
             ['label' => 'SEO', 'icon' => 'seo',        'url' => ADMIN_URL . '/settings/seo',
@@ -50,6 +52,17 @@ class SettingsController
             ['label' => 'Users', 'icon' => 'users',      'url' => ADMIN_URL . '/users',
              'text'  => 'Who can sign in, and what each of them is allowed to do.'],
         ];
+        // THE SHOP'S TWO, ON THE MENU'S OWN CONDITION (`Ui\AdminMenu`), before
+        // Users as the menu has them: a card for every row the Settings menu
+        // shows, and none it does not.
+        if (\Cms\ContentType\Registry::withArchetype('product') !== [] && \Cms\Helpers\Modules::enabled('commerce')) {
+            array_splice($sections, count($sections) - 1, 0, [
+                ['label' => 'Shop', 'icon' => 'commerce', 'url' => ADMIN_URL . '/settings/commerce',
+                 'text'  => 'Tax, delivery, payment, discount wording and what a customer agrees to.'],
+                ['label' => 'API', 'icon' => 'api', 'url' => ADMIN_URL . '/settings/api',
+                 'text'  => 'Keys and webhooks for the programs that read and change the shop.'],
+            ]);
+        }
 
         $pageTitle   = 'Settings';
         $currentPage = 'settings-index';
@@ -73,6 +86,8 @@ class SettingsController
         // its footer should not suddenly have an empty one.
         'site_footer_text' => '',
         'admin_email'  => '',
+        // `<html lang>` on every public page (`Site\Language`).
+        \Cms\Site\Language::OPTION => \Cms\Site\Language::DEFAULT,
         'timezone'     => 'America/Vancouver',
         'date_format'  => 'M j, Y',
         'time_format'  => 'g:i A',
@@ -149,6 +164,7 @@ class SettingsController
                 'site_tagline' => trim($_POST['site_tagline'] ?? ''),
                 'site_footer_text' => trim((string) ($_POST['site_footer_text'] ?? '')),
                 'admin_email'  => $adminEmail,
+                \Cms\Site\Language::OPTION => (string) ($_POST[\Cms\Site\Language::OPTION] ?? \Cms\Site\Language::DEFAULT),
                 'timezone'     => $timezone,
                 'date_format'  => trim($_POST['date_format'] ?? 'M j, Y'),
                 'time_format'  => trim($_POST['time_format'] ?? 'g:i A'),
@@ -178,6 +194,10 @@ class SettingsController
             'site_tagline' => trim($_POST['site_tagline'] ?? ''),
             'site_footer_text' => trim((string) ($_POST['site_footer_text'] ?? '')),
             'admin_email'  => $adminEmail,
+            // ONLY A LANGUAGE THE SELECT OFFERS. A hand-made POST's anything
+            // else is English, never a `lang` the page could not stand behind.
+            \Cms\Site\Language::OPTION => isset(\Cms\Site\Language::ALL[(string) ($_POST[\Cms\Site\Language::OPTION] ?? '')])
+                ? (string) $_POST[\Cms\Site\Language::OPTION] : \Cms\Site\Language::DEFAULT,
             'timezone'     => $timezone,
             'date_format'  => trim($_POST['date_format'] ?? 'M j, Y'),
             'time_format'  => trim($_POST['time_format'] ?? 'g:i A'),
@@ -300,6 +320,10 @@ class SettingsController
         'smtp_encryption' => 'tls',
         'smtp_from_email' => '',
         'smtp_from_name'  => '',
+        // A test's address and inbox, for a form that names none of its own
+        // (`Forms\Notify::testInbox()`).
+        'forms_test_address' => '',
+        'forms_test_inbox'   => '',
     ];
 
     // ----------------------------------------------------------------
@@ -831,6 +855,9 @@ class SettingsController
         $options  = Option::getMany(self::EMAIL_KEYS);
         $saved    = false;
         $errors   = [];
+        // What the last test email did (`handleEmailTest()`), shown once.
+        $tested   = is_array($_SESSION['email_test'] ?? null) ? $_SESSION['email_test'] : null;
+        unset($_SESSION['email_test']);
 
         $pageTitle   = 'Email Settings';
         $currentPage = 'settings-email';
@@ -856,6 +883,16 @@ class SettingsController
         if (!in_array($encryption, ['', 'tls', 'ssl'], true)) {
             $encryption = 'tls';
         }
+        $test = [];
+        foreach (['forms_test_address' => 'The test address', 'forms_test_inbox' => 'The test inbox'] as $key => $name) {
+            $test[$key] = trim((string) ($_POST[$key] ?? ''));
+            if ($test[$key] !== '' && filter_var($test[$key], FILTER_VALIDATE_EMAIL) === false) {
+                $errors[] = $name . ' must be an email address.';
+            }
+        }
+        // MAIL THROUGH BREVO (config.php): the sending server's fields are not
+        // drawn, so what is stored for them stays as it is.
+        $brevo = \Cms\Mail\Mailer::transport() === 'brevo';
 
         if (!empty($errors)) {
             $options = [
@@ -866,7 +903,7 @@ class SettingsController
                 'smtp_encryption' => $encryption,
                 'smtp_from_email' => $fromEmail,
                 'smtp_from_name'  => trim($_POST['smtp_from_name'] ?? ''),
-            ];
+            ] + $test;
             $saved = false;
 
             $pageTitle   = 'Email Settings';
@@ -882,16 +919,17 @@ class SettingsController
         // Only update smtp_password if a new value was submitted (non-empty).
         // An empty field means "keep existing password".
         $passwordValue = $_POST['smtp_password'] ?? '';
-        $saveOptions = [
+        $saveOptions = ($brevo ? [] : [
             'smtp_host'       => trim($_POST['smtp_host'] ?? ''),
             'smtp_port'       => trim($_POST['smtp_port'] ?? '587'),
             'smtp_username'   => trim($_POST['smtp_username'] ?? ''),
             'smtp_encryption' => $encryption,
+        ]) + [
             'smtp_from_email' => $fromEmail,
             'smtp_from_name'  => trim($_POST['smtp_from_name'] ?? ''),
-        ];
+        ] + $test;
 
-        if ($passwordValue !== '') {
+        if ($passwordValue !== '' && !$brevo) {
             $saveOptions['smtp_password'] = $passwordValue;
         }
 
@@ -907,6 +945,36 @@ class SettingsController
         require ROOT_PATH . '/admin/templates/settings/email.php';
         $pageContent = ob_get_clean();
         require ROOT_PATH . '/admin/templates/layout.php';
+    }
+
+    /**
+     * SEND A TEST EMAIL: one message to the address typed, through whatever
+     * this site sends with (`Mailer::transportName()`: Brevo, an SMTP server,
+     * or the server's own mail program), as the settings are saved. What came
+     * of it is shown on Settings → Email, once: sent, or the transport's own
+     * reason it was not (`Mailer::lastError()`), never a key or a password.
+     * Back to the screen by a redirect, so a reload does not send it again.
+     */
+    public function handleEmailTest(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        $to  = trim((string) ($_POST['test_to'] ?? ''));
+        $how = \Cms\Mail\Mailer::transportName();
+        if (filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+            $_SESSION['email_test'] = ['ok' => false, 'to' => $to, 'how' => $how, 'why' => 'that is not an email address'];
+        } else {
+            $site = \Cms\SEO\Head::globalTokens()['site_name'];
+            $user = Auth::user();
+            $who  = $user !== null ? \Cms\Models\User::displayName($user) : 'an administrator';
+            $now  = time();
+            $body = "This is a test email from {$site}, sent from Settings → Email by {$who} at "
+                . \Cms\Helpers\Dates::stamp($now) . ' ' . \Cms\Helpers\Dates::format($now, 'T') . ".\n\n"
+                . "It went through {$how}. If it arrived, the site's mail works: form notifications and order emails go out the same way.\n";
+            $ok = \Cms\Mail\Mailer::send([$to], 'Test email from ' . $site, $body);
+            $_SESSION['email_test'] = ['ok' => $ok, 'to' => $to, 'how' => $how, 'why' => $ok ? '' : \Cms\Mail\Mailer::lastError()];
+        }
+        header('Location: ' . ADMIN_URL . '/settings/email', true, 303);
+        exit;
     }
 
     // ----------------------------------------------------------------
@@ -1120,6 +1188,9 @@ class SettingsController
             'google_gtm_id'            => $gtm ?? '',
             'google_site_verification' => $verify ?? '',
             'google_click_events'      => $typed['google_click_events'],
+            'google_consent'           => $typed['google_consent'],
+            'google_consent_words'     => $typed['google_consent_words'],
+            'google_consent_page'      => $typed['google_consent_page'],
         ]);
         return [];
     }
@@ -1132,6 +1203,11 @@ class SettingsController
             'google_gtm_id'            => trim((string) ($_POST['google_gtm_id'] ?? '')),
             'google_site_verification' => trim((string) ($_POST['google_site_verification'] ?? '')),
             'google_click_events'      => !empty($_POST['google_click_events']) ? '1' : '0',
+            // Asking first is on unless the box is unticked; a page that was
+            // never a choice is no page.
+            'google_consent'           => !empty($_POST['google_consent']) ? '1' : '0',
+            'google_consent_words'     => mb_substr(trim((string) ($_POST['google_consent_words'] ?? '')), 0, 500),
+            'google_consent_page'      => ctype_digit((string) ($_POST['google_consent_page'] ?? '')) ? (string) $_POST['google_consent_page'] : '',
         ];
     }
 

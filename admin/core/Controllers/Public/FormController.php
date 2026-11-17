@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Public;
 
 use Cms\Auth\Auth;
+use Cms\Forms\Answers;
 use Cms\Forms\Captcha;
 use Cms\Forms\Appointments;
 use Cms\Forms\Embed;
@@ -13,7 +14,6 @@ use Cms\Forms\FieldTypes;
 use Cms\Forms\Guard;
 use Cms\Forms\Sources;
 use Cms\Forms\Upload;
-use Cms\Forms\Logic;
 use Cms\Helpers\Template;
 use Cms\Helpers\Theme;
 use Cms\Models\Form;
@@ -97,107 +97,31 @@ class FormController
             return;
         }
 
-        // ── Validate fields against schema ──────────────────────────
-        //
-        // THREE PASSES, AND THE ORDER MATTERS.
-        //
-        //   1. read every field's posted value
-        //   2. decide which fields conditional logic actually showed
-        //   3. validate and store ONLY those
-        //
-        // It cannot be one pass. A rule may name a field that appears LATER in
-        // the list — "show Company if Enquiry type is Business" reads fine in
-        // either order in the builder — so visibility cannot be settled while
-        // the value map is still half-built. Deciding as you go would evaluate
-        // half the rules against a missing value, which reads as "empty" and
-        // quietly flips the answer.
-        // `$fields` is the EXPANDED list, settled above — the same one the
+        // ── The answers, read and checked (`Forms\Answers`) ─────────────
+        // Every field's posted value, then which fields conditional logic
+        // showed, then those checked and kept: the reading a static copy's
+        // handler makes too, in one place, so the two cannot differ. A file or
+        // a drawn signature is kept in the media library, private, and the
+        // answer records its id; a field whose choices are the site's own
+        // content is checked against them (`Sources`).
+        // `$fields` is the EXPANDED list, settled above: the same one the
         // renderer drew from. If the two ever differ, the page collects
         // answers the server never validates or stores.
-        $errors  = [];
-        $data    = [];
-        $raw     = [];
+        $checked = (new Answers(
+            $_POST,
+            $_FILES,
+            static function (string $type, mixed $posted, array $field, ?string &$why): ?string {
+                $id = $type === 'file'
+                    ? Upload::accept(is_array($posted) ? $posted : ['error' => UPLOAD_ERR_NO_FILE], $field, $why)
+                    : self::storeSignature((string) $posted, $field, $why);
 
-        foreach ($fields as $field) {
-            $name = (string) ($field['name'] ?? '');
-            $type = (string) ($field['type'] ?? 'text');
-            if ($name === '' || !FieldTypes::collects($type)) {
-                continue;   // a divider or a text block collects nothing
-            }
-            $raw[$name] = $this->readValue($field, $name, $type);
-        }
-
-        foreach ($fields as $field) {
-            $name = (string) ($field['name'] ?? '');
-            $type = (string) ($field['type'] ?? 'text');
-            if ($name === '' || !FieldTypes::collects($type)) {
-                continue;
-            }
-
-            // A FIELD LOGIC HID IS NOT VALIDATED AND NOT STORED. Enforcing
-            // `required` on something the visitor never saw makes the form
-            // permanently unsubmittable with an error pointing at nothing —
-            // and a value posted for a hidden field was not offered to them,
-            // so keeping it would record an answer nobody gave.
-            if (!Logic::isVisible(Logic::parse($field['logic'] ?? null), $raw)) {
-                continue;
-            }
-
-            $value = $raw[$name];
-            $label = ($field['label'] ?? '') !== '' ? (string) $field['label'] : $name;
-            $blank = is_array($value) ? $value === [] : trim((string) $value) === '';
-
-            // AN UPLOAD THAT WAS REFUSED SAYS WHY, and says it instead of
-            // "required" — the visitor attached a file and can see that they
-            // did, so being told it is missing is the form arguing with them.
-            if (isset($this->uploadErrors[$name])) {
-                $errors[] = htmlspecialchars($label) . ': '
-                          . htmlspecialchars($this->uploadErrors[$name]);
-                continue;
-            }
-
-            if (!empty($field['required']) && $blank) {
-                // THE AUTHOR'S OWN WORDING WINS. The builder's Validation
-                // messages fold offers "When it is left blank"; until this read
-                // it, the box collected a string nothing ever printed.
-                $custom = trim((string) ($field['msg_required'] ?? ''));
-                $errors[] = $custom !== ''
-                    ? htmlspecialchars($custom)
-                    : htmlspecialchars($label) . ' is required.';
-            }
-
-            if (!$blank) {
-                foreach ($this->formatErrors($field, $type, $value, $label) as $error) {
-                    $errors[] = $error;
-                }
-            }
-
-            // Stored as a string either way: `FormSubmission` holds one value
-            // per key, and the submissions screen and the notification email
-            // both print it. Joining here beats every reader guessing.
-            //
-            // THE SEPARATOR IS THE TYPE'S. A name reads "Jane Smith" and an
-            // address reads "12 Mill Lane, Kamloops, BC"; a hard-coded ", "
-            // gave "Jane, Smith". Checkboxes keep the comma, which is
-            // `FieldTypes::join()`'s default.
-            // A REPEATER'S ROWS READ BACK ONE PER LINE. Joined with commas
-            // they run together into a sentence nobody can pick apart.
-            if ($type === 'repeater' && is_array($value)) {
-                $data[$name] = implode("\n", $value);
-            } elseif ($type === 'likert' && is_array($value)) {
-                // "Statement: Answer", one per line — the only shape in which a
-                // grid of answers reads back as anything at all.
-                $lines = [];
-                foreach ($value as $rowText => $answer) {
-                    $lines[] = $rowText . ': ' . $answer;
-                }
-                $data[$name] = implode("\n", $lines);
-            } else {
-                $data[$name] = is_array($value)
-                    ? implode(FieldTypes::join($type), $value)
-                    : (string) $value;
-            }
-        }
+                return $id === null ? null : (string) $id;
+            },
+            static fn (array $field): array => Sources::choicesFor($field),
+        ))->check($fields);
+        $errors = $checked['errors'];
+        $data   = $checked['data'];
+        $raw    = $checked['raw'];
 
         // A REQUIRED ANSWER LEFT BLANK IS NOT SPAM EITHER. The visitor is shown
         // what to fix; storing each attempt would fill the Spam view with
@@ -255,6 +179,12 @@ class FormController
             $data[$fname] = Appointments::describe($formId, $fname, $key);
         }
 
+        // ── A TEST, from the form's test address ────────────────────
+        // Everything above and below happens as for any submission; only the
+        // notification differs: it goes to the test inbox alone. Stored
+        // marked, so the inbox can show it and leave it out.
+        $testInbox = Notify::testInbox($form, $data);
+
         // ── Save submission ─────────────────────────────────────────
         // With the token it carried, so the same page cannot send it twice
         // (`Guard::screen()` refuses a token a received submission holds).
@@ -262,6 +192,7 @@ class FormController
             'source_page' => $meta['source_page'],
             'user_agent'  => $meta['user_agent'],
             'token_hash'  => Guard::postedTokenHash($_POST),
+            'is_test'     => $testInbox !== null,
         ]);
 
         // Tie each booking to the row that now exists, so deleting the
@@ -276,15 +207,20 @@ class FormController
         $settings   = $form['settings'] ?? [];
         $recipients = trim($settings['recipients'] ?? '');
 
-        if ($recipients !== '') {
-            FormSubmission::setNotified($submissionId, $this->sendNotification($form, $data, $recipients, $settings, $raw, $meta));
+        if ($recipients !== '' || $testInbox !== null) {
+            FormSubmission::setNotified($submissionId, $this->sendNotification($form, $data, $recipients, $settings, $raw,
+                $meta + ['submission_id' => (string) $submissionId], $testInbox));
         }
+        // A CONFIRMATION TO THE SENDER, when the form has one: here, past
+        // every spam check above, so no address a bot typed is written to.
+        Notify::confirm($form, $data, $testInbox);
         self::maybePurge();
 
         $successMessage = $settings['success_message'] ?? 'Thank you! Your submission has been received.';
-        // THE CONVERSION IS THIS ONE'S ALONE: a real submission, received.
-        // A caught bot's thank-you (`turnAway()`) and a refusal send none.
-        $this->answer(true, (string) $successMessage, 200, $form, $meta['source_page'], \Cms\Site\Google::conversionFor($form));
+        // THE CONVERSION IS THIS ONE'S ALONE: a real submission, received,
+        // and named by its stored id. A caught bot's thank-you (`turnAway()`)
+        // and a refusal send none.
+        $this->answer(true, (string) $successMessage, 200, $form, $meta['source_page'], \Cms\Site\Google::conversionFor($form, $submissionId));
     }
 
     /**
@@ -486,318 +422,6 @@ class FormController
     }
 
     /**
-     * Reasons an upload was refused, keyed by field name.
-     *
-     * `readValue()` is the only place that can produce one — it is where the
-     * file is actually stored — and validation runs after it, so the message
-     * has to be parked rather than returned. A refused upload that reported
-     * nothing would be a form that says "required" about a file the visitor
-     * can see they attached.
-     *
-     * @var array<string, string>
-     */
-    private array $uploadErrors = [];
-
-    private function readValue(array $field, string $name, string $type): array|string
-    {
-        $why = null;
-        // A TOGGLE POSTS EXACTLY WHAT A CHECKBOX POSTS — '1' or nothing. It
-        // is a different CONTROL, not a different value, so it shares this
-        // branch and nothing downstream has to know which one the author
-        // picked.
-        if ($type === 'checkbox' || $type === 'toggle') {
-            return isset($_POST[$name]) ? '1' : '';
-        }
-
-        // A COMPOSITE POSTS ONE ARRAY — `name[first]`, `name[last]`. Only the
-        // parts the type declares are read, so a hand-made POST cannot smuggle
-        // a seventh line into an address, and EMPTY PARTS ARE DROPPED: that is
-        // what makes an all-blank composite come back as `[]` and satisfy the
-        // same `$blank` test every other type uses, rather than needing its own
-        // branch in the required check.
-        // ── A FILE ARRIVES IN $_FILES, NOT $_POST ───────────────────────────
-        // Stored on the spot and reduced to the attachment's id, so everything
-        // downstream — required, logic, the stored string — is dealing with a
-        // short scalar like every other field. `Forms\Upload` owns what is
-        // allowed; the message it writes is the one the visitor is shown.
-        if ($type === 'file') {
-            $id = Upload::accept($_FILES[$name] ?? ['error' => UPLOAD_ERR_NO_FILE],
-                                 $field, $why);
-            if ($why !== null) {
-                $this->uploadErrors[$name] = $why;
-            }
-            return $id === null ? '' : (string) $id;
-        }
-
-        // A SIGNATURE IS A PNG THE VISITOR DREW. It posts as a data URL, which
-        // is turned back into a file through the same path — so it lands in the
-        // media library, private, beside every other uploaded file, rather
-        // than as a base64 blob wedged into the submissions table.
-        if ($type === 'signature') {
-            $raw = (string) ($_POST[$name] ?? '');
-            if (trim($raw) === '') {
-                return '';
-            }
-            $id = self::storeSignature($raw, $field, $why);
-            if ($why !== null) {
-                $this->uploadErrors[$name] = $why;
-            }
-            return $id === null ? '' : (string) $id;
-        }
-
-        // A REPEATER POSTS `name[row][column]` — rows of the author's own
-        // columns. Empty ROWS are dropped, not empty cells: somebody who filled
-        // in a name and left the phone blank answered the question, and
-        // discarding the row would discard the answer.
-        if ($type === 'repeater') {
-            $posted = $_POST[$name] ?? [];
-            if (!is_array($posted)) {
-                return [];
-            }
-            $cols = array_values(array_filter(
-                array_map('trim', explode("\n", (string) ($field['options'] ?? ''))),
-                static fn(string $o): bool => $o !== ''
-            ));
-            if ($cols === []) {
-                $cols = ['Item'];
-            }
-
-            $out = [];
-            foreach ($posted as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                $cells = [];
-                foreach ($cols as $col) {
-                    $one = $row[$col] ?? '';
-                    if (is_string($one) && trim($one) !== '') {
-                        $cells[] = $col . ': ' . trim($one);
-                    }
-                }
-                if ($cells !== []) {
-                    $out[] = implode('; ', $cells);
-                }
-            }
-            return $out;
-        }
-
-        // A LIKERT IS A COMPOSITE WHOSE PARTS THE AUTHOR WROTE. Its rows come
-        // from the Options list, so the keys are not in the type table — but
-        // the SHAPE is identical to Name's, `name[row]`, and it is stored the
-        // same way. The stored value carries the row's own words rather than
-        // `r0`, because "r0: Agree" in the submissions table and the
-        // notification email is a row nobody can read.
-        if ($type === 'likert') {
-            $posted = $_POST[$name] ?? [];
-            if (!is_array($posted)) {
-                return [];
-            }
-            $rows = array_values(array_filter(
-                array_map('trim', explode("\n", (string) ($field['options'] ?? ''))),
-                static fn(string $o): bool => $o !== ''
-            ));
-            $out = [];
-            foreach ($rows as $i => $rowText) {
-                $one = $posted['r' . $i] ?? '';
-                if (is_string($one) && trim($one) !== '') {
-                    $out[$rowText] = trim($one);
-                }
-            }
-            return $out;
-        }
-
-        if (FieldTypes::isComposite($type)) {
-            $posted = $_POST[$name] ?? [];
-            if (!is_array($posted)) {
-                return [];
-            }
-            $out = [];
-            foreach (array_keys(FieldTypes::parts($type)) as $key) {
-                $one = $posted[$key] ?? '';
-                if (is_string($one) && trim($one) !== '') {
-                    $out[$key] = trim($one);
-                }
-            }
-            return $out;
-        }
-
-        if (FieldTypes::isMultiple($type)) {
-            $posted = $_POST[$name] ?? [];
-            if (!is_array($posted)) {
-                return [];
-            }
-            $out = [];
-            foreach ($posted as $one) {
-                if (is_string($one) && trim($one) !== '') {
-                    $out[] = trim($one);
-                }
-            }
-            return $out;
-        }
-
-        $value = $_POST[$name] ?? '';
-        return is_string($value) ? trim($value) : '';
-    }
-
-    /**
-     * Format errors for one non-blank value.
-     *
-     * EVERY CHOICE FIELD CHECKS ITS VALUE AGAINST ITS OPTIONS, not just the
-     * dropdown. A `<select>` restricts the browser, never the request; a radio
-     * group and a checkbox set are exactly as forgeable. Before this, only
-     * `select` was checked, so a hand-made POST could store any string at all
-     * for a radio field and the submissions screen would print it as though the
-     * visitor had picked it.
-     *
-     * @param  array<string, mixed> $field
-     * @param  string|list<string>  $value
-     * @return list<string>
-     */
-    private function formatErrors(array $field, string $type, array|string $value, string $label): array
-    {
-        $errors = [];
-        $label  = htmlspecialchars($label);
-
-        // ONE CUSTOM MESSAGE COVERS EVERY FORMAT FAILURE ON A FIELD. The builder
-        // offers "When the format is wrong" as a single box, because a text
-        // field has exactly one format rule and offering four boxes for four
-        // types would be four boxes of which three are always dead.
-        $fmt = trim((string) ($field['msg_format'] ?? ''));
-        $say = static fn(string $fallback): string
-            => $fmt !== '' ? htmlspecialchars($fmt) : $fallback;
-
-        if ($type === 'email' && !filter_var((string) $value, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = $say($label . ' must be a valid email address.');
-        }
-        if ($type === 'url' && !filter_var((string) $value, FILTER_VALIDATE_URL)) {
-            $errors[] = $say($label . ' must be a valid web address.');
-        }
-        if ($type === 'number' && !is_numeric((string) $value)) {
-            $errors[] = $say($label . ' must be a number.');
-        }
-        // `Y-m-d` because that is what `<input type="date">` posts. Comparing
-        // the reformatted date back to the input rejects 2026-02-31, which
-        // strtotime() happily rolls forward to March.
-        // `H:i` is what `<input type="time">` posts. Same shape as the date
-        // check below and for the same reason: comparing the reformatted value
-        // back to the input rejects 25:00, which a looser parse accepts.
-        if ($type === 'time') {
-            $parsed = \DateTimeImmutable::createFromFormat('H:i', (string) $value);
-            if ($parsed === false || $parsed->format('H:i') !== (string) $value) {
-                $errors[] = $say($label . ' must be a valid time.');
-            }
-        }
-        // A SLIDER CANNOT BE MISTYPED, BUT IT CAN BE FORGED. The control
-        // restricts the browser, never the request — the same reasoning the
-        // choice fields carry above.
-        if ($type === 'range') {
-            $min = (float) ($field['min'] ?? 0);
-            $max = (float) ($field['max'] ?? 100);
-            if (!is_numeric((string) $value)
-                || (float) $value < $min || (float) $value > $max) {
-                $errors[] = $say($label . ' must be between ' . $min . ' and ' . $max . '.');
-            }
-        }
-        // A SCALE OR A RATING RESTRICTS THE BROWSER, NEVER THE REQUEST — the
-        // same reasoning every choice field above carries. The bounds are the
-        // ones the renderer drew with, so a forged 99 on a 1-5 rating is
-        // rejected rather than stored as though somebody picked it.
-        if ($type === 'scale' || $type === 'rating') {
-            $lo = $type === 'rating' ? 1 : (int) ($field['min'] ?? 1);
-            $hi = (int) ($field['max'] ?? 5);
-            if ($hi < $lo) { $hi = $lo; }
-            if ($hi - $lo > 20) { $hi = $lo + 20; }
-            $n = (string) $value;
-            if ($n !== (string) (int) $n || (int) $n < $lo || (int) $n > $hi) {
-                $errors[] = $say($label . ' must be between ' . $lo . ' and ' . $hi . '.');
-            }
-        }
-        // AND EVERY LIKERT ANSWER HAS TO BE ONE OF ITS COLUMNS.
-        if ($type === 'likert' && is_array($value)) {
-            $cols = array_values(array_filter(
-                array_map('trim', explode("\n", (string) ($field['columns'] ?? ''))),
-                static fn(string $o): bool => $o !== ''
-            ));
-            if ($cols === []) {
-                $cols = ['Strongly disagree', 'Disagree', 'Neutral',
-                         'Agree', 'Strongly agree'];
-            }
-            foreach ($value as $answer) {
-                if (!in_array($answer, $cols, true)) {
-                    $errors[] = $say($label . ' has an answer that is not one of its options.');
-                    break;
-                }
-            }
-        }
-        if ($type === 'date') {
-            $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', (string) $value);
-            if ($parsed === false || $parsed->format('Y-m-d') !== (string) $value) {
-                $errors[] = $say($label . ' must be a valid date.');
-            }
-        }
-
-        // EVERY CHOICE FIELD CHECKS ITS VALUE AGAINST ITS OPTIONS — except the
-        // Likert, whose Options list is its ROWS and whose answers come from
-        // its Columns. Checking a Likert here compares "Strongly agree"
-        // against "The room was clean" and rejects every valid submission,
-        // which is exactly what it did: a 422 on a form with nothing wrong
-        // with it. The Likert has its own check above, against the right list.
-        // A SOURCED FIELD IS CHECKED AGAINST THE SITE'S CONTENT, and it has
-        // to be: a `<select>` restricts the browser, never the request, and
-        // these are the fields whose valid answers are not written down
-        // anywhere in the form definition. Same list the renderer drew with.
-        if (FieldTypes::isSourced($type)) {
-            $allowed = Sources::choicesFor($field);
-            if ($allowed !== []) {
-                foreach ((array) $value as $one) {
-                    if (!in_array((string) $one, $allowed, true)) {
-                        $errors[] = $label . ' has an invalid selection.';
-                        break;
-                    }
-                }
-            }
-        }
-
-        // A REPEATER IS EXCLUDED FOR THE SAME REASON THE LIKERT IS: its
-        // Options list names its COLUMNS, and its values are whatever the
-        // visitor typed into them. Checking a typed row against the column
-        // headings would reject every submission — the Likert taught this
-        // exact lesson one field earlier.
-        if (FieldTypes::hasChoices($type)
-            && !in_array($type, ['likert', 'repeater'], true)) {
-            // A DROPDOWN, RADIO OR CHECKBOX OPTION IS ITS VALUE: "label | value"
-            // posts the value, so that is what is allowed.
-            $options = in_array($type, FieldTypes::LABELLED, true)
-                ? array_column(FieldTypes::optionPairs((string) ($field['options'] ?? '')), 'value')
-                : array_values(array_filter(
-                    array_map('trim', explode("\n", (string) ($field['options'] ?? ''))),
-                    static fn(string $o): bool => $o !== ''
-                ));
-            if ($options !== []) {
-                foreach ((array) $value as $one) {
-                    if (!in_array((string) $one, $options, true)) {
-                        $errors[] = $label . ' has an invalid selection.';
-                        break;
-                    }
-                }
-            }
-        }
-
-        // A MAXIMUM THE BUILDER OFFERS IS A MAXIMUM THE SERVER ENFORCES. The
-        // `maxlength` attribute stops typing, not posting.
-        $max = (int) ($field['maxlength'] ?? 0);
-        if ($max > 0 && !is_array($value) && mb_strlen($value) > $max) {
-            $errors[] = $label . ' must be ' . $max . ' characters or fewer.';
-        }
-
-        return $errors;
-    }
-
-    // ----------------------------------------------------------------
-    // Email notification
-    // ----------------------------------------------------------------
-
-    /**
      * Email a submission to the form's recipients.
      *
      * ── THE TRANSPORT IS `Mail\Mailer`'S; THE MESSAGE IS HERE ──────────────
@@ -813,13 +437,14 @@ class FormController
      * this runs, so an exception would show the visitor an error for something
      * that worked.
      */
-    protected function sendNotification(array $form, array $data, string $recipients, array $settings, array $answers = [], array $meta = []): bool
+    protected function sendNotification(array $form, array $data, string $recipients, array $settings, array $answers = [], array $meta = [], ?string $testInbox = null): bool
     {
         // `Forms\Notify`: the subject as a
         // template of the answers, Reply-To under the sender's name, and a
         // site's own `form-mail.php` composing the whole message when it has
-        // one. `$recipients` and `$settings` are the form's own, read there.
-        return Notify::send($form, $data, $answers !== [] ? $answers : $data, $meta);
+        // one. `$recipients` and `$settings` are the form's own, read there;
+        // a test's goes to `$testInbox` alone.
+        return Notify::send($form, $data, $answers !== [] ? $answers : $data, $meta, $testInbox);
     }
 
     // ----------------------------------------------------------------
@@ -831,8 +456,13 @@ class FormController
      *
      * A script that asks for JSON — `Accept: application/json`, or
      * `X-Requested-With: XMLHttpRequest` — gets {success, message}; the form
-     * this CMS draws asks that way. A browser posting the form itself, with no
-     * JavaScript, gets a page rather than that raw JSON:
+     * this CMS draws asks that way, and so may a site's own script. When the
+     * form names an after-sending address and its box says a send by script
+     * goes there too, an accepted one (and a caught bot, told the same) gets
+     * {success, message, redirect}: `redirect` is that address as a path on
+     * the host the visitor used, and the script goes there. A browser posting
+     * the form itself, with no JavaScript, gets a page rather than that raw
+     * JSON:
      *
      *   accepted (and a caught bot, told the same): a 303 to the form's own
      *     "after sending" address, else back to the page it was sent from,
@@ -844,8 +474,9 @@ class FormController
      *     $status and $sourcePage; else `form-answer.php` in the site's chrome.
      *
      * A real submission's conversion (`Site\Google`) goes with whichever
-     * answer it is: in the JSON, in a cookie for the redirect's page, or on
-     * the "Sent" page itself.
+     * answer it is: in the JSON, in a cookie for the after-sending page (a
+     * redirect's, or the one a JSON answer sends its script to), or on the
+     * "Sent" page itself.
      *
      * @param array<string, mixed>|null $form
      * @param array{event: string, form: int, id: string}|null $conversion
@@ -855,6 +486,20 @@ class FormController
         $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
         $ajax   = strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
         if ($ajax || str_contains($accept, 'application/json')) {
+            // THE FORM'S BOX SAYS SO ("Go there after a send by script
+            // too"): a form saved before there was one shows its thank-you in
+            // place, as it always did.
+            $to = $success && (string) ((($form ?? [])['settings'] ?? [])['redirect_scripted'] ?? '') === '1'
+                ? self::ownAddress($form ?? []) : null;
+            if ($to !== null) {
+                // ITS PAGE SENDS IT, so the answer does not: carried in the
+                // cookie, as after a redirect, and in the JSON not at all.
+                if ($conversion !== null) {
+                    \Cms\Site\Google::sendAfterRedirect($conversion);
+                }
+                $this->jsonResponse(true, $message, $status, null, $to);
+                return;
+            }
             $this->jsonResponse($success, $message, $status, $success ? $conversion : null);
             return;
         }
@@ -914,24 +559,41 @@ class FormController
      */
     private static function afterSend(array $form, string $sourcePage): ?string
     {
-        $base = rtrim((string) BASE_URL, '/');
-        $own  = trim((string) (($form['settings'] ?? [])['redirect'] ?? ''));
-        if ($own !== '') {
-            if (self::onSite($own)) {
-                return self::pathOf($base . $own);
-            }
-            $host = (string) parse_url($base, PHP_URL_HOST);
-            if ($host !== '' && preg_match('~^https?://[^\\\\\s]+$~i', $own) === 1
-                && strcasecmp((string) parse_url($own, PHP_URL_HOST), $host) === 0) {
-                return self::pathOf($own);
-            }
+        $own = self::ownAddress($form);
+        if ($own !== null) {
+            return $own;
         }
+        $base = rtrim((string) BASE_URL, '/');
         // A #fragment goes: what follows it is never sent to the server, so
         // the mark has to come before it to be read at all.
         $sourcePage = explode('#', $sourcePage, 2)[0];
         if (self::onSite($sourcePage)) {
             return self::pathOf($base . $sourcePage . (str_contains($sourcePage, '?') ? '&' : '?')
                 . 'sent=1&form=' . (int) ($form['id'] ?? 0));
+        }
+        return null;
+    }
+
+    /**
+     * The form's own after-sending address (Settings → After submitting), as
+     * a path on this site, or null when it names none that is on this site.
+     *
+     * @param array<string, mixed> $form
+     */
+    private static function ownAddress(array $form): ?string
+    {
+        $base = rtrim((string) BASE_URL, '/');
+        $own  = trim((string) (($form['settings'] ?? [])['redirect'] ?? ''));
+        if ($own === '') {
+            return null;
+        }
+        if (self::onSite($own)) {
+            return self::pathOf($base . $own);
+        }
+        $host = (string) parse_url($base, PHP_URL_HOST);
+        if ($host !== '' && preg_match('~^https?://[^\\\\\s]+$~i', $own) === 1
+            && strcasecmp((string) parse_url($own, PHP_URL_HOST), $host) === 0) {
+            return self::pathOf($own);
         }
         return null;
     }
@@ -958,8 +620,11 @@ class FormController
     // JSON response helper
     // ----------------------------------------------------------------
 
-    /** @param array{event: string, form: int, id: string}|null $conversion a real submission's, for its script to send */
-    protected function jsonResponse(bool $success, string $message, int $httpCode = 200, ?array $conversion = null): void
+    /**
+     * @param array{event: string, form: int, id: string, submission: int}|null $conversion a real submission's, for its script to send
+     * @param string|null $redirect the form's after-sending page, a path, for its script to go to
+     */
+    protected function jsonResponse(bool $success, string $message, int $httpCode = 200, ?array $conversion = null, ?string $redirect = null): void
     {
         http_response_code($httpCode);
         header('Content-Type: application/json; charset=utf-8');
@@ -969,6 +634,9 @@ class FormController
         ];
         if ($conversion !== null) {
             $answer['conversion'] = $conversion;
+        }
+        if ($redirect !== null) {
+            $answer['redirect'] = $redirect;
         }
         echo json_encode($answer);
     }

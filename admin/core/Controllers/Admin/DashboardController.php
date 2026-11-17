@@ -58,9 +58,11 @@ class DashboardController
         // Recent activity, trash excluded for the same reason as the counts.
         // `updated_at`, not `created_at`: this answers "what was I last working
         // on", and an entry edited this morning that was created in March
-        // belongs at the top.
+        // belongs at the top. With both its dates, so its chip can say
+        // Scheduled or Ended (`Status::forEntry()`).
         $recentPosts = $pdo->query(
             "SELECT p.id, p.title, p.post_type, p.status, p.slug, p.updated_at,
+                    p.published_at, p.unpublish_at,
                     " . \Cms\Models\User::nameSql('u') . " AS author_name
              FROM posts p
              JOIN users u ON u.id = p.author_id

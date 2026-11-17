@@ -248,6 +248,7 @@ class ContentTypeController
             'password_hash'     => $passwordHash,
             'featured_image_id' => !empty($_POST['featured_image_id']) ? (int) $_POST['featured_image_id'] : null,
             'published_at'      => $publishedAt,
+            'unpublish_at'      => self::unpublishAtFrom(null),
             // A new entry goes at the END of a hand-ordered list, not the front.
             // Defaulting to 0 would drop every new team member above the
             // president, which is the sort of thing an owner notices
@@ -398,6 +399,7 @@ class ContentTypeController
             'password_hash'     => $passwordHash,
             'featured_image_id' => !empty($_POST['featured_image_id']) ? (int) $_POST['featured_image_id'] : null,
             'published_at'      => $publishedAt,
+            'unpublish_at'      => self::unpublishAtFrom($post),
             // The Position control only renders for hand-ordered archetypes, so
             // on a feed there is nothing in POST — and `?? 0` would be right
             // there anyway, since a feed has no order to lose. Where the control
@@ -506,14 +508,15 @@ class ContentTypeController
     }
 
     /**
-     * A product copied, to start the next one from: kept Private, off the
-     * site, with its fields, options, categories and pictures, and "(copy)"
-     * after its title.
+     * An entry copied, to start the next one from: kept Private, off the
+     * site, with its fields, terms, picture and parent, and "(copy)" after
+     * its title. A product's options and photos come too.
      *
-     * NO CODES AND NO STOCK. A SKU names one thing, so each is left blank to
-     * be typed; and the copy is a different thing on the shelf, so it holds
-     * nothing until its own stock is counted in. Anything else may be changed
-     * on the copy's own screen, which is where this leads.
+     * A PRODUCT'S COPY HAS NO CODES AND NO STOCK. A SKU names one thing, so
+     * each is left blank to be typed; and the copy is a different thing on
+     * the shelf, so it holds nothing until its own stock is counted in.
+     * Anything else may be changed on the copy's own screen, which is where
+     * this leads.
      */
     public function handleCopy(array $vars = []): void
     {
@@ -522,7 +525,7 @@ class ContentTypeController
         if ($post === null) {
             return;
         }
-        if (!in_array('product', (array) ($this->contentType['archetypes'] ?? []), true)) {
+        if ((string) $post['status'] === 'trash') {
             http_response_code(404);
             require ROOT_PATH . '/admin/templates/404.php';
             return;
@@ -535,7 +538,7 @@ class ContentTypeController
         $user  = Auth::user();
         $newId = Post::create([
             'post_type'         => (string) $post['post_type'],
-            'title'             => (string) $post['title'] . ' (copy)',
+            'title'             => mb_substr((string) $post['title'], 0, 493) . ' (copy)',
             'slug'              => $slug,
             'content'           => (string) ($post['content'] ?? ''),
             'excerpt'           => $post['excerpt'] ?? null,
@@ -544,6 +547,11 @@ class ContentTypeController
             'menu_order'        => (int) ($post['menu_order'] ?? 0),
             'author_id'         => (int) $user['id'],
         ]);
+        // A CHILD STAYS WITH ITS PARENT: a club's event copied is the same
+        // club's next event.
+        if (!empty($post['parent_id'])) {
+            Post::setParent($newId, (int) $post['parent_id']);
+        }
 
         $id      = (int) $post['id'];
         $meta    = Meta::getAll($id);
@@ -571,6 +579,35 @@ class ContentTypeController
         }
 
         header('Location: ' . ADMIN_URL . '/' . $this->contentType['admin_slug'] . '/' . $newId . '/edit', true, 303);
+        exit;
+    }
+
+    /**
+     * Share it by a link (`Content\Share`), for as many days as chosen — an
+     * entry a visitor cannot see yet. Back to its screen, where the link is.
+     */
+    public function handleShare(array $vars = []): void
+    {
+        Auth::requireAuth();
+        $post = $this->entryFor($vars);
+        if ($post === null) {
+            return;
+        }
+        \Cms\Content\Share::make('post', (int) $post['id'], (int) ($_POST['share_days'] ?? 0), (int) Auth::user()['id']);
+        header('Location: ' . ADMIN_URL . '/' . $this->contentType['admin_slug'] . '/' . (int) $post['id'] . '/edit#share', true, 303);
+        exit;
+    }
+
+    /** Stop sharing it: its link stops working at once. */
+    public function handleStopShare(array $vars = []): void
+    {
+        Auth::requireAuth();
+        $post = $this->entryFor($vars);
+        if ($post === null) {
+            return;
+        }
+        \Cms\Content\Share::stop('post', (int) $post['id']);
+        header('Location: ' . ADMIN_URL . '/' . $this->contentType['admin_slug'] . '/' . (int) $post['id'] . '/edit#share', true, 303);
         exit;
     }
 
@@ -1292,6 +1329,48 @@ class ContentTypeController
         return is_string($utc) ? $utc : null;
     }
 
+    /**
+     * The unpublish date this save stores, in UTC, or null for none: the
+     * `unpublish_local` box, read as `published_local` is. A request with no
+     * such box keeps the stored date.
+     *
+     * @param array<string, mixed>|null $existing
+     */
+    /**
+     * What is wrong with the unpublish box as posted, or null: a value that
+     * is not a date and time, or one at or before the publish date, which
+     * would take the entry off the site before it went on. The page screen
+     * asks the same.
+     *
+     * @param array<string, mixed> $postData
+     */
+    public static function endingProblem(array $postData): ?string
+    {
+        if (!array_key_exists('unpublish_local', $postData) || is_array($postData['unpublish_local'])) {
+            return null;
+        }
+        $ends = Dates::fromInput((string) $postData['unpublish_local']);
+        if ($ends === false) {
+            return 'The unpublish date is not a date and time.';
+        }
+        $starts = isset($postData['published_local']) && !is_array($postData['published_local'])
+            ? Dates::fromInput((string) $postData['published_local'])
+            : null;
+        if (is_string($ends) && is_string($starts) && $ends <= $starts) {
+            return 'The unpublish date is not after the publish date.';
+        }
+        return null;
+    }
+
+    private static function unpublishAtFrom(?array $existing): ?string
+    {
+        if (!array_key_exists('unpublish_local', $_POST) || is_array($_POST['unpublish_local'])) {
+            return $existing['unpublish_at'] ?? null;
+        }
+        $utc = Dates::fromInput((string) $_POST['unpublish_local']);
+        return is_string($utc) ? $utc : null;
+    }
+
     private static function sanitizeSlugInput(string $raw): string
     {
         return \Cms\Helpers\Slug::clean($raw);
@@ -1342,6 +1421,10 @@ class ContentTypeController
             && !is_array($postData['published_local'])
             && Dates::fromInput((string) $postData['published_local']) === false) {
             $errors[] = 'The publish date is not a date and time.';
+        }
+        $ending = self::endingProblem($postData);
+        if ($ending !== null) {
+            $errors[] = $ending;
         }
 
         // TWO PASSES, AND THE ORDER MATTERS. Sanitise everything first, then

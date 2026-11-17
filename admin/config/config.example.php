@@ -49,6 +49,27 @@ return [
     // 'anthropic_effort'     => 'medium',
 
     // ----------------------------------------------------------------
+    // Mail through Brevo (optional)
+    //
+    // Every message the CMS sends goes through Brevo's API instead of the
+    // server's mail program or Settings → Email's SMTP server. It is sent
+    // from the From address on Settings → Email, which Brevo must know as one
+    // of the account's senders. The key is kept here and nowhere else.
+    // ----------------------------------------------------------------
+    // 'mail_transport' => 'brevo',
+    // 'brevo_api_key'  => 'xkeysib-...',
+
+    // ----------------------------------------------------------------
+    // Form conversions the site sends itself (optional)
+    //
+    // For a site whose own header prints its Google tags: Settings → SEO →
+    // Google stays empty and the CMS prints nothing of Google's, but each real
+    // submission's conversion is carried to its form's after-sending page, for
+    // the site's page to take with \Cms\Site\Google::conversion() and send.
+    // ----------------------------------------------------------------
+    // 'site_sends_conversions' => true,
+
+    // ----------------------------------------------------------------
     // Modules (optional) — which optional parts of the CMS this site runs.
     // Every module is on unless switched off here. A switched-off module
     // answers 404 at its addresses and shows nowhere in the admin; its data

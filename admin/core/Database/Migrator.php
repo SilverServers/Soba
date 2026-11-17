@@ -152,7 +152,7 @@ final class Migrator
         $lock = 'cms_migrate_' . substr(sha1((string) $this->pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 16);
         $got  = $this->pdo->query('SELECT GET_LOCK(' . $this->pdo->quote($lock) . ', ' . max(0, $lockTimeout) . ')')->fetchColumn();
         if ((string) $got !== '1') {
-            throw new RuntimeException(
+            throw new MigrationsBusy(
                 "Another process is applying migrations to this database (waited {$lockTimeout}s). Try again when it finishes."
             );
         }

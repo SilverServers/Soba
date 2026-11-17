@@ -53,7 +53,9 @@ $url        = \Cms\Helpers\Url::page(($cardType['public_slug'] ?? '') . '/' . $p
                              alt text and then throws it away on output is the
                              same lie as a field nothing renders. */ ?>
                     <a class="post-list__media" href="<?= htmlspecialchars($url) ?>" tabindex="-1" aria-hidden="true">
-                        <img src="<?= htmlspecialchars($cover) ?>"
+                        <?php // 96px wide: a phone's screen takes the smallest width. ?>
+                        <?php $coverSet = $image !== null ? \Cms\Media\Sizes::srcset($image) : ''; ?>
+                        <img src="<?= htmlspecialchars($cover) ?>"<?= $coverSet !== '' ? ' srcset="' . htmlspecialchars($coverSet) . '" sizes="96px"' : '' ?>
                              alt="<?= htmlspecialchars((string) ($image['alt_text'] ?? '')) ?>" loading="lazy">
                     </a>
                 <?php endif; ?>
@@ -72,13 +74,17 @@ $url        = \Cms\Helpers\Url::page(($cardType['public_slug'] ?? '') . '/' . $p
                              entry, which is nobody's business and reads as
                              clutter. */ ?>
                     <p class="post-list__meta">
-                        <?php if ($isEvent && !empty($meta['event_start_date'])): ?>
-                            <?= htmlspecialchars(date('F j, Y \a\t g:i A', strtotime((string) $meta['event_start_date']))) ?>
+                        <?php // THE START AS TYPED, in the owner's formats: an
+                              // event's start is the site's wall-clock time. ?>
+                        <?php $starts = (string) ($meta['event_start_date'] ?? ''); ?>
+                        <?php if ($isEvent && \Cms\Helpers\Dates::asTyped($starts, \Cms\Helpers\Dates::dateFormat()) !== ''): ?>
+                            <?= htmlspecialchars(\Cms\Helpers\Dates::asTyped($starts, \Cms\Helpers\Dates::dateFormat()) . ' at '
+                                . \Cms\Helpers\Dates::asTyped($starts, \Cms\Helpers\Dates::timeFormat())) ?>
                             <?php if (!empty($meta['event_location'])): ?>
                                 &mdash; <?= htmlspecialchars($plain('event_location')) ?>
                             <?php endif; ?>
                         <?php elseif (!empty($p['published_at'])): ?>
-                            <?= htmlspecialchars(\Cms\Helpers\Dates::format((string) $p['published_at'], 'F j, Y')) ?>
+                            <?= htmlspecialchars(\Cms\Helpers\Dates::short((string) $p['published_at'])) ?>
                         <?php endif; ?>
                     </p>
                 <?php endif; ?>

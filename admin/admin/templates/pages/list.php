@@ -93,7 +93,10 @@ ob_start();
 
                 <select class="select" aria-label="Filter by status" data-filter-attr="data-status">
                     <option value="">Any status</option>
-                    <?php foreach (Status::labels() as $key => $statusLabel): ?>
+                    <?php // What can be stored, and Ended: a page has no publish
+                          // date, so never Scheduled, but its unpublish date can
+                          // have come (Status::forEntry()). ?>
+                    <?php foreach (array_diff_key(Status::filterLabels(), ['scheduled' => 1]) as $key => $statusLabel): ?>
                         <?php if ($key === 'trash') { continue; } ?>
                         <option value="<?= h($key) ?>"><?= h($statusLabel) ?></option>
                     <?php endforeach; ?>
@@ -106,7 +109,7 @@ ob_start();
             </div>
         </div>
 
-        <div class="list entry-list page-list" id="page-list">
+        <div class="list entry-list entry-list--copy page-list" id="page-list">
             <?php foreach ($pages as $page): ?>
                 <?php
                 $isChild = !empty($page['parent_id']);
@@ -139,7 +142,7 @@ ob_start();
                       // quietly make "published" a search term hitting every
                       // published row, and "admin" one hitting everything. ?>
                 <div class="list__row<?= $isChild ? ' page-list__row--child' : '' ?>"
-                     data-status="<?= h((string) $page['status']) ?>"
+                     data-status="<?= h(Status::forEntry($page)) ?>"
                      data-text="<?= h($page['title'] . ' ' . $page['slug']) ?>">
                     <div class="entry-list__main">
                         <a class="list__row-link list__row-title"
@@ -147,7 +150,7 @@ ob_start();
                         <div class="list__row-sub">/<?= h((string) $page['slug']) ?></div>
                     </div>
 
-                    <?= Status::render((string) $page['status']) ?>
+                    <?= Status::render(Status::forEntry($page)) ?>
 
                     <div class="list__row-meta">
                         <span class="entry-list__author"><?= h((string) $page['author_name']) ?></span>
@@ -173,6 +176,11 @@ ob_start();
                         <?php endif; ?>
                         </span>
                         <a class="btn btn--sm" href="<?= h(Url::admin('pages/' . (int) $page['id'] . '/edit')) ?>">Edit</a>
+                        <?php // A PAGE COPIED to start the next one, Private. ?>
+                        <form class="form-inline" method="post" action="<?= h(Url::admin('pages/' . (int) $page['id'] . '/copy')) ?>">
+                            <?= Csrf::field() ?>
+                            <button type="submit" class="link link--xs">Copy</button>
+                        </form>
                         <form class="form-inline" method="post"
                               action="<?= h(Url::admin('pages/' . (int) $page['id'] . '/trash')) ?>"
                               data-confirm="Move &ldquo;<?= h((string) $page['title']) ?>&rdquo; to the trash?"

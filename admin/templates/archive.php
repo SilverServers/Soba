@@ -29,6 +29,11 @@ $isEvent    = in_array('event', $archetypes, true);
 
 <div class="archive-header">
     <h1><?= htmlspecialchars($contentType['label'] ?? 'Archive') ?></h1>
+    <?php // AN EVENTS LIST AS A CALENDAR TO SUBSCRIBE TO (`Content\Calendar`):
+          // a calendar app given this address keeps itself up to date. ?>
+    <?php if ($isEvent && \Cms\Content\Calendar::has((string) ($contentType['key'] ?? ''))): ?>
+        <p class="archive-header__calendar"><a href="<?= htmlspecialchars(\Cms\Content\Calendar::url((string) $contentType['key'])) ?>">Subscribe in your calendar</a></p><?php /* audit-ok: the link's own verb, which the system draws */ ?>
+    <?php endif; ?>
 </div>
 
 <?php
@@ -75,17 +80,36 @@ $shopTools = $shopTools ?? null;
 
 <?php else: ?>
 
-    <ul class="post-list">
-        <?php foreach ($posts as $p): ?>
-            <?php // ONE CARD, ONE PLACE: `partials/post-card.php`, because
-                  // the term archive renders the identical card and a second
-                  // copy would drift from this one. `$cardType` is named rather
-                  // than reusing `$contentType`, because a term archive's rows
-                  // each carry their own type and this one's do not. ?>
-            <?php $cardType = $contentType; ?>
-            <?php require \Cms\Helpers\Template::locate('partials/post-card.php'); ?>
-        <?php endforeach; ?>
-    </ul>
+    <?php // AN EVENTS LIST: WHAT IS OVER, UNDER A HEADING OF ITS OWN. The
+          // controller says where on this page the past begins (`$pastFrom`,
+          // `Content\Events`), and null when it does not, or the list is
+          // not in date order. ?>
+    <?php $pastFrom = $pastFrom ?? null; ?>
+    <?php // audit-ok: the theme's name for this part of the list, like "Related" — renamed in a site's own template. ?>
+    <?php $pastTitle = 'Past events'; ?>
+    <?php $lists = $pastFrom === null ? [[null, $posts]]
+        : array_values(array_filter([[null, array_slice($posts, 0, $pastFrom)], [$pastTitle, array_slice($posts, $pastFrom)]],
+            static fn (array $list): bool => $list[1] !== [])); ?>
+    <?php foreach ($lists as [$heading, $cards]): ?>
+        <?php if ($heading !== null): ?>
+            <section class="post-list-past" aria-labelledby="post-list-past-title">
+                <h2 class="post-list-past__title" id="post-list-past-title"><?= htmlspecialchars($heading) ?></h2>
+        <?php endif; ?>
+        <ul class="post-list">
+            <?php foreach ($cards as $p): ?>
+                <?php // ONE CARD, ONE PLACE: `partials/post-card.php`, because
+                      // the term archive renders the identical card and a second
+                      // copy would drift from this one. `$cardType` is named rather
+                      // than reusing `$contentType`, because a term archive's rows
+                      // each carry their own type and this one's do not. ?>
+                <?php $cardType = $contentType; ?>
+                <?php require \Cms\Helpers\Template::locate('partials/post-card.php'); ?>
+            <?php endforeach; ?>
+        </ul>
+        <?php if ($heading !== null): ?>
+            </section>
+        <?php endif; ?>
+    <?php endforeach; ?>
 
     <?php // THE PAGER AND THE HEAD'S rel="prev"/"next" READ ONE RULE —
           // `Helpers\Paging::url()` from `$pageBase`, page 1's address, which the

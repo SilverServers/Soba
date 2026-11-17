@@ -86,7 +86,7 @@ final class ProductFeed
                 continue;
             }
             $stmt = Database::getInstance()->prepare(
-                "SELECT id FROM posts WHERE post_type = :t AND status = 'published' ORDER BY created_at DESC, id DESC"
+                'SELECT id FROM posts WHERE post_type = :t AND ' . \Cms\Models\Post::live() . ' ORDER BY created_at DESC, id DESC'
             );
             $stmt->execute([':t' => (string) $key]);
             foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {

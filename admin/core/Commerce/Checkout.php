@@ -150,7 +150,7 @@ final class Checkout
     {
         $id = (int) (\Cms\Models\Option::get('commerce_terms_page', '0') ?? 0);
         $page = $id > 0 ? \Cms\Models\Page::find($id) : null;
-        if ($page === null || (string) ($page['status'] ?? '') !== 'published') {
+        if ($page === null || (string) ($page['status'] ?? '') !== 'published' || \Cms\Models\Post::hasEnded($page)) {
             return null;
         }
 

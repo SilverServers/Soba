@@ -138,8 +138,10 @@ $now         = time();
                               // about it should not lose what it had. ?>
                         <p class="form-help">
                             The line at the bottom of every page. Leave it empty for
-                            the copyright line above. A footer menu, if you build
-                            one, appears beside it — Appearance &rarr; Menus.
+                            the copyright line above. <code>[phone]</code>,
+                            <code>[email]</code> and <code>[hours]</code> print what
+                            <a class="link" href="<?= h(Url::admin('settings/business')) ?>">Business details</a> says.
+                            A footer menu, if you build one, appears beside it — Appearance &rarr; Menus.
                         </p>
                     </div>
 
@@ -147,6 +149,19 @@ $now         = time();
                         <label class="label" for="f-admin-email">Administrator email</label>
                         <input class="input" type="email" id="f-admin-email" name="admin_email"
                                value="<?= h($opt('admin_email')) ?>">
+                    </div>
+                    <?php // THE LANGUAGE THE PAGES ARE WRITTEN IN, said to the
+                          // visitor's browser and screen reader as `<html lang>`
+                          // (`Site\Language`). The admin stays in English. ?>
+                    <div class="field field--narrow">
+                        <label class="label" for="f-site-language">Site language</label>
+                        <select class="select" id="f-site-language" name="<?= h(\Cms\Site\Language::OPTION) ?>">
+                            <?php $currentLanguage = $opt(\Cms\Site\Language::OPTION, \Cms\Site\Language::DEFAULT); ?>
+                            <?php foreach (\Cms\Site\Language::ALL as $tag => $name): ?>
+                                <option value="<?= h($tag) ?>"<?= $tag === $currentLanguage ? ' selected' : '' ?>><?= h($name) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="form-help">The language your pages are written in, so a screen reader reads them aloud in it and a browser offers to translate from it.</p>
                     </div>
                 </div>
 
@@ -183,8 +198,12 @@ $now         = time();
                                 ? $dateChoices
                                 : array_merge([$currentDate], $dateChoices);
                             foreach ($dateOptions as $fmt): ?>
+                                <?php // IN THE SITE'S OWN ZONE, as the line under the
+                                      // two selects is: `date()` is the server's
+                                      // UTC, which showed tomorrow's date after
+                                      // 5 PM in Vancouver. ?>
                                 <option value="<?= h($fmt) ?>"<?= $fmt === $currentDate ? ' selected' : '' ?>>
-                                    <?= h(date($fmt, $now)) ?>
+                                    <?= h(Dates::format($now, $fmt)) ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -200,16 +219,17 @@ $now         = time();
                                 : array_merge([$currentTime], $timeChoices);
                             foreach ($timeOptions as $fmt): ?>
                                 <option value="<?= h($fmt) ?>"<?= $fmt === $currentTime ? ' selected' : '' ?>>
-                                    <?= h(date($fmt, $now)) ?>
+                                    <?= h(Dates::format($now, $fmt)) ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <?php // SHOW THE RESULT, through the same helper the lists
-                              // use — so this is the actual output, not a mock-up
-                              // of it. Show, don't tell. ?>
+                        <?php // SHOW THE RESULT, through the same helper the site's
+                              // pages and the admin's lists use, so this is the
+                              // actual output, not a mock-up of it. Show, don't
+                              // tell. ?>
                         <p class="form-help">
-                            Lists currently stamp entries as
-                            <strong><?= h(Dates::short(date('c', $now))) ?></strong>.
+                            On the site and in the admin, a date and time read
+                            <strong><?= h(Dates::stamp(date('c', $now))) ?></strong>.
                         </p>
                     </div>
                 </div>

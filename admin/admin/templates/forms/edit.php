@@ -341,6 +341,19 @@ ob_start();
                         <p class="form-help">How far one nudge moves. Leave blank for 1.</p>
                     </div>
 
+                    <?php // A FILE FIELD'S OWN KINDS, narrower than the site's
+                          // (`Forms\Upload::allowedFor()`, which the server
+                          // holds every file to; `accept` only filters the
+                          // visitor's picker). Empty takes every kind. ?>
+                    <div class="field" data-opt-wrap="accept">
+                        <label class="label" for="opt-accept">File types</label>
+                        <input class="input" type="text" id="opt-accept" data-opt="accept"
+                               autocomplete="off" spellcheck="false" placeholder="Every kind"
+                               data-kinds="<?= h(implode(',', array_values(\Cms\Forms\Upload::ALLOWED))) ?>">
+                        <p class="form-help">Separated with commas, from <?= h(implode(', ', array_values(\Cms\Forms\Upload::ALLOWED))) ?>. Empty takes them all.</p>
+                        <p class="form-help" data-accept-note aria-live="polite"></p>
+                    </div>
+
                     <div class="form-grid form-grid--2">
                         <div class="field" data-opt-wrap="scale_low">
                             <label class="label" for="opt-scale-low">Label at the low end</label>
@@ -688,6 +701,51 @@ ob_start();
                         to them. Only email fields can do this.
                     </p>
                 </div>
+
+                <?php // A TEST (`Forms\Notify::testInbox()`): a submission whose
+                      // reply-to field holds the test address goes through
+                      // everything a real one does, and its email goes to the
+                      // test inbox alone. Blank: the site's, Settings → Email. ?>
+                <?php
+                $siteTest = [trim((string) \Cms\Models\Option::get('forms_test_address', '')), trim((string) \Cms\Models\Option::get('forms_test_inbox', ''))];
+                ?>
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="label" for="f-test-address">Test address</label>
+                        <input class="input" type="email" id="f-test-address" name="test_address"
+                               value="<?= h($setting('test_address')) ?>" placeholder="<?= h($siteTest[0]) ?>" autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-test-inbox">Test inbox</label>
+                        <input class="input" type="email" id="f-test-inbox" name="test_inbox"
+                               value="<?= h($setting('test_inbox')) ?>" placeholder="<?= h($siteTest[1]) ?>" autocomplete="off">
+                    </div>
+                </div>
+                <p class="form-help">
+                    A submission whose reply-to field holds the test address is a test: it is handled as a real
+                    one, its email goes to the test inbox alone, and the submissions list marks it.
+                    Blank: the site's, from Settings → Email.
+                </p>
+              </div>
+
+              <?php // A CONFIRMATION TO THE SENDER (`Forms\Notify::confirm()`):
+                    // the message is the switch, so there is no box to tick. ?>
+              <div class="form-card__section">
+                <?= panel_title('Confirmation to the sender', 'confirmation') ?>
+                <div class="field">
+                    <label class="label" for="f-confirm-subject">Subject</label>
+                    <input class="input" type="text" id="f-confirm-subject" name="confirm_subject" maxlength="200"
+                           value="<?= h($setting('confirm_subject')) ?>" placeholder="Received: <?= h((string) ($form['title'] ?? 'the form')) ?>">
+                </div>
+                <div class="field">
+                    <label class="label" for="f-confirm-message">Message</label>
+                    <textarea class="textarea" id="f-confirm-message" name="confirm_message" rows="4" maxlength="5000"><?= h($setting('confirm_message')) ?></textarea>
+                    <p class="form-help">
+                        Sent to the address in the Reply-to field once a submission has passed the spam checks, and a
+                        test's to the test inbox. Blank: no confirmation. A field's name in braces, such as {name}, is
+                        its answer, as in the subject: the sender's own words, sent to the address they typed.
+                    </p>
+                </div>
               </div>
 
               <div class="form-card__section">
@@ -713,6 +771,15 @@ ob_start();
                     <input class="input" type="text" id="f-redirect" name="redirect"
                            value="<?= h($setting('redirect')) ?>" placeholder="/thanks/">
                     <p class="form-help">A page on this site. Blank: back to the page the form was sent from, which shows the thank-you message.</p>
+                    <?php // A SEND BY SCRIPT, the form's usual way, goes there
+                          // too only when ticked: a form saved before there
+                          // was a box shows its thank-you in place. ?>
+                    <label class="check-list__row" for="f-redirect-scripted">
+                        <input type="checkbox" id="f-redirect-scripted" name="redirect_scripted" value="1"
+                               <?= $setting('redirect_scripted') === '1' ? 'checked' : '' ?>>
+                        <span>Go there after a send by script too</span>
+                    </label>
+                    <p class="form-help">Then the thank-you message is not shown in place, and the form's conversion is sent from that page.</p>
                 </div>
 
                 <?php // THE CONVERSION (`Site\Google`): sent once for each real
@@ -723,7 +790,11 @@ ob_start();
                     <input class="input input--mono" type="text" id="f-conversion" name="conversion_event"
                            value="<?= h($setting('conversion_event', \Cms\Site\Google::DEFAULT_EVENT)) ?>"
                            placeholder="<?= h(\Cms\Site\Google::DEFAULT_EVENT) ?>" autocomplete="off" spellcheck="false">
-                    <p class="form-help">Sent once for each real submission when Settings → SEO → Google has an Analytics or Tag Manager ID. Blank: none.</p>
+                    <?php if (\Cms\Site\Google::siteSendsConversions()): ?>
+                        <p class="form-help">Sent once for each real submission: by Settings → SEO → Google's tags when it has an ID, and by the after-sending page, which this site's own pages send (config.php). Blank: none.</p>
+                    <?php else: ?>
+                        <p class="form-help">Sent once for each real submission when Settings → SEO → Google has an Analytics or Tag Manager ID. Blank: none.</p>
+                    <?php endif; ?>
                 </div>
 
                 <div class="field">

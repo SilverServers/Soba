@@ -1798,6 +1798,16 @@
     // word count that freezes the moment you switch views is worse than none.
     textarea.addEventListener('input', countWords);
     surface.addEventListener('blur', sync);
+    // A TEXT PUT BACK FROM OUTSIDE (`keep-writing.js` returning what this
+    // browser kept): the textarea is authoritative, as it is coming back from
+    // the HTML view.
+    textarea.addEventListener('cms:replaced', function () {
+        if (!sourceMode) {
+            surface.innerHTML = surfaceHtml(textarea.value);
+            ensureBlock(surface);
+        }
+        countWords();
+    });
     // The caret moving is not an `input` event, and the toolbar has to follow
     // it — otherwise it reports the state of wherever you last typed.
     surface.addEventListener('keyup', refresh);

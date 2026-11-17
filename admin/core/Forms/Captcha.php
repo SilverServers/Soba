@@ -76,6 +76,12 @@ final class Captcha
      */
     public static function provider(): string
     {
+        // A STATIC COPY ASKS THE BUILT-IN QUESTION (`Export\Forms`): a
+        // service's answer is checked with its secret key, which does not
+        // leave the site with a copy.
+        if (defined('CMS_EXPORT')) {
+            return 'builtin';
+        }
         $chosen = (string) (Option::get(self::PROVIDER_KEY, 'builtin') ?? 'builtin');
         if (!isset(self::providers()[$chosen]) || $chosen === 'builtin') {
             return 'builtin';

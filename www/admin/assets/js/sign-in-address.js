@@ -9,19 +9,18 @@
  *
  * ── THE SAME SHAPE AS THE SERVER'S ──────────────────────────────────────────
  * The word list, the alphabet and the length are printed onto the button from
- * LoginUrl::WORDS, ::ALPHABET and ::TAIL, the parts LoginUrl::suggest() uses.
- * One list, read in two places, never copied into this file.
+ * LoginUrl::WORDS, ::ALPHABET and ::TAIL, the shape LoginUrl::wellFormed()
+ * accepts. One list, never copied into this file.
  *
  * ── A SECRET, SO NOT Math.random ────────────────────────────────────────────
  * The address is what keeps the sign-in page hidden: crypto.getRandomValues,
  * with draws past the last whole multiple thrown away so no letter comes up
  * more often than another.
  *
- * ── WITH NOTHING STORED ─────────────────────────────────────────────────────
- * The screen suggests an address three ways: the box's placeholder, a hidden
- * field a save with the box left empty takes, and the help line's <code>. The
- * new address becomes the suggestion in all three, so a box emptied again
- * after Randomize still saves exactly the address the screen shows.
+ * ── THE BOX IS THE SETTING ──────────────────────────────────────────────────
+ * An address in the box moves the sign-in page there on Save; an empty box
+ * leaves it at /admin/login. So Randomize only fills the box: nothing is
+ * offered anywhere else that a save could take without it being in the box.
  */
 (function () {
   'use strict';
@@ -54,11 +53,6 @@
     if (!box || made === '') return;
 
     box.value = made;
-    if (box.placeholder) box.placeholder = made;
-    var kept = box.form ? box.form.querySelector('input[name="slug_suggestion"]') : null;
-    if (kept) kept.value = made;
-    var shown = document.querySelector('[data-suggestion]');
-    if (shown) shown.textContent = made;
     box.dispatchEvent(new Event('input', { bubbles: true }));
   });
 })();

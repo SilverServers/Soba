@@ -8,6 +8,7 @@ use Cms\Auth\Auth;
 use Cms\Forms\Embed;
 use Cms\Forms\FieldTypes;
 use Cms\Forms\Logic;
+use Cms\Forms\Notify;
 use Cms\Helpers\Dates;
 use Cms\Helpers\Places;
 use Cms\Helpers\Slug;
@@ -64,6 +65,7 @@ class FormController
             $errors[] = 'Form title is required.';
         }
         self::postedEvent($errors);
+        self::postedTest($errors);
         $placeKey = self::postedPlace($errors, null);
 
         if (!empty($errors)) {
@@ -131,6 +133,7 @@ class FormController
             $errors[] = 'Form title is required.';
         }
         self::postedEvent($errors);
+        self::postedTest($errors);
         $placeKey = self::postedPlace($errors, $form['place_key'] ?? null);
 
         if (!empty($errors)) {
@@ -156,6 +159,36 @@ class FormController
         }
 
         header('Location: ' . ADMIN_URL . '/forms/' . $formId . '/edit?saved=1' . ($had !== null ? '&moved=' . (int) $had['id'] : ''));
+        exit;
+    }
+
+    // ----------------------------------------------------------------
+    // Copy form
+    // ----------------------------------------------------------------
+
+    /**
+     * A COPY TO START THE NEXT FORM FROM: every field, condition and setting,
+     * as a form of its own, opened for editing. Not its submissions, and not
+     * its place on the site: a place shows one form, and the copy takes it
+     * only when somebody chooses that on its screen.
+     */
+    public function handleCopy(array $vars = []): void
+    {
+        Auth::requireAuth();
+
+        $form = Form::find((int) ($vars['id'] ?? 0));
+        if (!$form) {
+            header('Location: ' . ADMIN_URL . '/forms');
+            exit;
+        }
+
+        $copyId = Form::create(
+            mb_substr((string) $form['title'], 0, 193) . ' (copy)',
+            is_array($form['fields']) ? $form['fields'] : [],
+            is_array($form['settings']) ? $form['settings'] : []
+        );
+
+        header('Location: ' . ADMIN_URL . '/forms/' . $copyId . '/edit', true, 303);
         exit;
     }
 
@@ -247,10 +280,19 @@ class FormController
      * 20 A PAGE UNLESS THE OWNER SAYS OTHERWISE — the entry list's default
      * too — kept in the session, 1 to 999.
      *
+     * TESTS (`?test=only` or `?test=none`): a list of received submissions
+     * can show tests alone or leave them out. `hasTests` says whether this
+     * list holds any, so the choice is offered only where it does something.
+     *
      * @return array<string, mixed>
      */
     private static function listPage(string $status, ?int $formId, string $path): array
     {
+        $test = $status === FormSubmission::SPAM ? null : match ((string) ($_GET['test'] ?? '')) {
+            'only'  => true,
+            'none'  => false,
+            default => null,
+        };
         $perPage = (int) ($_SESSION['submissions_per_page'] ?? 20);
         if (ctype_digit((string) ($_GET['per_page'] ?? ''))) {
             $perPage = (int) $_GET['per_page'];
@@ -259,14 +301,14 @@ class FormController
         $_SESSION['submissions_per_page'] = $perPage;
 
         $page  = ctype_digit((string) ($_GET['page'] ?? '')) ? max(1, (int) $_GET['page']) : 1;
-        $found = FormSubmission::page($status, $formId, $page, $perPage);
+        $found = FormSubmission::page($status, $formId, $page, $perPage, $test);
         $pages = max(1, (int) ceil($found['total'] / $perPage));
         // PAST THE LAST PAGE — rows left since the link was drawn (a bulk
         // delete on the last page, an Empty spam in another tab): the last
         // page, rather than an empty list that says there is nothing here.
         if ($page > $pages) {
             $page  = $pages;
-            $found = FormSubmission::page($status, $formId, $page, $perPage);
+            $found = FormSubmission::page($status, $formId, $page, $perPage, $test);
         }
 
         $report = $_SESSION['submissions_bulk_report'] ?? null;
@@ -285,6 +327,8 @@ class FormController
             'status'  => $status,
             'formId'  => $formId,
             'report'  => $report,
+            'test'    => $test,
+            'hasTests' => $status === FormSubmission::RECEIVED && FormSubmission::hasTests($formId),
         ];
     }
 
@@ -329,7 +373,8 @@ class FormController
      * shows them — Spam is not in it — newest first.
      *
      * THE COLUMNS: Submitted, then (every form) Form, then one per answer,
-     * then Page, From and Email sent. The answers are every collecting field
+     * then Page, From and Email sent, and Test when the file holds a test
+     * (`Forms\Notify::testInbox()`): a file with none is as it always was. The answers are every collecting field
      * of the forms in form order, then any name a submission carries that
      * the form no longer defines — a renamed field's answers are never
      * dropped. One form's file heads them with its labels; every form's with
@@ -379,13 +424,14 @@ class FormController
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Cache-Control: no-store');
 
-        $out  = fopen('php://output', 'w');
-        $safe = static fn (string $v): string => preg_match('/^[=+\-@\t\r]/', $v) === 1 ? "'" . $v : $v;
-        $line = static fn (array $cells) => fputcsv($out, array_map($safe, $cells), ',', '"', '');
+        $out   = fopen('php://output', 'w');
+        $safe  = static fn (string $v): string => preg_match('/^[=+\-@\t\r]/', $v) === 1 ? "'" . $v : $v;
+        $line  = static fn (array $cells) => fputcsv($out, array_map($safe, $cells), ',', '"', '');
+        $tests = FormSubmission::hasTests($formId);
 
         fwrite($out, "\xEF\xBB\xBF");
-        $line(array_merge(['Submitted'], $formId === null ? ['Form'] : [], array_values($columns), ['Page', 'From', 'Email sent']));
-        FormSubmission::eachReceived($formId, static function (array $s) use ($line, $columns, $uploads, $forms, $formId): void {
+        $line(array_merge(['Submitted'], $formId === null ? ['Form'] : [], array_values($columns), ['Page', 'From', 'Email sent'], $tests ? ['Test'] : []));
+        FormSubmission::eachReceived($formId, static function (array $s) use ($line, $columns, $uploads, $forms, $formId, $tests): void {
             $row = [Dates::format((string) $s['submitted_at'], 'Y-m-d H:i')];
             if ($formId === null) {
                 $row[] = (string) ($forms[(int) $s['form_id']]['title'] ?? '');
@@ -403,6 +449,9 @@ class FormController
             $row[] = (string) ($s['source_page'] ?? '');
             $row[] = (string) ($s['ip_address'] ?? '');
             $row[] = $sent === null ? '' : ((int) $sent === 1 ? 'Yes' : 'No');
+            if ($tests) {
+                $row[] = (int) ($s['is_test'] ?? 0) === 1 ? 'Yes' : '';
+            }
             $line($row);
         });
         fclose($out);
@@ -429,6 +478,12 @@ class FormController
         $ids    = is_array($_POST['ids'] ?? null) ? array_map('intval', $_POST['ids']) : [];
         $path   = $status === FormSubmission::SPAM ? 'forms/spam'
                 : ($formId !== null ? 'forms/' . $formId . '/submissions' : 'forms/submissions');
+
+        if ($action === 'resend' && $status === FormSubmission::RECEIVED) {
+            $_SESSION['submissions_bulk_report'] = ['path' => $path, 'action' => $action] + self::resendMany($ids, $formId);
+            header('Location: ' . self::returnTo($path));
+            exit;
+        }
 
         $result = FormSubmission::bulk($action, $ids, $status, $formId, self::markedBy());
 
@@ -505,6 +560,69 @@ class FormController
         exit;
     }
 
+    /**
+     * SEND THE EMAIL AGAIN, for one submission whose email could not be sent
+     * (`Forms\Notify::resend()`). Back to the submission, which says what came
+     * of it, once.
+     */
+    public function handleResend(array $vars = []): void
+    {
+        Auth::requireAuth();
+
+        $submissionId = (int) ($vars['sid'] ?? 0);
+        $submission   = FormSubmission::find($submissionId);
+        $form         = $submission !== null ? Form::find((int) $submission['form_id']) : null;
+        if ($submission === null || $form === null) {
+            header('Location: ' . ADMIN_URL . '/forms/submissions');
+            exit;
+        }
+        $result = (int) ($submission['notified'] ?? -1) === 0
+            ? Notify::resend($form, $submission)
+            : ['sent' => false, 'to' => '', 'why' => 'its email was not one that could not be sent'];
+        $_SESSION['submission_resend'] = ['id' => $submissionId] + $result;
+
+        header('Location: ' . ADMIN_URL . '/forms/submissions/' . $submissionId, true, 303);
+        exit;
+    }
+
+    /**
+     * The bulk "Send the email again": the ticked submissions in the list whose
+     * email could not be sent, oldest first, for up to twenty seconds — each is
+     * a message through the site's mail, and a slow one takes its time. What is
+     * left is reported, and Apply sends the rest.
+     *
+     * @param  list<int> $ids
+     * @return array{done: int, failed: int, why: string, skipped: int, left: int}
+     */
+    private static function resendMany(array $ids, ?int $formId): array
+    {
+        $hits   = FormSubmission::failedIn($ids, $formId);
+        $until  = microtime(true) + 20.0;
+        $out    = ['done' => 0, 'failed' => 0, 'why' => '', 'skipped' => count(array_unique(array_filter($ids, static fn (int $i): bool => $i > 0))) - count($hits), 'left' => 0];
+        $forms  = [];
+        foreach ($hits as $i => $id) {
+            if (microtime(true) >= $until) {
+                $out['left'] = count($hits) - $i;
+                break;
+            }
+            $submission = FormSubmission::find($id);
+            $formRow    = $submission !== null ? ($forms[(int) $submission['form_id']] ??= Form::find((int) $submission['form_id'])) : null;
+            if ($submission === null || $formRow === null) {
+                $out['skipped']++;
+                continue;
+            }
+            $result = Notify::resend($formRow, $submission);
+            if ($result['sent']) {
+                $out['done']++;
+            } else {
+                $out['failed']++;
+                $out['why'] = $out['why'] !== '' ? $out['why'] : $result['why'];
+            }
+        }
+
+        return $out;
+    }
+
     /** The reason a person's own "Mark as spam" is stored with. */
     private static function markedBy(): string
     {
@@ -562,6 +680,11 @@ class FormController
             FormSubmission::markRead($submissionId);
             $submission['is_read'] = 1;
         }
+
+        // WHAT "SEND THE EMAIL AGAIN" DID, for this submission, once.
+        $resent = is_array($_SESSION['submission_resend'] ?? null) && (int) ($_SESSION['submission_resend']['id'] ?? 0) === $submissionId
+            ? $_SESSION['submission_resend'] : null;
+        unset($_SESSION['submission_resend']);
 
         $pageTitle   = 'Submission #' . $submissionId;
         $currentPage = ($submission['status'] ?? '') === FormSubmission::SPAM ? 'forms-spam' : 'forms-entries';
@@ -737,6 +860,16 @@ class FormController
                 $out['maxlength'] = $max;
             }
 
+            // A FILE FIELD'S OWN KINDS, as the kinds a form takes that it names
+            // ("jpg, png, webp"); a kind no form takes is dropped, and empty
+            // is every kind (`Forms\Upload::allowedFor()`).
+            if ($type === 'file') {
+                $kinds = \Cms\Forms\Upload::extensions((string) ($field['accept'] ?? ''));
+                if ($kinds !== []) {
+                    $out['accept'] = implode(', ', $kinds);
+                }
+            }
+
             // THROUGH THE SHARED PARSER, never stored raw. `Logic::parse()` drops
             // rules with no subject and operators this install does not
             // implement, and returns null when nothing survives — so a half-built
@@ -760,11 +893,24 @@ class FormController
             'recipients'     => trim($post['recipients'] ?? ''),
             'subject'        => trim($post['subject'] ?? ''),
             'reply_to'       => trim($post['reply_to'] ?? ''),
+            // A confirmation to the sender (`Forms\Notify::confirm()`): the
+            // message is the switch, blank sends none.
+            'confirm_subject' => mb_substr(trim((string) ($post['confirm_subject'] ?? '')), 0, 200),
+            'confirm_message' => mb_substr(trim(str_replace(["\r\n", "\r"], "\n", (string) ($post['confirm_message'] ?? ''))), 0, 5000),
             'success_message' => trim($post['success_message'] ?? 'Thank you! Your submission has been received.'),
             'submit_label'   => trim($post['submit_label'] ?? 'Submit'),
             // Where a browser without JavaScript goes after sending (change
             // 35); blank: back to the page it came from, marked sent.
             'redirect'       => trim((string) ($post['redirect'] ?? '')),
+            // '1': a send by script goes there too, its answer naming it
+            // (`Public\FormController::answer()`). Unticked, and on a form
+            // saved before there was a box, the thank-you shows in place.
+            'redirect_scripted' => ($post['redirect_scripted'] ?? '') === '1' ? '1' : '',
+            // A test: a submission whose reply-to field holds this address
+            // is emailed to the test inbox alone (`Forms\Notify::testInbox()`).
+            // Blank: the site's, from Settings → Email.
+            'test_address'   => trim((string) ($post['test_address'] ?? '')),
+            'test_inbox'     => trim((string) ($post['test_inbox'] ?? '')),
             // The most links a message may carry (change 30, `Forms\Guard`
             // reads it); blank: 4. Nothing saved it, so it was never set.
             'max_links'      => preg_match('/^\d{1,3}$/', trim((string) ($post['max_links'] ?? ''))) === 1 ? trim((string) $post['max_links']) : '',
@@ -772,6 +918,27 @@ class FormController
             // blank: none. A form saved before there was one sends the default.
             'conversion_event' => trim((string) ($post['conversion_event'] ?? \Cms\Site\Google::DEFAULT_EVENT)),
         ];
+    }
+
+    /**
+     * A test address and a test inbox, when typed, are addresses.
+     *
+     * @param list<string> $errors
+     */
+    private static function postedTest(array &$errors): void
+    {
+        foreach (['test_address' => 'The test address', 'test_inbox' => 'The test inbox'] as $key => $name) {
+            $typed = trim((string) ($_POST[$key] ?? ''));
+            if ($typed !== '' && filter_var($typed, FILTER_VALIDATE_EMAIL) === false) {
+                $errors[] = $name . ' must be an email address.';
+            }
+        }
+        // A CONFIRMATION GOES TO THE REPLY-TO FIELD'S ADDRESS: with no such
+        // field there is nobody to send it to, and saying so beats a message
+        // that never goes.
+        if (trim((string) ($_POST['confirm_message'] ?? '')) !== '' && trim((string) ($_POST['reply_to'] ?? '')) === '') {
+            $errors[] = 'The confirmation goes to the address in the Reply-to field: choose that field, or leave the confirmation blank.';
+        }
     }
 
     /**

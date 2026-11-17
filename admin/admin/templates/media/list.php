@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Cms\Helpers\Asset;
 use Cms\Helpers\Dates;
 use Cms\Helpers\Url;
-use Cms\Security\Csrf;
 use Cms\Models\Media;
 
 /**
@@ -27,6 +26,16 @@ use Cms\Models\Media;
  * match" while the match sits on page 3. So: a GET form, the server filters, and
  * the URL carries the state (which also makes a filtered library linkable).
  *
+ * ── ONE CONTROL PER FILTER, AND THE ADDRESS CARRIES THEM ALL ────────────────
+ *   which folder   the chips (All, Unfiled, then each folder)
+ *   which kind     the tabs (All, Images, Documents)
+ *   which name     the search box
+ *   which order    Sort by (`Media::SORTS`)
+ * Every link on the screen keeps the rest: a chip keeps the tab, the search and
+ * the order; a tab keeps the folder; the pager keeps everything. The folder
+ * select the filter bar used to carry is gone: it was a second control for the
+ * chips' filter, and the two did not show each other's state.
+ *
  * ── DOCUMENTS GET A GLYPH, NOT A BROKEN <img> ───────────────────────────────
  * A PDF has no thumbnail. Pointing an <img> at the file itself renders the
  * browser's broken-image mark, which reads as a damaged upload. The tile shows
@@ -37,9 +46,11 @@ use Cms\Models\Media;
  * @var int                        $totalPages
  * @var int                        $page         1-based
  * @var list<array<string, mixed>> $folders      top-level, with file_count
+ * @var array{total: int, unfiled: int} $tally   the whole library's counts
  * @var string|null                $type         'image' | 'document' | null
  * @var int|null                   $folderId     0 = unfiled, null = any
  * @var string|null                $search
+ * @var string                     $sort         a key of `Media::SORTS`
  * @var bool                       $isEditorPlus
  * @var array<string, mixed>       $user
  */
@@ -47,11 +58,13 @@ use Cms\Models\Media;
 $pageTitle = 'Files and media';
 
 /** Rebuild this screen's URL with one filter changed, keeping the rest. */
-$filterUrl = static function (array $changes) use ($type, $folderId, $search): string {
+$filterUrl = static function (array $changes) use ($type, $folderId, $search, $sort): string {
     $q = [
         'type'      => $type,
         'folder_id' => $folderId,
         'search'    => $search,
+        // The default order is the address with no `sort` at all.
+        'sort'      => $sort === Media::DEFAULT_SORT ? null : $sort,
     ];
     foreach ($changes as $k => $v) {
         $q[$k] = $v;
@@ -78,6 +91,26 @@ $readableSize = static function (int $bytes): string {
 };
 
 $isFiltered = $type !== null || $folderId !== null || ($search ?? '') !== '';
+$isSorted   = $sort !== Media::DEFAULT_SORT;
+
+// "Show all" leaves every filter and keeps the order; Clear puts everything
+// back, the order too.
+$showAllUrl = $filterUrl(['type' => null, 'folder_id' => null, 'search' => null]);
+
+// ── WHAT THE GRID HOLDS, IN WORDS ─────────────────────────────────────────
+// "24 files in Site pages", "3 unfiled images", "2 files matching “gala”":
+// the chips, the tabs and the search box each show their own state, and this
+// is the one line that says what they add up to.
+$folderName = null;
+foreach ($folders as $folder) {
+    if ($folderId !== null && (int) $folder['id'] === $folderId) {
+        $folderName = (string) $folder['name'];
+    }
+}
+$nouns   = ['image' => ['image', 'images'], 'document' => ['document', 'documents']][$type ?? ''] ?? ['file', 'files'];
+$summary = $total . ' ' . ($folderId === 0 ? 'unfiled ' : '') . ($total === 1 ? $nouns[0] : $nouns[1])
+    . ($folderId !== null && $folderId > 0 ? ' in ' . ($folderName ?? 'a folder that is not there any more') : '')
+    . (($search ?? '') !== '' ? ' matching “' . $search . '”' : '');
 
 ob_start();
 ?>
@@ -94,27 +127,16 @@ ob_start();
                   // renders the browser's own grey "Choose file / no file
                   // selected" control — a third button style on a screen that
                   // already has two, and one no stylesheet can reach. ?>
-            <?php // ── AND A FOLDER CAN BE MADE ────────────────────────────
-                  // The select in the filter bar FILTERS by folder; this is
-                  // what adds an option to it.
-                  //
-                  // IN THE HEADER, NOT THE FILTER BAR. That bar is hidden on an
-                  // empty library, deliberately, because filters over nothing
-                  // can only return nothing. A CREATE is not a filter, and a
-                  // fresh install is exactly when somebody sets their folders
-                  // up.
-                  //
-                  // A plain form: every other create in this admin works with no
-                  // script, and the JSON endpoint stays for the media dialogs. ?>
+            <?php // ── FOLDERS ARE MANAGED ON THEIR OWN SCREEN ──────────────
+                  // Made, renamed and deleted there (`media/folders.php`); the
+                  // chips below only choose one. IN THE HEADER, NOT BY THE
+                  // CHIPS: the chips are filters and are not drawn over an
+                  // empty library, and a fresh install is exactly when
+                  // somebody sets their folders up. ?>
             <?php if ($isEditorPlus): ?>
-                <form method="post" action="<?= h(Url::admin('media/folders/new')) ?>"
-                      class="folder-add">
-                    <?= Csrf::field() ?>
-                    <input class="input input--sm" type="text" name="folder_name"
-                           placeholder="New folder&hellip;" autocomplete="off"
-                           aria-label="Name for a new folder" maxlength="100">
-                    <button type="submit" class="btn btn--sm">Add folder</button>
-                </form>
+                <a class="btn" href="<?= h(Url::admin('media/folders')) ?>" data-manage-folders>
+                    <?= icon('folder', 'icon icon--sm') ?>Manage folders
+                </a>
 
                 <label class="btn btn--primary" for="media-upload">
                     Add files
@@ -125,136 +147,96 @@ ob_start();
         </div>
     </div>
 
-    <?php // ── THESE TWO SIT ABOVE THE FILTER BAR, NOT INSIDE IT ─────────────
-          // Inside it is the one place they could not be seen: the bar is
-          // hidden over an empty library, and an empty library is exactly when
-          // somebody is setting their folders up — a message about a folder
-          // would be invisible on the screen where the folder was made. ?>
-    <?php if (!empty($folderMade)): ?>
-        <?php // WHAT JUST HAPPENED, on a screen that would otherwise look
-              // unchanged: over an empty library the folder list is not
-              // drawn at all, so without this an owner creates a folder and
-              // gets back the page they left. ?>
-        <div class="flashes">
-            <div class="flash flash--success">
-                Folder &ldquo;<?= h((string) $folderMade) ?>&rdquo; created.
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <?php if (!empty($folderError)): ?>
-        <?php // WHERE THE PERSON IS LOOKING. A refusal about a folder name
-              // belongs beside the folder controls, not on a page of its own
-              // that loses the list it is talking about.
-              //
-              // `alert--compact`, which the admin already has for exactly
-              // this size of message, rather than a new class that no
-              // stylesheet styles. ?>
-        <div class="alert alert--danger alert--compact">
-            <?= icon('triangle-exclamation', 'alert__icon icon', '', 15) ?>
-            <div class="alert__body">
-                <p class="alert__text"><?= h((string) $folderError) ?></p>
-            </div>
-        </div>
-    <?php endif; ?>
-
-
-    <?php // ── THE FOLDERS THEMSELVES ──────────────────────────────────────
-          // Not only options in the filter select, which is hidden over an
-          // empty library — or a folder could be made and then seen nowhere.
-          // A row the admin can create and never remove is a failure, not a
-          // state: whatever the admin can create, it can also delete.
-          //
-          // A ROW OF CHIPS, not a screen: a folder is a name and a count. Each
-          // one filters the library, and carries its own delete. ?>
-    <?php if ($folders !== []): ?>
-        <div class="folder-bar">
-            <span class="folder-bar__label">Folders</span>
-            <?php foreach ($folders as $folder): ?>
-                <span class="folder-bar__item">
-                    <a class="folder-bar__link"
-                       href="<?= h(Url::admin('media') . '?folder_id=' . (int) $folder['id']) ?>">
-                        <?= h((string) $folder['name']) ?>
-                        <span class="folder-bar__count"><?= (int) $folder['file_count'] ?></span>
-                    </a>
-                    <?php if ($isEditorPlus): ?>
-                        <?php // THE CONFIRM SAYS WHAT SURVIVES. "Delete folder"
-                              // reads like it takes the pictures with it, and
-                              // `attachments.folder_id` is ON DELETE SET NULL —
-                              // the files are unfiled, not destroyed. ?>
-                        <form class="form-inline" method="post"
-                              action="<?= h(Url::admin('media/folders/' . (int) $folder['id'] . '/delete')) ?>"
-                              data-confirm="Delete this folder?"
-                              data-confirm-detail="<?= h((string) $folder['name']) ?> will go. The <?= (int) $folder['file_count'] ?> file<?= (int) $folder['file_count'] === 1 ? '' : 's' ?> in it stay in the library, unfiled."
-                              data-confirm-verb="Delete folder">
-                            <?= Csrf::field() ?>
-                            <button type="submit" class="link link--xs">Delete</button>
-                        </form>
-                    <?php endif; ?>
-                </span>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
-
     <?php // NO FILTER CONTROLS OVER AN EMPTY LIBRARY. On a fresh install, a
-          // search box, an Apply button and three type tabs above the words
-          // "No files yet" would be four controls that can only ever return
-          // nothing — the same fault the pager below avoids by not drawing
-          // "Page 1 of 1".
+          // search box, an Apply button, folder chips and three type tabs above
+          // the words "No files yet" would be controls that can only ever
+          // return nothing — the same fault the pager below avoids by not
+          // drawing "Page 1 of 1".
           //
           // The test is `$total === 0 && !$isFiltered`, NOT `$attachments ===
-          // []`: once a filter IS active the bar must stay, or the only way back
-          // from an empty result is the browser's Back button. ?>
+          // []`: once a filter IS active the controls must stay, or the only
+          // way back from an empty result is the browser's Back button. ?>
     <?php if ($total > 0 || $isFiltered): ?>
 
-    <?php // THE TYPE TABS AND THE FILTER BAR ARE ONE FORM'S WORTH OF STATE but
-          // two controls, because a type is a place you go and a search is
-          // something you type. Tabs are links so they are back-button-able and
-          // linkable; the rest submits. ?>
-    <div class="filterbar">
-        <div class="filterbar__group">
-            <form method="get" action="<?= h(Url::admin('media')) ?>" class="filterbar__group">
-                <?php if ($type !== null): ?>
-                    <input type="hidden" name="type" value="<?= h($type) ?>">
-                <?php endif; ?>
+    <?php // ── THE FOLDER ROW CHOOSES; IT DOES NOT MANAGE ───────────────────
+          // A chip is a name and a count, and a link: All first, Unfiled when
+          // anything is unfiled (or when it is the one chosen), then each
+          // folder. The chosen one wears the tint a chosen value wears (core.css
+          // §9) and says so to a screen reader. Nothing on a chip deletes: the
+          // chips used to carry a Delete each, the loudest thing in the row,
+          // beside the act of choosing one. Deleting is on Manage folders, behind
+          // the confirm that says the files stay.
+          //
+          // The counts are the whole library's, whatever the tab and the search:
+          // a chip says how big its folder is, and the line over the grid says
+          // what this view holds. ?>
+    <?php if ($folders !== []): ?>
+        <?php
+        $chips = [['id' => null, 'name' => 'All', 'count' => (int) $tally['total']]];
+        if ((int) $tally['unfiled'] > 0 || $folderId === 0) {
+            $chips[] = ['id' => 0, 'name' => 'Unfiled', 'count' => (int) $tally['unfiled']];
+        }
+        foreach ($folders as $folder) {
+            $chips[] = ['id' => (int) $folder['id'], 'name' => (string) $folder['name'], 'count' => (int) $folder['file_count']];
+        }
+        ?>
+        <nav class="folder-bar" aria-label="Folders">
+            <span class="folder-bar__label" aria-hidden="true">Folders</span>
+            <?php foreach ($chips as $chip): ?>
+                <?php $on = $chip['id'] === $folderId; ?>
+                <a class="folder-bar__item<?= $on ? ' is-active' : '' ?>"
+                   href="<?= h($filterUrl(['folder_id' => $chip['id']])) ?>"
+                   <?= $on ? 'aria-current="page"' : '' ?>>
+                    <span class="folder-bar__name"><?= h($chip['name']) ?></span>
+                    <span class="folder-bar__count"><?= (int) $chip['count'] ?></span>
+                </a>
+            <?php endforeach; ?>
+        </nav>
+    <?php endif; ?>
 
+    <?php // ── SEARCH AND ORDER ARE A FORM, BECAUSE THEY SUBMIT ───────────
+          // `.filterbar--apply` (core.css §12): labelled controls and a Filter
+          // button, as the customer and entry lists have. The folder and the
+          // kind ride along hidden, so a search inside a folder stays in it.
+          //
+          // CLEAR puts everything back, the order too; it is drawn when the
+          // order is not the default. Leaving the filters alone, keeping the
+          // order, is "Show all" on the line over the grid. ?>
+    <form class="filterbar filterbar--apply" method="get" action="<?= h(Url::admin('media')) ?>">
+        <?php if ($type !== null): ?>
+            <input type="hidden" name="type" value="<?= h($type) ?>">
+        <?php endif; ?>
+        <?php if ($folderId !== null): ?>
+            <input type="hidden" name="folder_id" value="<?= (int) $folderId ?>">
+        <?php endif; ?>
+
+        <div class="filterbar__group">
+            <label class="filterbar__field">
+                <span class="filterbar__label">Search</span>
                 <input class="input input--search" type="search" name="search"
                        value="<?= h((string) ($search ?? '')) ?>"
-                       placeholder="Search file names&hellip;"
-                       aria-label="Search files by name">
-
-                <?php if ($folders !== []): ?>
-                    <select class="select" name="folder_id" aria-label="Filter by folder">
-                        <option value="">Any folder</option>
-                        <option value="0"<?= $folderId === 0 ? ' selected' : '' ?>>Unfiled</option>
-                        <?php foreach ($folders as $folder): ?>
-                            <option value="<?= (int) $folder['id'] ?>"
-                                <?= $folderId === (int) $folder['id'] ? ' selected' : '' ?>>
-                                <?= h((string) $folder['name']) ?> (<?= (int) $folder['file_count'] ?>)
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                <?php endif; ?>
-
-                <?php // AN APPLY BUTTON, because this form actually submits.
-                      // The instant idiom next door has none and must not grow
-                      // one; this one must have one, or the select is a control
-                      // that does nothing until you press Enter in a text box
-                      // somewhere else. ?>
-                <button type="submit" class="btn">Filter</button>
-            </form>
-
+                       placeholder="File name">
+            </label>
+            <label class="filterbar__field">
+                <span class="filterbar__label">Sort by</span>
+                <select class="select" name="sort">
+                    <?php foreach (Media::SORTS as $key => $words): ?>
+                        <option value="<?= h($key) ?>"<?= $sort === $key ? ' selected' : '' ?>><?= h($words) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
         </div>
 
         <div class="filterbar__actions">
-            <span class="filterbar__label">
-                <?= (int) $total ?> file<?= $total === 1 ? '' : 's' ?>
-            </span>
-            <?php if ($isFiltered): ?>
+            <?php if ($isSorted): ?>
                 <a class="filterbar__reset" href="<?= h(Url::admin('media')) ?>">Clear</a>
             <?php endif; ?>
+            <?php // AN APPLY BUTTON, because this form actually submits: without
+                  // it, Sort by would do nothing until Enter was pressed in the
+                  // search box. ?>
+            <button type="submit" class="btn">Filter</button>
         </div>
-    </div>
+    </form>
 
     <div class="tabs">
         <?php
@@ -272,6 +254,15 @@ ob_start();
         <?php endforeach; ?>
     </div>
 
+    <?php // WHAT THIS VIEW HOLDS, and the one click out of every filter at
+          // once. Not over an empty result, where the empty state says it. ?>
+    <?php if ($attachments !== []): ?>
+        <p class="media-results" data-media-results>
+            <?= h($summary) ?><?php if ($isFiltered): ?><span aria-hidden="true"> · </span><a
+                class="link" href="<?= h($showAllUrl) ?>" data-show-all>Show all</a><?php endif; ?>
+        </p>
+    <?php endif; ?>
+
     <?php endif; // $total > 0 || $isFiltered ?>
 
     <?php if ($attachments === []): ?>
@@ -284,7 +275,7 @@ ob_start();
                 <?= icon('magnifying-glass', 'empty__glyph', '', 28) ?>
                 <p class="empty__title">No files match that filter</p>
                 <div class="empty__action">
-                    <a class="btn" href="<?= h(Url::admin('media')) ?>">Clear the filter</a>
+                    <a class="btn" href="<?= h($showAllUrl) ?>">Show all files</a>
                 </div>
             <?php else: ?>
                 <?= icon('image', 'empty__glyph', '', 28) ?>
@@ -330,7 +321,13 @@ ob_start();
                     'folder_id'  => isset($file['folder_id']) ? (int) $file['folder_id'] : null,
                     'visibility' => (string) ($file['visibility'] ?? 'public'),
                     'is_image'   => $isImage,
-                    'uploaded'   => Dates::short((string) $file['created_at']),
+                    // THE TWO DATES, as the boxes take them (the site's time)
+                    // and as a person reads them. Taken is empty where the
+                    // file said nothing.
+                    'added'      => Dates::toInput((string) $file['created_at']),
+                    'taken'      => Dates::toInput(isset($file['taken_at']) ? (string) $file['taken_at'] : null),
+                    'added_text' => Dates::short((string) $file['created_at']),
+                    'taken_text' => Dates::short(isset($file['taken_at']) ? (string) $file['taken_at'] : null),
                 ];
                 ?>
                 <figure class="media-card" tabindex="0" role="button"
@@ -455,10 +452,18 @@ ob_start();
                     <dt class="kv-list__key">Size</dt>
                     <dd class="kv-list__val" data-md-size></dd>
                 </div>
-                <div class="kv-list__row">
-                    <dt class="kv-list__key">Uploaded</dt>
-                    <dd class="kv-list__val" data-md-uploaded></dd>
-                </div>
+                <?php // AN EDITOR CHANGES THE DATES BELOW; anyone else reads
+                      // them here. One fact, one place. ?>
+                <?php if (!$isEditorPlus): ?>
+                    <div class="kv-list__row">
+                        <dt class="kv-list__key">Added</dt>
+                        <dd class="kv-list__val" data-md-added-text></dd>
+                    </div>
+                    <div class="kv-list__row" data-md-taken-row>
+                        <dt class="kv-list__key">Taken</dt>
+                        <dd class="kv-list__val" data-md-taken-text></dd>
+                    </div>
+                <?php endif; ?>
             </dl>
 
             <?php // ── THREE HEADED SECTIONS, NOT ONE RUN OF SIX CONTROLS ────
@@ -497,6 +502,11 @@ ob_start();
 
                 </div>
 
+                <?php // FILING AND DATES ARE AN EDITOR'S, as the API says: a
+                      // folder or a visibility posted by an author is refused
+                      // (403), so drawn for one they made Save fail on a
+                      // change to the title. A control that is drawn works. ?>
+                <?php if ($isEditorPlus): ?>
                 <div class="form-card__section">
                 <?= panel_title('Filing', 'placement') ?>
                 <?php if ($folders !== []): ?>
@@ -526,6 +536,27 @@ ob_start();
                 </div>
 
                 </div>
+
+                <?php // THE TWO DATES THE LIBRARY ORDERS BY. Date added is when
+                      // the file came in, or the date an import carried with
+                      // it; Date taken is the photo's own, read from it on the
+                      // way in. Both can be corrected here: an archive imported
+                      // before imports kept their dates is put back in its
+                      // place one file at a time, or all at once with
+                      // `admin/bin/media-dates.php`. ?>
+                <div class="form-card__section">
+                <?= panel_title('Dates', 'dates-and-times') ?>
+                <div class="field">
+                    <label class="label" for="md-added">Date added</label>
+                    <input class="input" type="datetime-local" id="md-added" data-md-added required>
+                </div>
+                <div class="field" data-md-taken-field>
+                    <label class="label" for="md-taken">Date taken</label>
+                    <input class="input" type="datetime-local" id="md-taken" data-md-taken>
+                    <p class="form-help">From the photo itself, when its camera wrote one.</p>
+                </div>
+                </div>
+                <?php endif; // $isEditorPlus ?>
 
                 <div class="form-card__section">
                 <?= panel_title('Address', 'address') ?>
