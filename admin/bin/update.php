@@ -46,6 +46,12 @@ declare(strict_types=1);
  * Exit status: 0 done · 1 failed and rolled back · 2 refused, nothing changed ·
  * 3 refused because of local changes, nothing changed · 4 ROLLBACK FAILED.
  *
+ * `check`, `apply` and `status` first check the site's own files in
+ * admin/config/ (`php -l`, through `Cms\Site\ConfigFile`): one that does not
+ * compile, such as a byte-order mark before `<?php` in a file that declares
+ * strict_types, stops every page, and is named; `check` and `apply` refuse
+ * until it is put right.
+ *
  * What is the CMS's and what is the site's: admin/core/Update/ownership.php.
  * One of the operator scripts in admin/bin/ that ship in a package
  * (admin/core/Update/ownership.php lists them).

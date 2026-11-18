@@ -65,7 +65,7 @@ class FormController
         // look for it.
         $staff = Auth::check();
         if (!$staff) {
-            $turn = Guard::screen($_POST, $_SERVER);
+            $turn = Guard::screen($_POST, $_SERVER, is_array($form['settings'] ?? null) ? $form['settings'] : []);
             if ($turn !== null) {
                 $this->turnAway($formId, $form, $fields, $turn, $meta);
                 return;
@@ -93,29 +93,37 @@ class FormController
             }
         }
         if ($wantsCaptcha && !Captcha::passes()) {
-            $this->answer(false, 'That answer was not right. Please try again.', 422, $form, $meta['source_page']);
+            $this->refuse($form, $fields, 'That answer was not right. Please try again.', 422, [], $meta);
             return;
         }
 
         // ── The answers, read and checked (`Forms\Answers`) ─────────────
         // Every field's posted value, then which fields conditional logic
         // showed, then those checked and kept: the reading a static copy's
-        // handler makes too, in one place, so the two cannot differ. A file or
-        // a drawn signature is kept in the media library, private, and the
-        // answer records its id; a field whose choices are the site's own
-        // content is checked against them (`Sources`).
+        // handler makes too, in one place, so the two cannot differ. A field
+        // whose choices are the site's own content is checked against them
+        // (`Sources`).
+        // A FILE OR A DRAWN SIGNATURE IS CHECKED HERE AND KEPT ONLY ONCE THE
+        // POST IS ACCEPTED, below: until then the answer is the file's own
+        // name, and a post refused or turned away leaves no file behind.
         // `$fields` is the EXPANDED list, settled above: the same one the
         // renderer drew from. If the two ever differ, the page collects
         // answers the server never validates or stores.
-        $checked = (new Answers(
+        /** @var array<string, array{kind: string, admitted: array<string, mixed>}> $admitted field name => checked, not yet kept */
+        $admitted = [];
+        $checked  = (new Answers(
             $_POST,
             $_FILES,
-            static function (string $type, mixed $posted, array $field, ?string &$why): ?string {
-                $id = $type === 'file'
-                    ? Upload::accept(is_array($posted) ? $posted : ['error' => UPLOAD_ERR_NO_FILE], $field, $why)
-                    : self::storeSignature((string) $posted, $field, $why);
+            static function (string $type, mixed $posted, array $field, ?string &$why) use (&$admitted): ?string {
+                $one = $type === 'file'
+                    ? Upload::admit(is_array($posted) ? $posted : ['error' => UPLOAD_ERR_NO_FILE], $field, $why)
+                    : self::admitSignature((string) $posted, $field, $why);
+                if ($one === null) {
+                    return null;
+                }
+                $admitted[(string) ($field['name'] ?? '')] = ['kind' => $type, 'admitted' => $one];
 
-                return $id === null ? null : (string) $id;
+                return (string) $one['name'];
             },
             static fn (array $field): array => Sources::choicesFor($field),
         ))->check($fields);
@@ -127,14 +135,16 @@ class FormController
         // what to fix; storing each attempt would fill the Spam view with
         // people who got it right on the second try.
         if (!empty($errors)) {
-            $this->answer(false, implode(' ', $errors), 422, $form, $meta['source_page']);
+            $this->refuse($form, $fields, implode(' ', $errors), 422, $errors, $meta);
             return;
         }
 
         // ── The content checks, on the answers as stored (Forms\Guard) ──
-        // And as read: a Name field's first and last are compared apart.
+        // And as read: a Name field's first and last are compared apart. The
+        // CMS's rules, then the site's own (`form-spam.php`).
         if (!$staff) {
-            $turn = Guard::content($data, $fields, $form['settings'] ?? [], $raw);
+            $turn = Guard::content($data, $fields, $form['settings'] ?? [], $raw)
+                ?? Guard::siteRule($form, $data, $meta);
             if ($turn !== null) {
                 $this->turnAway($formId, $form, $fields, $turn, $meta);
                 return;
@@ -169,7 +179,7 @@ class FormController
                 foreach ($bookedKeys as $held) {
                     Appointments::release($held);
                 }
-                $this->answer(false, (string) $why, 422, $form, $meta['source_page']);
+                $this->refuse($form, $fields, (string) $why, 422, [$fname => htmlspecialchars((string) $why)], $meta);
                 return;
             }
             $bookedKeys[] = $key;
@@ -177,6 +187,41 @@ class FormController
             // machine string; a submissions table full of
             // `7:appointment:2026-09-14 14:30` is a table nobody can read.
             $data[$fname] = Appointments::describe($formId, $fname, $key);
+        }
+
+        // ── The files, kept now that the post is accepted ───────────
+        // Each upload and drawn signature in an answer the form keeps (not one
+        // in a field conditional logic hid) goes to the private store and the
+        // media library, and the answer becomes its id. One that cannot be
+        // kept refuses the post as a wrong answer would: the times it took are
+        // given back and the files kept before it deleted, so nothing is left.
+        $keptFiles = [];
+        foreach ($admitted as $fname => $one) {
+            if (!array_key_exists($fname, $data)) {
+                continue;
+            }
+            $why = null;
+            $id  = $one['kind'] === 'file' ? Upload::store($one['admitted'], $why) : self::storeSignature($one['admitted'], $why);
+            if ($id === null) {
+                foreach ($bookedKeys as $held) {
+                    Appointments::release($held);
+                }
+                foreach ($keptFiles as $keptId) {
+                    \Cms\Models\Media::delete($keptId);
+                }
+                $label = $fname;
+                foreach ($fields as $field) {
+                    if (($field['name'] ?? '') === $fname && ($field['label'] ?? '') !== '') {
+                        $label = (string) $field['label'];
+                    }
+                }
+                $message = htmlspecialchars($label) . ': ' . htmlspecialchars((string) $why);
+                $this->refuse($form, $fields, $message, 422, [$fname => $message], $meta);
+                return;
+            }
+            $keptFiles[]  = $id;
+            $data[$fname] = (string) $id;
+            $raw[$fname]  = (string) $id;
         }
 
         // ── A TEST, from the form's test address ────────────────────
@@ -203,17 +248,24 @@ class FormController
 
         // ── Send email notification ─────────────────────────────────
         // WHETHER IT WENT IS RECORDED: the submission is stored either way,
-        // and a lead whose email bounced must still be findable as one.
+        // and a lead whose email bounced must still be findable as one. So is
+        // what became of it, the message's own id or why it was refused
+        // (`FormSubmission::recordMail()`), for the inbox to show.
         $settings   = $form['settings'] ?? [];
         $recipients = trim($settings['recipients'] ?? '');
 
         if ($recipients !== '' || $testInbox !== null) {
+            \Cms\Mail\Mailer::clearResult();
             FormSubmission::setNotified($submissionId, $this->sendNotification($form, $data, $recipients, $settings, $raw,
                 $meta + ['submission_id' => (string) $submissionId], $testInbox));
+            FormSubmission::recordMail($submissionId, 'notification', \Cms\Mail\Mailer::lastResult());
         }
         // A CONFIRMATION TO THE SENDER, when the form has one: here, past
         // every spam check above, so no address a bot typed is written to.
-        Notify::confirm($form, $data, $testInbox);
+        \Cms\Mail\Mailer::clearResult();
+        if (Notify::confirm($form, $data, $testInbox) !== null) {
+            FormSubmission::recordMail($submissionId, 'confirmation', \Cms\Mail\Mailer::lastResult());
+        }
         self::maybePurge();
 
         $successMessage = $settings['success_message'] ?? 'Thank you! Your submission has been received.';
@@ -228,10 +280,14 @@ class FormController
      * else is kept as spam with its reason — then the sender is answered the
      * way the guard says, "thank you" to a caught bot and the rule's message to
      * anyone who might be a person, discarded or not: a quick hand told to try
-     * once more is answered the same either way. Spam is never emailed.
+     * once more is answered the same either way. Spam is never emailed, and
+     * never sends a conversion.
      *
      * KEEP ALL SPAM (Spam view, "What is kept") stores the certain ones too,
-     * for review.
+     * for review. A form answering like a sent message (`spam_answer`) keeps
+     * what its speed or content turned away and answers it as sent, and
+     * `Forms\Guard` decides both (`keeps()`, `answersSent()`), for the site
+     * and a static copy alike.
      *
      * @param array<string, mixed>       $form
      * @param list<array<string, mixed>> $fields
@@ -240,7 +296,8 @@ class FormController
      */
     private function turnAway(int $formId, array $form, array $fields, array $turn, array $meta): void
     {
-        if (!empty($turn['certain']) && Option::get('forms_spam_keep', '0') !== '1') {
+        $settings = is_array($form['settings'] ?? null) ? $form['settings'] : [];
+        if (!Guard::keeps($turn, $settings, Option::get('forms_spam_keep', '0') === '1')) {
             FormSubmission::countDiscard($formId, (string) $turn['code']);
         } else {
             // What was typed, as sent: every field the form defines, as text.
@@ -272,12 +329,121 @@ class FormController
             self::maybePurge();
         }
 
-        if (!empty($turn['fake'])) {
-            $this->answer(true, (string) (($form['settings'] ?? [])['success_message'] ?? 'Thank you! Your submission has been received.'),
+        if (Guard::answersSent($turn, $settings)) {
+            $this->answer(true, (string) ($settings['success_message'] ?? 'Thank you! Your submission has been received.'),
                 200, $form, $meta['source_page']);
             return;
         }
-        $this->answer(false, Guard::message((string) $turn['code']), (int) $turn['status'], $form, $meta['source_page']);
+        $this->refuse($form, $fields, Guard::message((string) $turn['code']), (int) $turn['status'], [], $meta, (string) $turn['code']);
+    }
+
+    /**
+     * POST /forms/{id}/token — A NEW TOKEN FOR A PAGE LEFT OPEN (form.js).
+     *
+     * Given the page's own token (`Guard::renew()`), one signed here and at
+     * least the form's fewest seconds old, it answers with one good for as
+     * long again, so a visitor who took longer than that over a message still
+     * sends it. Anything else is refused (400), and the page keeps its own.
+     */
+    public function handleToken(array $vars = []): void
+    {
+        header('Cache-Control: no-store');
+        header('Content-Type: application/json; charset=utf-8');
+        $form  = Form::find((int) ($vars['id'] ?? 0));
+        $fresh = $form !== null
+            ? Guard::renew((string) ($_POST[Guard::TOKEN] ?? ''), is_array($form['settings'] ?? null) ? $form['settings'] : [])
+            : null;
+        if ($fresh === null) {
+            http_response_code(400);
+            echo json_encode(['success' => false]);
+            return;
+        }
+        echo json_encode(['success' => true, 'token' => $fresh]);
+    }
+
+    /**
+     * A REFUSAL, IN THE SHAPE THE SENDER CAN READ.
+     *
+     * By script (`Accept: application/json`): the status, {success: false,
+     * message}, `errors` naming each field refused with its message as text
+     * (form.js puts each under its field), and `code` for a rule the guard
+     * turned it away by (form.js renews an expired page's token and sends
+     * again).
+     *
+     * Without a script, from a form this CMS drew that checks its own
+     * answers (it posts its page, `FormReturn::RETURN_FIELD`): a 303 back to
+     * that page, at the form, with
+     * every answer as typed and each message under its field carried there
+     * (`Models\FormReturn`); the form's own message above or below it says to
+     * look at them, or what the guard said. Not for a post from another site
+     * or with no token of this site's, which no page of the site's sent, nor
+     * for a flood. Otherwise, the refusal page as before (`answer()`).
+     *
+     * @param array<string, mixed>       $form
+     * @param list<array<string, mixed>> $fields
+     * @param array<string, string>      $errors name => message, escaped (`Forms\Answers`)
+     * @param array<string, string>      $meta
+     */
+    private function refuse(array $form, array $fields, string $message, int $status, array $errors, array $meta, string $code = ''): void
+    {
+        $plain  = array_map(static fn ($m): string => html_entity_decode((string) $m, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $errors);
+        $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
+        $ajax   = strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
+        if ($ajax || str_contains($accept, 'application/json')) {
+            http_response_code($status);
+            header('Content-Type: application/json; charset=utf-8');
+            $answer = ['success' => false, 'message' => $message];
+            if ($plain !== []) {
+                $answer['errors'] = $plain;
+            }
+            if ($code !== '') {
+                $answer['code'] = $code;
+            }
+            echo json_encode($answer);
+            return;
+        }
+
+        $page = trim((string) ($_POST[\Cms\Models\FormReturn::RETURN_FIELD] ?? ''));
+        $page = explode('#', $page, 2)[0];
+        if ($page !== '' && self::onSite($page) && !in_array($code, ['cross_site', 'token_invalid', 'flood'], true)) {
+            $settings = is_array($form['settings'] ?? null) ? $form['settings'] : [];
+            $fix      = trim((string) ($settings['msg_fix'] ?? ''));
+            $plain[''] = $plain !== []
+                ? ($fix !== '' ? $fix : 'Please check the highlighted fields and try again.')
+                : html_entity_decode($message, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if (\Cms\Models\FormReturn::keep((int) ($form['id'] ?? 0), self::typed($fields), $plain)) {
+                header('Cache-Control: no-store');
+                header('Location: ' . $page . '#' . Form::elementId($form), true, 303);
+                return;
+            }
+        }
+        $this->answer(false, $message, $status, $form, $meta['source_page']);
+    }
+
+    /**
+     * What was typed into each of the form's fields, as posted, for the page
+     * to draw again: text, or a list of it; never a file, a drawing, a
+     * password or a captcha's answer.
+     *
+     * @param  list<array<string, mixed>> $fields
+     * @return array<string, mixed>
+     */
+    private static function typed(array $fields): array
+    {
+        $out = [];
+        foreach ($fields as $field) {
+            $name = (string) ($field['name'] ?? '');
+            $type = (string) ($field['type'] ?? 'text');
+            if ($name === '' || !FieldTypes::collects($type) || in_array($type, ['file', 'signature', 'password', 'captcha'], true)
+                || !array_key_exists($name, $_POST)) {
+                continue;
+            }
+            $value = $_POST[$name];
+            $out[$name] = is_array($value)
+                ? array_map(static fn ($v): string => is_scalar($v) ? (string) $v : '', $value)
+                : (string) $value;
+        }
+        return $out;
     }
 
     /**
@@ -343,19 +509,20 @@ class FormController
      * @return string|list<string>
      */
     /**
-     * A drawn signature, turned into a stored PNG.
+     * A drawn signature, checked: the PNG to keep once the post is accepted
+     * (`storeSignature()`), or null with a reason.
      *
      * ── THE DATA URL IS DECODED, NOT TRUSTED ────────────────────────────────
      * A `data:` URL is a string the client composed, so its declared type is
      * worth exactly as much as `$_FILES['type']` — nothing. The bytes are
-     * written to a temp file and handed to `Forms\Upload`, which sniffs them
-     * with finfo like any other upload. A visitor who posts a PHP file base64
-     * encoded with `image/png` in the prefix gets the same refusal as one who
-     * uploads it directly.
+     * sniffed with finfo, as an upload's are, and held to the field's limit. A
+     * visitor who posts a PHP file base64 encoded with `image/png` in the
+     * prefix gets the same refusal as one who uploads it directly.
      *
      * @param  array<string, mixed> $field
+     * @return array{bytes: string, name: string}|null
      */
-    private static function storeSignature(string $dataUrl, array $field, ?string &$error): ?int
+    private static function admitSignature(string $dataUrl, array $field, ?string &$error): ?array
     {
         $error = null;
 
@@ -369,48 +536,45 @@ class FormController
             return null;
         }
 
-        $tmp = tempnam(sys_get_temp_dir(), 'sig');
-        if ($tmp === false || file_put_contents($tmp, $bytes) === false) {
-            $error = 'That signature could not be stored.';
-            return null;
-        }
-
-        // `Upload::accept()` insists on `is_uploaded_file`, correctly — it is
-        // the thing that separates a real upload from a path the request named.
-        // This is not one, so the file is placed and registered here, through
-        // the same allow-list and the same private store.
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime  = $finfo !== false ? (string) finfo_file($finfo, $tmp) : '';
+        $mime  = $finfo !== false ? (string) finfo_buffer($finfo, $bytes) : '';
         if ($finfo !== false) {
             finfo_close($finfo);
         }
         if ($mime !== 'image/png' || strlen($bytes) > Upload::limitFor($field)) {
-            @unlink($tmp);
             $error = 'That signature could not be stored.';
             return null;
         }
 
+        return ['bytes' => $bytes, 'name' => 'signature.png'];
+    }
+
+    /**
+     * A signature `admitSignature()` took, kept: written to the private store
+     * under a name of its own and registered in the media library. Not through
+     * `Upload::store()`, which insists on `is_uploaded_file`, correctly: it is
+     * the thing that separates a real upload from a path the request named.
+     *
+     * @param array{bytes: string, name: string} $admitted
+     */
+    private static function storeSignature(array $admitted, ?string &$error): ?int
+    {
+        $error  = null;
         $stored = bin2hex(random_bytes(16)) . '.png';
         $dir    = PUBLIC_PATH . '/uploads/private';
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            @unlink($tmp);
+        if ((!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir))
+            || @file_put_contents($dir . '/' . $stored, $admitted['bytes']) === false) {
             $error = 'That signature could not be stored.';
             return null;
         }
-        if (!@rename($tmp, $dir . '/' . $stored)) {
-            @unlink($tmp);
-            $error = 'That signature could not be stored.';
-            return null;
-        }
-        // tempnam() made it 0600 and rename() kept that, which leaves the
-        // site's group (a backup job, say) unable to read it.
+        // Readable by the site's group (a backup job, say), as an upload is.
         @chmod($dir . '/' . $stored, 0640);
 
         $size = @getimagesize($dir . '/' . $stored);
 
         return \Cms\Models\Media::create([
             'filename'      => $stored,
-            'original_name' => 'signature.png',
+            'original_name' => $admitted['name'],
             'mime_type'     => 'image/png',
             'file_size'     => (int) filesize($dir . '/' . $stored),
             'width'         => is_array($size) ? (int) $size[0] : null,

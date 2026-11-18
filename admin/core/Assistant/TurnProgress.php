@@ -138,8 +138,8 @@ final class TurnProgress
 
     private static function pathFor(string $directory, int $userId, string $turnId): string
     {
-        $config = require ROOT_PATH . '/config/config.php';
-        $secret = (string) ($config['app_secret'] ?? ROOT_PATH);
+        $config = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
+        $secret = (string) (is_array($config) ? ($config['app_secret'] ?? ROOT_PATH) : ROOT_PATH);
 
         return $directory . '/' . hash_hmac('sha256', $userId . ':' . $turnId, $secret) . '.jsonl';
     }

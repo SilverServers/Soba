@@ -19,8 +19,9 @@ use Cms\Security\ClientIp;
  *      real word like "website": a browser or password manager fills those,
  *      and the visitor's message would vanish;
  *   3. a signed time-trap, `t` = <unix time>.<nonce>.<hmac>: forged or missing
- *      fails, under 3 seconds is a script, over 2 hours is a stale page, and a
- *      token that already carried a submission cannot carry another;
+ *      fails, under 3 seconds is a script (a form's `min_seconds` says
+ *      otherwise: `minSeconds()`), over 2 hours is a stale page, and a token
+ *      that already carried a submission cannot carry another;
  *   4. a rate limit per address: 5 received submissions per 10 minutes, across
  *      every form (options `forms_rate_max`, `forms_rate_minutes`);
  *   5. content: a known bot's signature ("google" for a company, with a
@@ -71,6 +72,27 @@ use Cms\Security\ClientIp;
  *
  * A signed-in member of staff is never screened: the handler skips this class
  * for them.
+ *
+ * ── A SITE'S OWN RULES (`siteRule()`) ───────────────────────────────────────
+ * A site that knows its own junk names it in a `form-spam.php`, in its active
+ * theme or in `admin/site/templates/`, returning a function given the form,
+ * its answers and the post's ip, user agent and page:
+ *
+ *     return static function (array $form, array $answers, array $meta): ?string {
+ *         return preg_match('/\bbacklinks?\b/i', $answers['message'] ?? '') === 1 ? 'pitch' : null;
+ *     };
+ *
+ * A reason makes the post spam ("site rule: pitch"): kept, never discarded,
+ * so a rule that is wrong costs a look in the Spam view and never a lead.
+ *
+ * ── ANSWERED LIKE A SENT MESSAGE (`spam_answer`) ────────────────────────────
+ * A form whose `spam_answer` is 'thanks' answers every post the rules turn
+ * away for certain, and every one turned away for its content or its speed,
+ * exactly as it answers one that was sent: its message, its after-sending
+ * page, no conversion and no email. Those its content or speed turned away
+ * are kept as spam with their reason, even where certain spam is discarded
+ * (`QUIET`). A sender who might be a person, with a page left open too long
+ * or a burst from one address, is still told (`answersSent()`).
  */
 final class Guard
 {
@@ -96,7 +118,18 @@ final class Guard
         'bbcode'         => 'That message tripped our spam filter.',
         'name_link'      => 'Please enter a real name.',
         'test_address'   => 'Please use an email address you can be reached at.',
+        'site_rule'      => 'That message tripped our spam filter.',
     ];
+
+    /**
+     * The rules a form answering like a sent message (`spam_answer` 'thanks')
+     * keeps as spam whatever else it would do: its speed and its content, the
+     * CMS's rules and the site's own.
+     */
+    public const QUIET = ['too_fast', 'too_many_links', 'bbcode', 'name_link', 'test_address', 'bot_signature', 'site_rule'];
+
+    /** The fewest and the most seconds a form may ask for (`minSeconds()`). */
+    public const MIN_SECONDS_RANGE = [1, 120];
 
     /**
      * What each CERTAIN reason is called where its count is shown — the Spam
@@ -108,7 +141,7 @@ final class Guard
     public const DISCARDED = [
         'decoy'         => 'filled a hidden field',
         'token_invalid' => 'never loaded the form',
-        'too_fast'      => 'sent within ' . self::MIN_SECONDS . ' seconds',
+        'too_fast'      => 'sent too fast',
         'cross_site'    => 'from another site',
         'replayed'      => 'replayed a page',
         'flood'         => 'flood from one address',
@@ -200,9 +233,10 @@ final class Guard
      *
      * @param  array<string, mixed> $post
      * @param  array<string, mixed> $server
+     * @param  array<string, mixed> $settings the form's, for its `min_seconds`
      * @return array{code: string, reason: string, status: int, fake: bool, certain: bool}|null
      */
-    public static function screen(array $post, array $server): ?array
+    public static function screen(array $post, array $server, array $settings = []): ?array
     {
         // 1. Same origin. No Origin and no Referer is let through: privacy
         // tools strip both, and the token below is the real test.
@@ -241,9 +275,11 @@ final class Guard
         $age = time() - (int) explode('.', $token)[0];
         // UNDER 3 SECONDS IS A SCRIPT: every one seen in production was a
         // bot, sent 0–2 seconds after its page loaded. Certain, and still told
-        // to try once more, so a person who manages it loses nothing.
-        if ($age < self::MIN_SECONDS) {
-            return self::turn('too_fast', 'token: sent too fast (' . max(0, $age) . ' s after the page loaded)', 429, false, true);
+        // to try once more, so a person who manages it loses nothing. A form
+        // whose own traffic says more asks for more (`min_seconds`).
+        $least = self::minSeconds($settings);
+        if ($age < $least) {
+            return self::turn('too_fast', 'token: sent too fast (' . max(0, $age) . ' s after the page loaded, the least is ' . $least . ' s)', 429, false, true);
         }
         if ($age > self::MAX_SECONDS) {
             return self::turn('expired', 'token: expired (' . intdiv($age, 60) . ' minutes old)', 410, false, false);
@@ -325,6 +361,98 @@ final class Guard
     }
 
     /**
+     * The seconds a form's page must have been open before it sends: its
+     * `min_seconds` (Settings → Spam on the form), else 3, kept within
+     * `MIN_SECONDS_RANGE` so a typing slip cannot let every bot through or
+     * turn every person away.
+     *
+     * @param array<string, mixed> $settings the form's
+     */
+    public static function minSeconds(array $settings): int
+    {
+        $set = trim((string) ($settings['min_seconds'] ?? ''));
+        if (preg_match('/^\d{1,4}$/', $set) !== 1) {
+            return self::MIN_SECONDS;
+        }
+        return max(self::MIN_SECONDS_RANGE[0], min(self::MIN_SECONDS_RANGE[1], (int) $set));
+    }
+
+    /**
+     * The site's own rule (`form-spam.php`, see the class comment), or null
+     * when it has none or the post passes it. A rule that is not a function,
+     * or one that fails, is logged and passes the post: a lead is never lost
+     * to a broken rule.
+     *
+     * @param array<string, mixed> $form
+     * @param array<string, mixed> $answers name => answer, as stored
+     * @param array<string, mixed> $meta    ip, user_agent, source_page
+     * @return array{code: string, reason: string, status: int, fake: bool, certain: bool}|null
+     */
+    public static function siteRule(array $form, array $answers, array $meta): ?array
+    {
+        static $rule = false;
+        if ($rule === false) {
+            $rule = null;
+            $file = Theme::file('form-spam.php');
+            if ($file !== null) {
+                try {
+                    $made = (static fn (string $__f): mixed => require $__f)($file);
+                    if (is_callable($made)) {
+                        $rule = $made;
+                    } else {
+                        error_log('CMS forms: ' . $file . ' returns no function, so no site rule is applied');
+                    }
+                } catch (\Throwable $e) {
+                    error_log('CMS forms: ' . $file . ' could not be read: ' . $e->getMessage());
+                }
+            }
+        }
+        if ($rule === null) {
+            return null;
+        }
+        try {
+            $why = $rule($form, $answers, $meta);
+        } catch (\Throwable $e) {
+            error_log('CMS forms: the site rule failed (' . $e->getMessage() . '), so the post passed it');
+            return null;
+        }
+        if (!is_string($why) || trim($why) === '') {
+            return null;
+        }
+        return self::turn('site_rule', 'site rule: ' . mb_substr(trim((string) preg_replace('/\s+/', ' ', $why)), 0, 200), 422, false, false);
+    }
+
+    /**
+     * Whether the sender is answered as though the post was sent: a caught
+     * bot always is (`fake`), and on a form answering like a sent message
+     * (`spam_answer` 'thanks'), so is everything turned away for certain or
+     * for its speed or content (`QUIET`).
+     *
+     * @param array{code: string, fake: bool, certain: bool} $turn
+     * @param array<string, mixed> $settings the form's
+     */
+    public static function answersSent(array $turn, array $settings): bool
+    {
+        return !empty($turn['fake'])
+            || (($settings['spam_answer'] ?? '') === 'thanks' && (!empty($turn['certain']) || in_array($turn['code'], self::QUIET, true)));
+    }
+
+    /**
+     * Whether a turned-away post is kept as spam (or counted and discarded):
+     * anything not certain is; certain spam is when the site keeps all of it
+     * (`$keepAll`), and on a form answering like a sent message, whatever its
+     * speed or content turned away (`QUIET`).
+     *
+     * @param array{code: string, fake: bool, certain: bool} $turn
+     * @param array<string, mixed> $settings the form's
+     */
+    public static function keeps(array $turn, array $settings, bool $keepAll): bool
+    {
+        return empty($turn['certain']) || $keepAll
+            || (($settings['spam_answer'] ?? '') === 'thanks' && in_array($turn['code'], self::QUIET, true));
+    }
+
+    /**
      * What gives a known spam bot away, or null: "google" for the company (the
      * whole answer, in any case) with a made-up name — the first name the same
      * as the last, or a name ending in two capitals after a lowercase letter or
@@ -384,6 +512,27 @@ final class Guard
             }
         }
         return null;
+    }
+
+    /**
+     * A NEW TOKEN FOR A PAGE LEFT OPEN, in place of the one it has: given a
+     * token this site signed that is at least the form's fewest seconds old
+     * (`minSeconds()`), one good for as long again, dated those seconds back
+     * so it can be sent at once. The time-trap is not shortened: the page has
+     * been open that long already. Null for anything else.
+     *
+     * @param array<string, mixed> $settings the form's
+     */
+    public static function renew(string $token, array $settings): ?string
+    {
+        if (!self::validToken($token)) {
+            return null;
+        }
+        $least = self::minSeconds($settings);
+        if (time() - (int) explode('.', $token)[0] < $least) {
+            return null;
+        }
+        return self::token(time() - $least);
     }
 
     /** The stored hash of a token (the token itself is never kept). */
@@ -494,7 +643,7 @@ final class Guard
             return (string) CMS_EXPORT['secret'];
         }
         if (self::$secret === null) {
-            $config = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             $config = is_array($config) ? $config : [];
             $secret = trim((string) ($config['app_secret'] ?? ''));
             if (strlen($secret) < 16 || $secret === 'change-me-to-a-random-secret-string') {

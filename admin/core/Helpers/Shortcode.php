@@ -35,23 +35,34 @@ use Cms\Ui\Icons;
  */
 class Shortcode
 {
+    /** How many fields a form can show on a choice by stylesheet alone: `form-guard.css` holds as many rules. */
+    private const CHOICE_RULES = 20;
+
+    /**
+     * Field types drawn as a group of controls rather than one, whose label
+     * names the group (`aria-labelledby`) instead of pointing `for` at a
+     * control; a composite (Name, Address) is one too.
+     */
+    private const GROUP_TYPES = ['radio', 'checkboxes', 'lookup', 'scale', 'rating', 'likert', 'ranking', 'repeater', 'signature', 'appointment'];
+
     /**
      * Process all shortcodes in a content string.
      */
     public static function process(string $content): string
     {
-        // [gallery id="N"] — and each also carries the CMS's old class names
-        // (`Compat\OldNames::withOldClasses()`, through 0.7.x).
+        // [gallery id="N"] — and each also carries the CMS's old class names,
+        // unless the site has turned them off (`Compat\OldNames::markup()`,
+        // through 0.7.x).
         $content = preg_replace_callback(
             '/\[gallery\s+id=["\']?(\d+)["\']?\s*\]/i',
-            static fn (array $m): string => OldNames::withOldClasses(self::renderGallery($m)),
+            static fn (array $m): string => OldNames::markup(self::renderGallery($m)),
             $content
         );
 
         // [form id="N"]
         $content = preg_replace_callback(
             '/\[form\s+id=["\']?(\d+)["\']?\s*\]/i',
-            static fn (array $m): string => OldNames::withOldClasses(self::renderForm($m)),
+            static fn (array $m): string => OldNames::markup(self::renderForm($m)),
             $content
         );
 
@@ -135,9 +146,8 @@ class Shortcode
 
         foreach ($items as $item) {
             $visibility = $item['visibility'] ?? 'public';
-            $url = $visibility === 'private'
-                ? BASE_URL . '/files/' . $item['attachment_id']
-                : BASE_URL . '/uploads/' . $item['filename'];
+            // Its address as the library has it: a file the site already had at its own.
+            $url = Media::urlOf(['id' => $item['attachment_id']] + $item);
             $alt = htmlspecialchars($item['alt_text'] ?? $item['original_name']);
 
             // AN ITEM'S DETAILS (migration 091). The grid shows the thumbnail
@@ -248,6 +258,134 @@ class Shortcode
         ];
     }
 
+    /** Classes a site gives a form or its button: class names only, the rest dropped. */
+    private static function classList(string $classes): string
+    {
+        $keep = array_filter(preg_split('/\s+/', trim($classes)) ?: [],
+            static fn (string $c): bool => preg_match('/^-?[A-Za-z_][A-Za-z0-9_-]{0,63}$/D', $c) === 1);
+        return htmlspecialchars(implode(' ', array_slice(array_values(array_unique($keep)), 0, 12)));
+    }
+
+    /** A field's autocomplete words (`name`, `email`, `off`, `shipping street-address`), as tokens only. */
+    private static function autocomplete(string $words): string
+    {
+        $words = strtolower(trim($words));
+        return preg_match('/^[a-z0-9-]+(?: [a-z0-9-]+){0,3}$/D', $words) === 1 ? $words : '';
+    }
+
+    /** The words of a select's empty choice: the field's own, else "— Select —". */
+    private static function blankLabel(array $field): string
+    {
+        $own = trim((string) ($field['blank_label'] ?? ''));
+        return $own !== '' ? $own : '— Select —';
+    }
+
+    /**
+     * The address of the page this form is drawn on, a path on this site with
+     * its query, for a refusal without JavaScript to go back to; null when it
+     * is not one (a command line, a page drawn for something else).
+     */
+    private static function pagePath(): ?string
+    {
+        $uri  = (string) ($_SERVER['REQUEST_URI'] ?? '');
+        $path = explode('#', $uri, 2)[0];
+        return preg_match('~^/(?![/\\\\])[^\\\\\s<>"]{0,499}$~', $path) === 1 ? $path : null;
+    }
+
+    /**
+     * A field's message element: under it, hidden until it is wrong, holding
+     * what form.js and a refusal say. Drawn for a field that can be refused
+     * in its own words: required, an address or a number or a date that may
+     * be mistyped, or a length with a message of its own. The words a script
+     * checks with ride on it (`data-required`, `data-format`, `data-long`)
+     * for a field of one box; a group's are said by the server alone.
+     */
+    private static function fieldError(array $field, string $type, string $inputId, bool $required, string $tooLong, int $maxlength, string $says): string
+    {
+        $formats = ['email' => 'a valid email address', 'url' => 'a valid web address', 'number' => 'a number',
+                    'date' => 'a valid date', 'time' => 'a valid time'];
+        $format  = $formats[$type] ?? null;
+        $long    = $tooLong !== '' && $maxlength > 0;
+        if (!$required && $format === null && !$long) {
+            return '';
+        }
+        $label    = ($field['label'] ?? '') !== '' ? (string) $field['label'] : (string) ($field['name'] ?? '');
+        $own      = trim((string) ($field['msg_required'] ?? ''));
+        $needed   = $own !== '' ? $own : $label . ' is required.';
+        $ownFmt   = trim((string) ($field['msg_format'] ?? ''));
+        $badly    = $format !== null ? ($ownFmt !== '' ? $ownFmt : $label . ' must be ' . $format . '.') : '';
+        $oneBox   = in_array($type, ['text', 'email', 'tel', 'url', 'number', 'date', 'time', 'password', 'textarea', 'select', 'dynamic'], true);
+        $data     = '';
+        if ($oneBox) {
+            $data .= $required ? ' data-required="' . htmlspecialchars($needed) . '"' : '';
+            $data .= $format !== null ? ' data-kind="' . $type . '" data-format="' . htmlspecialchars($badly) . '"' : '';
+            $data .= $long ? ' data-max="' . $maxlength . '" data-long="' . htmlspecialchars($tooLong) . '"' : '';
+        }
+        $shown = $says !== '' ? $says : ($required ? $needed : ($format !== null ? $badly : $tooLong));
+
+        return '<span class="cms-form__error" id="' . $inputId . '-error" data-field-error' . $data
+             . ($says !== '' ? '' : ' hidden') . '>' . htmlspecialchars($shown) . '</span>';
+    }
+
+    /**
+     * WHICH FIELDS A STYLESHEET CAN SHOW ON A CHOICE, numbered for the form,
+     * and which choices show them: a field whose rule is a choice equal to a
+     * value — one rule, or several joined by "any", each on a select, a radio
+     * group or a set of checkboxes. `form-guard.css` hides each one numbered
+     * while no choice that shows it is made (`data-when`), or while one that
+     * hides it is (`data-unless`), so it is hidden on the first draw whether
+     * or not the page runs a script, and shown as the choice is made. Any
+     * other rule is logic.js's alone, the field drawn and hidden by the
+     * script, as before. At most `CHOICE_RULES` a form.
+     *
+     * @param  list<array<string, mixed>> $fields
+     * @return array{0: array<string, array{how: string, n: int}>, 1: array<string, array<string, list<int>>>}
+     */
+    private static function showsOnChoice(array $fields): array
+    {
+        $choiceTypes = [];
+        foreach ($fields as $f) {
+            if (in_array((string) ($f['type'] ?? ''), ['select', 'dynamic', 'radio', 'checkboxes'], true)) {
+                $choiceTypes[(string) ($f['name'] ?? '')] = true;
+            }
+        }
+        $shownBy = [];
+        $reveals = [];
+        $n       = 0;
+        foreach ($fields as $f) {
+            $logic = Logic::parse($f['logic'] ?? null);
+            if ($logic === null || $n >= self::CHOICE_RULES) {
+                continue;
+            }
+            $rules = $logic['rules'];
+            if (count($rules) > 1 && $logic['match'] !== 'any') {
+                continue;
+            }
+            $fits = true;
+            foreach ($rules as $rule) {
+                if ($rule['op'] !== 'is' || $rule['value'] === '' || !isset($choiceTypes[$rule['field']])) {
+                    $fits = false;
+                }
+            }
+            if (!$fits) {
+                continue;
+            }
+            $n++;
+            $shownBy[(string) ($f['name'] ?? '')] = ['how' => $logic['action'] === 'hide' ? 'unless' : 'when', 'n' => $n];
+            foreach ($rules as $rule) {
+                $reveals[$rule['field']][$rule['value']][] = $n;
+            }
+        }
+        return [$shownBy, $reveals];
+    }
+
+    /** The numbers a choice shows or hides (`showsOnChoice()`), as its attribute. */
+    private static function reveals(array $reveals, string $field, string $value): string
+    {
+        $ns = $reveals[$field][$value] ?? [];
+        return $ns === [] ? '' : ' data-shows="' . implode(' ', array_unique($ns)) . '"';
+    }
+
     /**
      * Render a [form id="N"] shortcode.
      */
@@ -279,6 +417,30 @@ class Shortcode
         if ($exporting && \Cms\Export\Forms::unsendable($form, (bool) (CMS_EXPORT['php'] ?? false)) !== null) {
             return \Cms\Export\Forms::instead($formId, (string) (CMS_EXPORT['instead'] ?? ''));
         }
+
+        // ── HOW IT IS DRAWN ON THE PAGE (the form's "On the page" settings) ──
+        // Its own id and classes, its button's classes, its fields' ids, where
+        // its messages show, and whether it checks its own answers with each
+        // field's words instead of the browser's (`novalidate`, form.js).
+        $elementId   = Form::elementId($form);
+        $formClasses = self::classList((string) ($settings['html_class'] ?? ''));
+        $btnClasses  = self::classList((string) ($settings['button_class'] ?? ''));
+        $bareIds     = ($settings['bare_ids'] ?? '') === '1';
+        $above       = ($settings['status_place'] ?? '') === 'above';
+        $ownChecks   = ($settings['own_checks'] ?? '') === '1';
+        $wordsOf     = static fn (string $key, string $default): string => trim((string) ($settings[$key] ?? '')) !== '' ? trim((string) $settings[$key]) : $default;
+
+        // A POST OF THIS FORM REFUSED WITHOUT JAVASCRIPT, carried back to this
+        // page (`Models\FormReturn`): every answer as typed, each message under
+        // its field, the form's own above or below it. Taken once.
+        $back  = $exporting ? null : \Cms\Models\FormReturn::take($formId);
+        $typed = is_array($back['answers'] ?? null) ? $back['answers'] : [];
+        $wrong = is_array($back['errors'] ?? null) ? $back['errors'] : [];
+
+        // A CONDITIONAL FIELD IS HIDDEN ON THE FIRST DRAW, script or none, when
+        // a stylesheet can tell its rule: shown when a choice is made. The
+        // rules go to `form-guard.css` as numbered pairs (`showsOnChoice()`).
+        [$shownBy, $reveals] = self::showsOnChoice($fields);
 
         // ESCAPED ONCE, for the button and for the attribute form.js reads
         // when it puts the button back after a failed send: the browser hands
@@ -318,9 +480,28 @@ class Shortcode
                 break;
             }
         }
-        $html .= '<form method="POST" action="' . htmlspecialchars($actionUrl) . '"'
+        // THE STATUS REGION: what the form says as a whole — sent, or look at
+        // the fields — announced as it changes, above the form or below it.
+        $formSays = trim((string) ($wrong[''] ?? ''));
+        $status   = '<div class="cms-form__alert' . ($above ? ' cms-form__alert--above' : '') . ($formSays !== '' ? ' cms-form__alert--error' : '') . '"'
+                  . ' id="' . htmlspecialchars($elementId . '-status') . '" role="status" aria-live="polite" data-form-status'
+                  . ($formSays !== '' ? '' : ' hidden') . '>' . htmlspecialchars($formSays) . '</div>';
+        if ($above) {
+            $html .= $status;
+        }
+
+        $html .= '<form method="post" action="' . htmlspecialchars($actionUrl) . '" id="' . htmlspecialchars($elementId) . '"'
                . ($sendsFiles ? ' enctype="multipart/form-data"' : '')
-               . ' class="cms-form__form" data-cms-form data-submit-label="' . $submitLabel . '">';
+               . ' class="cms-form__form' . ($formClasses !== '' ? ' ' . $formClasses : '') . '"'
+               . ($ownChecks ? ' novalidate' : '')
+               . ' data-cms-form data-submit-label="' . $submitLabel . '"'
+               . ' data-sending-label="' . htmlspecialchars($wordsOf('sending_label', 'Sending…')) . '"'
+               . ' data-msg-fix="' . htmlspecialchars($wordsOf('msg_fix', 'Please check the highlighted fields and try again.')) . '"'
+               . ' data-msg-offline="' . htmlspecialchars($wordsOf('msg_offline', 'We couldn’t send your message just now. Please try again.')) . '"'
+               // A PAGE LEFT OPEN STILL SENDS: its token renewed (form.js).
+               // Not in a static copy, whose own handler gives a new one.
+               . ($exporting ? '' : ' data-token-url="' . htmlspecialchars(\Cms\Helpers\Url::path('forms/' . $formId . '/token')) . '"')
+               . '>';
 
         // THE TIME-TRAP AND THE TWO DECOYS (`Forms\Guard`).
         //
@@ -331,6 +512,12 @@ class Shortcode
         // submission then discarded as spam. Not an inline style either: a
         // page whose Content-Security-Policy refuses one would show them.
         $html .= Guard::fields();
+        // A FORM THAT CHECKS ITS OWN ANSWERS posts its page, for a refusal
+        // without JavaScript to come back to it (`Public\FormController::
+        // refuse()`); any other is refused on a page of its own, as before.
+        if (!$exporting && $ownChecks && ($page = self::pagePath()) !== null) {
+            $html .= '<input type="hidden" name="' . \Cms\Models\FormReturn::RETURN_FIELD . '" value="' . htmlspecialchars($page) . '">';
+        }
 
         $html .= '<div class="cms-form__fields">';
 
@@ -359,9 +546,26 @@ class Shortcode
             $default     = htmlspecialchars((string) ($field['default'] ?? ''));
             $description = (string) ($field['description'] ?? '');
             $maxlength   = (int) ($field['maxlength'] ?? 0);
+            // TOO LONG, SAID IN ITS OWN WORDS: with a message for it, the
+            // length is checked and the message shown, and the box takes
+            // any length; without one, the box stops at it.
+            $tooLong     = trim((string) ($field['msg_long'] ?? ''));
             $reqAttr     = $required ? ' required' : '';
-            $maxAttr     = $maxlength > 0 ? ' maxlength="' . $maxlength . '"' : '';
-            $inputId     = 'cms-f' . $formId . '-' . $name;
+            // SAID ON ONE BOX, NOT ON EACH RADIO: a radio cannot carry it.
+            $ariaReq     = $required ? ' aria-required="true"' : '';
+            $maxAttr     = $maxlength > 0 && $tooLong === '' ? ' maxlength="' . $maxlength . '"' : '';
+            $inputId     = $bareIds ? $name : 'cms-f' . $formId . '-' . $name;
+            $auto        = self::autocomplete((string) ($field['autocomplete'] ?? ''));
+            $autoAttr    = $auto !== '' ? ' autocomplete="' . $auto . '"' : '';
+            // WHAT WAS TYPED, carried back after a refusal; never a password.
+            $was         = $type !== 'password' && array_key_exists((string) ($field['name'] ?? ''), $typed) ? $typed[(string) $field['name']] : null;
+            $value       = is_string($was) ? htmlspecialchars($was) : $default;
+            $chosen      = is_array($was) ? array_map('strval', $was) : (is_string($was) ? [$was] : []);
+            // ITS MESSAGE, when it has one: under it, hidden until it is wrong.
+            $says        = (string) ($wrong[(string) ($field['name'] ?? '')] ?? '');
+            $error       = self::fieldError($field, $type, $inputId, $required, $tooLong, $maxlength, $says);
+            $invalid     = $says !== '' ? ' aria-invalid="true"' : '';
+            $isInvalid   = $says !== '' ? ' is-invalid' : '';
 
             // THE DESCRIPTION IS TIED TO THE CONTROL, not merely printed under
             // it. `aria-describedby` is what makes a screen reader announce
@@ -369,9 +573,8 @@ class Shortcode
             // the field and leaving its explanation stranded as loose page text
             // that may never be reached. Computed here because every branch of
             // the switch below has to carry it.
-            $descAttr = $description !== ''
-                ? ' aria-describedby="' . $inputId . '-help"'
-                : '';
+            $describedBy = trim(($description !== '' ? $inputId . '-help' : '') . ($error !== '' ? ' ' . $inputId . '-error' : ''));
+            $descAttr    = $describedBy !== '' ? ' aria-describedby="' . $describedBy . '"' : '';
 
             $meta = FieldTypes::get($type);
 
@@ -429,8 +632,10 @@ class Shortcode
             // the script has run, so it would be invisible to anything looking
             // for a name. The wrapper always knows, and it is one attribute
             // rather than a rule per type.
+            $slot = $shownBy[(string) ($field['name'] ?? '')] ?? null;
             $html .= '<div class="cms-form__field' . $widthClass . '"'
-                   . ' data-field="' . $name . '"' . $logicAttr . '>';
+                   . ' data-field="' . $name . '"' . $logicAttr
+                   . ($slot !== null ? ' data-' . $slot['how'] . '="' . $slot['n'] . '"' : '') . '>';
 
             // ── THE TWO TYPES THAT COLLECT NOTHING ───────────────────────────
             // `note` is ESCAPED text, never HTML. An HTML field in a form builder
@@ -510,18 +715,22 @@ class Shortcode
             // below, so emitting this one too would print the wording TWICE —
             // once above the row and once beside the box.
             //
-            // A radio or checkbox GROUP gets a <legend>-shaped label rather than
-            // a <label for>: `for` has to point at one control, and pointing it
+            // A GROUP OF CONTROLS gets a <legend>-shaped label rather than a
+            // <label for>: `for` has to point at one control, and pointing it
             // at the first option makes clicking the group's heading tick that
-            // option.
-            $isGroup = in_array($type, ['radio', 'checkboxes'], true);
+            // option. The label has an id instead, and the group names itself
+            // with it (`aria-labelledby`), so a screen reader says the question
+            // on entering the group: radios, boxes, a scale, a grid, a ranking,
+            // the boxes of a name or an address, rows, a signature, times.
+            $isGroup    = in_array($type, self::GROUP_TYPES, true) || FieldTypes::isComposite($type);
+            $labelledBy = $isGroup && $label !== '' ? ' aria-labelledby="' . $inputId . '-label"' : '';
             if ($label !== '' && $type !== 'checkbox') {
                 $html .= $isGroup
-                    ? '<span class="cms-form__label">'
+                    ? '<span class="cms-form__label" id="' . $inputId . '-label">'
                     : '<label class="cms-form__label" for="' . $inputId . '">';
                 $html .= $label;
                 if ($required) {
-                    $html .= ' <span class="cms-form__required">*</span>';
+                    $html .= ' <span class="cms-form__required" aria-hidden="true">*</span>';
                 }
                 $html .= $isGroup ? '</span>' : '</label>';
             }
@@ -539,13 +748,14 @@ class Shortcode
             // identically-named "Address" boxes.
             if (FieldTypes::isComposite($type)) {
                 $html .= '<div class="cms-form__parts cms-form__parts--'
-                       . htmlspecialchars($type) . '">';
+                       . htmlspecialchars($type) . '" role="group"' . $labelledBy . '>';
                 foreach (FieldTypes::parts($type) as $key => $partLabel) {
                     $partId = $inputId . '-' . $key;
                     $html .= '<div class="cms-form__part">';
                     $html .= '<input type="text" name="' . $name . '[' . $key . ']"'
                            . ' id="' . $partId . '"'
-                           . ' class="cms-form__input"'
+                           . ' class="cms-form__input' . $isInvalid . '"'
+                           . (is_array($was) && is_string($was[$key] ?? null) ? ' value="' . htmlspecialchars($was[$key]) . '"' : '')
                            // REQUIRED IS THE FIELD'S, NOT EACH BOX'S. Putting
                            // it on every part would demand a Line 2 from
                            // everyone who has no Line 2; the server checks that
@@ -556,6 +766,7 @@ class Shortcode
                     $html .= '</div>';
                 }
                 $html .= '</div>';
+                $html .= $error;
                 if ($description !== '') {
                     $html .= '<p class="cms-form__help" id="' . $inputId . '-help">'
                            . htmlspecialchars($description) . '</p>';
@@ -566,10 +777,13 @@ class Shortcode
 
             switch ($type) {
                 case 'textarea':
+                    $rows = (int) ($field['rows'] ?? 0);
                     $html .= '<textarea name="' . $name . '" id="' . $inputId . '"'
-                           . ' class="cms-form__input cms-form__textarea"'
-                           . ' placeholder="' . $placeholder . '"'
-                           . $descAttr . $reqAttr . $maxAttr . ' rows="5">' . $default . '</textarea>';
+                           . ' class="cms-form__input cms-form__textarea' . $isInvalid . '"'
+                           // NO EMPTY ATTRIBUTE: a box with no words in it has none.
+                           . ($placeholder !== '' ? ' placeholder="' . $placeholder . '"' : '')
+                           . $autoAttr . $descAttr . $reqAttr . $ariaReq . $maxAttr . $invalid
+                           . ' rows="' . ($rows >= 1 && $rows <= 50 ? $rows : 5) . '">' . $value . '</textarea>';
                     break;
 
                 case 'appointment':
@@ -588,8 +802,7 @@ class Shortcode
                                . 'There are no times available at the moment.</p>';
                         break;
                     }
-                    $html .= '<div class="cms-form__appt" role="radiogroup"'
-                           . ($label !== '' ? ' aria-label="' . $label . '"' : '') . $descAttr . '>';
+                    $html .= '<div class="cms-form__appt" role="radiogroup"' . $labelledBy . $descAttr . '>';
                     foreach ($free as $dayLabel => $slots) {
                         $html .= '<div class="cms-form__appt-day">';
                         $html .= '<h4 class="cms-form__appt-date">'
@@ -630,7 +843,7 @@ class Shortcode
                         $cols = ['Item'];
                     }
                     $html .= '<div class="cms-form__repeater" data-repeater'
-                           . ' data-repeater-name="' . $name . '">';
+                           . ' data-repeater-name="' . $name . '" role="group"' . $labelledBy . '>';
                     $html .= '<div class="cms-form__rep-rows" data-rep-rows>';
                     $html .= '<div class="cms-form__rep-row" data-rep-row>';
                     foreach ($cols as $c => $col) {
@@ -659,10 +872,12 @@ class Shortcode
                     // the site can be long and a hundred radio buttons is not a
                     // question, it is a wall.
                     $html .= '<select name="' . $name . '" id="' . $inputId . '"'
-                           . ' class="cms-form__input cms-form__select"' . $descAttr . $reqAttr . '>';
-                    $html .= '<option value="">— Select —</option>';
+                           . ' class="cms-form__input cms-form__select' . $isInvalid . '"' . $autoAttr . $descAttr . $reqAttr . $ariaReq . $invalid . '>';
+                    $html .= '<option value="">' . htmlspecialchars(self::blankLabel($field)) . '</option>';
                     foreach (self::choices($field) as $opt) {
-                        $html .= '<option value="' . htmlspecialchars($opt) . '">'
+                        $html .= '<option value="' . htmlspecialchars($opt) . '"'
+                               . self::reveals($reveals, (string) ($field['name'] ?? ''), $opt)
+                               . (in_array($opt, $chosen, true) ? ' selected' : '') . '>'
                                . htmlspecialchars($opt) . '</option>';
                     }
                     $html .= '</select>';
@@ -679,12 +894,13 @@ class Shortcode
                     // AS MANY AS APPLY. Checkboxes rather than a multi-select:
                     // a multiple `<select>` requires knowing to hold Ctrl,
                     // which is a keyboard trick, not an affordance.
-                    $html .= '<div class="cms-form__choices" role="group"' . $descAttr . '>';
+                    $html .= '<div class="cms-form__choices" role="group"' . $labelledBy . $descAttr . '>';
                     foreach (self::choices($field) as $n => $opt) {
                         $optId = $inputId . '-' . $n;
                         $html .= '<label class="cms-form__choice" for="' . $optId . '">';
                         $html .= '<input type="checkbox" name="' . $name . '[]"'
-                               . ' id="' . $optId . '" value="' . htmlspecialchars($opt) . '">';
+                               . ' id="' . $optId . '" value="' . htmlspecialchars($opt) . '"'
+                               . (in_array($opt, $chosen, true) ? ' checked' : '') . '>';
                         $html .= '<span>' . htmlspecialchars($opt) . '</span>';
                         $html .= '</label>';
                     }
@@ -696,11 +912,13 @@ class Shortcode
 
                 case 'select':
                     $html .= '<select name="' . $name . '" id="' . $inputId . '"'
-                           . ' class="cms-form__input cms-form__select"' . $descAttr . $reqAttr . '>';
-                    $html .= '<option value="">— Select —</option>';
+                           . ' class="cms-form__input cms-form__select' . $isInvalid . '"' . $autoAttr . $descAttr . $reqAttr . $ariaReq . $invalid . '>';
+                    $html .= '<option value="">' . htmlspecialchars(self::blankLabel($field)) . '</option>';
                     // THE LABEL IS SHOWN, THE VALUE POSTED ("label | value").
                     foreach (self::choicePairs($field) as $opt) {
-                        $html .= '<option value="' . htmlspecialchars($opt['value']) . '">'
+                        $html .= '<option value="' . htmlspecialchars($opt['value']) . '"'
+                               . self::reveals($reveals, (string) ($field['name'] ?? ''), $opt['value'])
+                               . (in_array($opt['value'], $chosen, true) ? ' selected' : '') . '>'
                                . htmlspecialchars($opt['label']) . '</option>';
                     }
                     $html .= '</select>';
@@ -713,13 +931,15 @@ class Shortcode
                     // three ticked boxes would arrive as one answer.
                     $ctrl = $type === 'radio' ? 'radio' : 'checkbox';
                     $post = $type === 'radio' ? $name : $name . '[]';
-                    $html .= '<div class="cms-form__choices" role="group"' . $descAttr . '>';
+                    $html .= '<div class="cms-form__choices" role="group"' . $labelledBy . $descAttr . '>';
                     // THE LABEL IS SHOWN, THE VALUE POSTED ("label | value").
                     foreach (self::choicePairs($field) as $n => $opt) {
                         $optId = $inputId . '-' . $n;
                         $html .= '<label class="cms-form__choice" for="' . $optId . '">';
                         $html .= '<input type="' . $ctrl . '" name="' . $post . '"'
                                . ' id="' . $optId . '" value="' . htmlspecialchars($opt['value']) . '"'
+                               . self::reveals($reveals, (string) ($field['name'] ?? ''), $opt['value'])
+                               . (in_array($opt['value'], $chosen, true) ? ' checked' : '')
                                // REQUIRED GOES ON THE RADIOS ONLY. On a checkbox
                                // SET the browser reads it per box, so `required`
                                // would demand every single one be ticked.
@@ -745,8 +965,7 @@ class Shortcode
                     // read and a request nobody meant to send.
                     if ($hi - $lo > 20) { $hi = $lo + 20; }
 
-                    $html .= '<div class="cms-form__' . $type . '" role="radiogroup"'
-                           . ($label !== '' ? ' aria-label="' . $label . '"' : '') . $descAttr . '>';
+                    $html .= '<div class="cms-form__' . $type . '" role="radiogroup"' . $labelledBy . $descAttr . '>';
                     for ($n = $lo; $n <= $hi; $n++) {
                         $optId = $inputId . '-' . $n;
                         $html .= '<label class="cms-form__' . $type . '-step" for="' . $optId . '">';
@@ -804,7 +1023,7 @@ class Shortcode
                     // WITH NO JAVASCRIPT there is no canvas worth drawing on,
                     // so the field says so rather than showing an empty box
                     // that cannot be signed.
-                    $html .= '<div class="cms-form__signature" data-signature>';
+                    $html .= '<div class="cms-form__signature" data-signature role="group"' . $labelledBy . '>';
                     $html .= '<canvas class="cms-form__signature-pad" data-signature-pad'
                            . ' width="600" height="200"'
                            . ' aria-label="' . ($label !== '' ? $label : 'Signature') . '"></canvas>';
@@ -856,7 +1075,7 @@ class Shortcode
                     // which is a ranking nobody chose, but it is an answer and
                     // it validates. A control that silently posts empty is
                     // worse.
-                    $html .= '<ol class="cms-form__ranking" data-ranking>';
+                    $html .= '<ol class="cms-form__ranking" data-ranking' . $labelledBy . '>';
                     foreach (self::choices($field) as $n => $opt) {
                         // THE POSITION IS PRINTED, not left to a list marker.
                         // `display: flex` on an <li> suppresses its marker in
@@ -895,7 +1114,7 @@ class Shortcode
                     // and nothing new is needed to store it.
                     $rows = self::choices($field);
                     $cols = self::likertColumns($field);
-                    $html .= '<table class="cms-form__likert">';
+                    $html .= '<table class="cms-form__likert"' . $labelledBy . '>';
                     $html .= '<thead><tr><td></td>';
                     foreach ($cols as $col) {
                         $html .= '<th scope="col">' . htmlspecialchars($col) . '</th>';
@@ -967,10 +1186,11 @@ class Shortcode
                     // say so.
                     $html .= '<label class="cms-form__checkbox-label">';
                     $html .= '<input type="checkbox" name="' . $name . '" value="1"'
-                           . ' id="' . $inputId . '" class="cms-form__checkbox"' . $descAttr . $reqAttr . '>';
+                           . ' id="' . $inputId . '" class="cms-form__checkbox"' . $descAttr . $reqAttr . $ariaReq . $invalid
+                           . ($chosen !== [] && $chosen[0] !== '' ? ' checked' : '') . '>';
                     $html .= '<span>' . $label;
                     if ($required) {
-                        $html .= ' <span class="cms-form__required">*</span>';
+                        $html .= ' <span class="cms-form__required" aria-hidden="true">*</span>';
                     }
                     $html .= '</span>';
                     $html .= '</label>';
@@ -992,13 +1212,16 @@ class Shortcode
                         'password' => 'password',
                     ][$type] ?? 'text';
                     $html .= '<input type="' . $htmlType . '" name="' . $name . '"'
-                           . ' id="' . $inputId . '" class="cms-form__input"'
-                           . ' value="' . $default . '"'
-                           . ($meta['placeholder'] ? ' placeholder="' . $placeholder . '"' : '')
-                           . $descAttr . $reqAttr . $maxAttr . '>';
+                           . ' id="' . $inputId . '" class="cms-form__input' . $isInvalid . '"'
+                           // NO EMPTY ATTRIBUTE: a box with nothing in it, or no
+                           // words for it, has neither.
+                           . ($value !== '' ? ' value="' . $value . '"' : '')
+                           . ($meta['placeholder'] && $placeholder !== '' ? ' placeholder="' . $placeholder . '"' : '')
+                           . $autoAttr . $descAttr . $reqAttr . $ariaReq . $maxAttr . $invalid . '>';
                     break;
             }
 
+            $html .= $error;
             if ($description !== '') {
                 $html .= '<p class="cms-form__help" id="' . $inputId . '-help">'
                        . htmlspecialchars($description) . '</p>';
@@ -1010,15 +1233,23 @@ class Shortcode
         $html .= '</div>'; // .cms-form__fields
 
         $html .= '<div class="cms-form__actions">';
-        $html .= '<button type="submit" class="cms-form__submit">' . $submitLabel . '</button>';
+        $html .= '<button type="submit" class="cms-form__submit' . ($btnClasses !== '' ? ' ' . $btnClasses : '') . '">' . $submitLabel . '</button>';
         $html .= '</div>';
 
         $html .= '</form>';
 
-        // Success/error message container
-        $html .= '<div class="cms-form__alert" hidden></div>';
+        if (!$above) {
+            $html .= $status;
+        }
 
         $html .= '</div>'; // .cms-form
+
+        // A SITE STILL ON THE OLD CLASS NAMES (`Compat\OldNames`): what the
+        // scripts below draw gets its old name beside the new from one file,
+        // loaded first and only then, so the others name only the new.
+        if (OldNames::keepsOldClasses()) {
+            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/old-names.js')) . '"></script>';
+        }
 
         // logic.js ONLY WHEN A FIELD USES IT. A form with no conditional field
         // has nothing for it to do, and a script tag on every page carrying any

@@ -284,6 +284,12 @@ class Revision
      * Call this when permanently deleting a post or page — the revisions table
      * has no FK to either table (it spans both), so nothing cascades for us.
      */
+    /** One revision, by its id: one a save took and then found it changed nothing. */
+    public static function forget(int $revisionId): void
+    {
+        Database::getInstance()->prepare('DELETE FROM revisions WHERE id = :id')->execute([':id' => $revisionId]);
+    }
+
     public static function deleteFor(string $objectType, int $objectId): void
     {
         $pdo  = Database::getInstance();

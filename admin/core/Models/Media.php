@@ -239,12 +239,87 @@ class Media
         return ['mime_type' => $mime, 'file_size' => $size, 'width' => $width, 'height' => $height];
     }
 
-    /** The name a file is kept under: unique, and safe on disk and in an address. */
-    public static function storedName(string $originalName): string
+    /**
+     * THE NAME A FILE IS KEPT UNDER: its own, as an address can carry it —
+     * accents folded, lower case, every run of anything but letters and
+     * digits one dash ("Café Crème (2).JPG" is cafe-creme-2.jpg) — and an
+     * extension of its own when given one (a picture kept as WebP).
+     */
+    public static function storedName(string $originalName, ?string $extension = null): string
     {
-        $safe = ltrim((string) (preg_replace('/[^a-z0-9._-]/', '', strtolower($originalName)) ?? ''), '.');
+        $clean = static fn (string $s): string => trim((string) preg_replace('/[^a-z0-9]+/', '-',
+            str_replace('ß', 'ss', \Cms\Helpers\Words::fold($s))), '-');
+        $stem  = substr($clean(pathinfo($originalName, PATHINFO_FILENAME)), 0, 80);
+        $stem  = rtrim($stem, '-');
+        $ext   = $clean($extension ?? pathinfo($originalName, PATHINFO_EXTENSION));
 
-        return uniqid('', true) . '_' . ($safe !== '' ? $safe : 'upload');
+        return ($stem !== '' ? $stem : 'upload') . ($ext !== '' ? '.' . $ext : '');
+    }
+
+    /**
+     * A NAME IN `$dir` NO OTHER FILE HAS, claimed: `storedName()`'s, or with
+     * -2, -3 … after its stem until it is free. Free means no file in the
+     * folder and no row in the library has that stem with any extension, and
+     * no file has a width copy of it (`Media\Sizes`: stem-768w.webp), since a
+     * picture's copies are named from its stem; and a stem that ends like a
+     * copy's (-768w) takes -2 first, so no copy of another picture is ever
+     * written over it. The name is claimed by making the empty file, so two
+     * uploads of one name at once never get the same one; the caller writes
+     * into it, or deletes it.
+     */
+    public static function claimName(string $dir, string $originalName, ?string $extension = null): string
+    {
+        $name = self::storedName($originalName, $extension);
+        $stem = pathinfo($name, PATHINFO_FILENAME);
+        $ext  = pathinfo($name, PATHINFO_EXTENSION);
+        $dot  = $ext !== '' ? '.' . $ext : '';
+        $pdo  = Database::getInstance();
+        $rows = $pdo->prepare("SELECT COUNT(*) FROM attachments WHERE (filename = :bare OR filename LIKE :dotted) AND site_path IS NULL");
+        for ($n = preg_match('/-\d+w$/', $stem) === 1 ? 2 : 1; $n < 10000; $n++) {
+            $try = $n === 1 ? $stem : $stem . '-' . $n;
+            $rows->execute([':bare' => $try, ':dotted' => $try . '.%']);
+            if (glob($dir . '/' . $try . '.*') !== [] || is_file($dir . '/' . $try) || glob($dir . '/' . $try . '-*w.webp') !== []
+                || (int) $rows->fetchColumn() > 0) {
+                continue;
+            }
+            $claim = @fopen($dir . '/' . $try . $dot, 'x');
+            if ($claim !== false) {
+                fclose($claim);
+                return $try . $dot;
+            }
+        }
+        throw new \RuntimeException('No free name for the file could be found.');
+    }
+
+    /**
+     * THE LIBRARY'S PICTURE AT THIS ADDRESS, on this site or written with
+     * another of its names (a development copy's): a file in uploads/ by its
+     * name, or a file the site already had at its own path. Its id, or null.
+     */
+    public static function idAt(string $url): ?int
+    {
+        $path = rawurldecode((string) (parse_url(trim($url), PHP_URL_PATH) ?? ''));
+        if ($path === '' || !str_starts_with($path, '/')) {
+            return null;
+        }
+        $pdo  = Database::getInstance();
+        $stmt = str_starts_with($path, '/uploads/') && substr_count($path, '/') === 2
+            ? $pdo->prepare("SELECT id FROM attachments WHERE filename = :f AND site_path IS NULL AND visibility = 'public' LIMIT 1")
+            : $pdo->prepare("SELECT id FROM attachments WHERE site_path = :f LIMIT 1");
+        $stmt->execute([':f' => str_starts_with($path, '/uploads/') && substr_count($path, '/') === 2 ? substr($path, 9) : $path]);
+        $id = $stmt->fetchColumn();
+
+        return $id === false ? null : (int) $id;
+    }
+
+    /**
+     * GIVE A LIBRARY FILE ANOTHER NAME: the file and its width copies, its
+     * row, every address the site keeps for it, and a redirect from the old
+     * one (`Media\Rename`). Why it was refused, or null when done.
+     */
+    public static function rename(int $id, string $name): ?string
+    {
+        return \Cms\Media\Rename::to($id, $name);
     }
 
     /** Where a file of this visibility lives. Private is never served directly. */
@@ -283,6 +358,81 @@ class Media
         return self::store($path, (string) ($opts['original_name'] ?? basename($path)), $opts, false);
     }
 
+    /** `register()`'s refusal of a file the library already names, which a caller may count as done. */
+    public const ALREADY_REGISTERED = 'That file is already in the library.';
+
+    /**
+     * A FILE THE SITE ALREADY HAS, into the library where it is: a picture
+     * kept under the web root since before the CMS (`/img/blog/x.jpg`), whose
+     * address pages and search engines already know. The row names the file
+     * in place (`site_path`). Nothing is copied, moved, renamed or re-encoded,
+     * so the address stays the picture's address, and its narrower copies
+     * beside it (`x-480.jpg`, `x-768.jpg` for `x.jpg`) are its widths
+     * (`Media\Sizes::siblings()`). It is chosen, shown and described like any
+     * other picture. Deleting it from the library forgets the row and leaves
+     * the file, and it has no Replace and is never made private, either of
+     * which would change the file or move it.
+     *
+     * Refused, with a sentence for whoever asked (`MediaRejected`): a path
+     * that is not a file inside the web root; one in the library's own
+     * uploads/ or in the CMS's own assets/ and admin/; a file the library
+     * would not admit (`admit()`); and a file already in the library.
+     *
+     * @param string $path  the file, as its address from the web root
+     *                      (`/img/blog/x.jpg`) or as a path on disk inside it
+     * @param array{original_name?: string, folder_id?: ?int, alt_text?: ?string} $opts
+     * @throws MediaRejected
+     */
+    public static function register(string $path, array $opts = []): int
+    {
+        $root = realpath(PUBLIC_PATH);
+        $real = false;
+        foreach ([PUBLIC_PATH . '/' . ltrim($path, '/'), $path] as $candidate) {
+            $found = $root !== false && $path !== '' ? realpath($candidate) : false;
+            if ($found !== false && is_file($found)) {
+                $real = $found;
+                break;
+            }
+        }
+        if ($root === false || $real === false) {
+            throw new MediaRejected('There is no such file under the site\'s web root.');
+        }
+        if (!str_starts_with($real, $root . '/')) {
+            throw new MediaRejected('That file is outside the site\'s web root.');
+        }
+        $sitePath = substr($real, strlen($root));
+        if (preg_match('#^/(uploads|assets|admin)/#', $sitePath) === 1) {
+            throw new MediaRejected('That file is the CMS\'s own: the library keeps uploads/, and assets/ and admin/ belong to the CMS.');
+        }
+        $facts = self::admit($real);
+        $known = Database::getInstance()->prepare('SELECT id FROM attachments WHERE site_path = :path LIMIT 1');
+        $known->execute([':path' => $sitePath]);
+        if ($known->fetchColumn() !== false) {
+            throw new MediaRejected(self::ALREADY_REGISTERED);
+        }
+
+        return self::create([
+            'filename'      => basename($real),
+            'site_path'     => $sitePath,
+            'original_name' => (string) ($opts['original_name'] ?? basename($real)),
+            'mime_type'     => $facts['mime_type'],
+            'file_size'     => $facts['file_size'],
+            'width'         => $facts['width'],
+            'height'        => $facts['height'],
+            'folder_id'     => $opts['folder_id'] ?? null,
+            'visibility'    => 'public',
+            'alt_text'      => $opts['alt_text'] ?? null,
+            'taken_at'      => Exif::taken($real, $facts['mime_type']),
+            'sizes'         => \Cms\Media\Sizes::siblings($real, $facts['width']),
+        ]);
+    }
+
+    /** Is this a file the site already had, named in the library where it is (`register()`)? */
+    public static function isSiteFile(array $attachment): bool
+    {
+        return (string) ($attachment['site_path'] ?? '') !== '';
+    }
+
     /**
      * Admit, place and record — every door's last step. `$uploaded` means an
      * HTTP upload's temporary file, which only `move_uploaded_file()` may
@@ -296,7 +446,6 @@ class Media
         $facts      = self::admit($path);
         $visibility = ($opts['visibility'] ?? 'public') === 'private' ? 'private' : 'public';
         $dir        = self::dirFor($visibility);
-        $filename   = self::storedName($originalName);
 
         // ITS DATES, BEFORE ANYTHING IS PLACED: a date that is not one stops
         // here, with no file left behind. The date taken is read from the file
@@ -309,7 +458,6 @@ class Media
         // A NEW IMAGE IS STORED AS WEBP (`Optimizer`): its own name, ending .webp.
         $webp = Optimizer::webp($path, $facts['mime_type']);
         if ($webp !== null) {
-            $filename = pathinfo($filename, PATHINFO_FILENAME) . '.webp';
             $facts = ['mime_type' => 'image/webp', 'file_size' => strlen($webp['bytes']),
                       'width' => $webp['width'], 'height' => $webp['height']];
         }
@@ -317,7 +465,9 @@ class Media
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
             throw new \RuntimeException('The uploads folder could not be created.');
         }
-        $dest  = $dir . '/' . $filename;
+        // ITS OWN NAME, made free in the folder (`claimName()`).
+        $filename = self::claimName($dir, $originalName, $webp !== null ? 'webp' : null);
+        $dest     = $dir . '/' . $filename;
         $saved = $webp !== null
             ? @file_put_contents($dest, $webp['bytes']) === strlen($webp['bytes'])
             : ($uploaded ? @move_uploaded_file($path, $dest) : @copy($path, $dest));
@@ -420,14 +570,16 @@ class Media
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO attachments
-                (filename, original_name, mime_type, file_size, width, height, folder_id, visibility, alt_text,
-                 taken_at, created_at)
+                (filename, site_path, original_name, mime_type, file_size, width, height, folder_id, visibility, alt_text,
+                 taken_at, created_at, sizes)
              VALUES
-                (:filename, :original_name, :mime_type, :file_size, :width, :height, :folder_id, :visibility, :alt_text,
-                 :taken_at, COALESCE(:created_at, CURRENT_TIMESTAMP))'
+                (:filename, :site_path, :original_name, :mime_type, :file_size, :width, :height, :folder_id, :visibility, :alt_text,
+                 :taken_at, COALESCE(:created_at, CURRENT_TIMESTAMP), :sizes)'
         );
         $stmt->execute([
             ':filename'      => $data['filename'],
+            ':site_path'     => $data['site_path'] ?? null,
+            ':sizes'         => ($data['sizes'] ?? []) !== [] ? json_encode($data['sizes'], JSON_UNESCAPED_SLASHES) : null,
             ':original_name' => $data['original_name'],
             ':mime_type'     => $data['mime_type'],
             ':file_size'     => $data['file_size'],
@@ -487,6 +639,11 @@ class Media
      */
     public static function replace(int $id, array $newFile): bool
     {
+        // A file the site already had keeps its own address (`register()`): never replaced.
+        $current = self::find($id);
+        if ($current === null || self::isSiteFile($current)) {
+            return false;
+        }
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'UPDATE attachments
@@ -506,7 +663,9 @@ class Media
     }
 
     /**
-     * Delete an attachment, its physical file, and all version files.
+     * Delete an attachment, its physical file, and all version files. A file
+     * the site already had (`register()`) is only forgotten: its row goes, and
+     * the file and its copies stay where the site keeps them.
      */
     public static function delete(int $id): bool
     {
@@ -515,20 +674,22 @@ class Media
             return false;
         }
 
-        // Delete physical file, and its smaller widths
-        \Cms\Media\Sizes::forget($attachment);
-        $filePath = self::getFilePath($attachment);
-        if (file_exists($filePath)) {
-            unlink($filePath);
-        }
+        if (!self::isSiteFile($attachment)) {
+            // Delete physical file, and its smaller widths
+            \Cms\Media\Sizes::forget($attachment);
+            $filePath = self::getFilePath($attachment);
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
 
-        // Delete version files
-        $versions = MediaVersion::allForAttachment($id);
-        $dir      = self::getDirectory($attachment['visibility'] ?? 'public');
-        foreach ($versions as $version) {
-            $versionPath = $dir . $version['filename'];
-            if (file_exists($versionPath)) {
-                unlink($versionPath);
+            // Delete version files
+            $versions = MediaVersion::allForAttachment($id);
+            $dir      = self::getDirectory($attachment['visibility'] ?? 'public');
+            foreach ($versions as $version) {
+                $versionPath = $dir . $version['filename'];
+                if (file_exists($versionPath)) {
+                    unlink($versionPath);
+                }
             }
         }
 
@@ -551,6 +712,11 @@ class Media
         $oldVisibility = $attachment['visibility'] ?? 'public';
         if ($oldVisibility === $newVisibility) {
             return true;
+        }
+        // A file the site already had is public where it is, and moving it
+        // would break its address (`register()`).
+        if (self::isSiteFile($attachment)) {
+            return false;
         }
 
         // A private file has no smaller widths at a public address; a file
@@ -614,17 +780,80 @@ class Media
         if ($row === null) {
             return '';
         }
-        if (($row['visibility'] ?? 'public') === 'private') {
-            return BASE_URL . '/files/' . $row['id'];
-        }
-        return BASE_URL . '/uploads/' . $row['filename'];
+        return self::urlOf($row);
+    }
+
+    /** `getUrl()` for a row already read: its full address. */
+    public static function urlOf(array $attachment): string
+    {
+        return BASE_URL . self::address($attachment);
     }
 
     /**
-     * Get the physical filesystem path for an attachment.
+     * A row's address after the site's own: `/files/{id}` for a private file,
+     * a file the site already had at its own (`/img/blog/x.jpg`, each part
+     * encoded), else its place in uploads/.
+     */
+    public static function address(array $attachment): string
+    {
+        if (($attachment['visibility'] ?? 'public') === 'private') {
+            return '/files/' . $attachment['id'];
+        }
+        if (self::isSiteFile($attachment)) {
+            return implode('/', array_map('rawurlencode', explode('/', (string) $attachment['site_path'])));
+        }
+        return '/uploads/' . $attachment['filename'];
+    }
+
+    /**
+     * A PICTURE FOR A TEMPLATE THAT DRAWS ITS OWN `<img>`: its address, its
+     * size, its alternative text, and each narrower width's address by width,
+     * narrowest first:
+     *
+     *   ['url' => '/img/blog/x.jpg', 'width' => 1200, 'height' => 800, 'alt' => '…',
+     *    'variants' => [480 => '/img/blog/x-480.jpg', 768 => '/img/blog/x-768.jpg']]
+     *
+     * For any picture in the library: a file the site already had, with its
+     * own copies beside it, or an upload, with the widths `Media\Sizes` made.
+     * Addresses are paths from the site's root (as `Helpers\Url::path()`
+     * writes them), so a page served on any of the site's host names loads
+     * them from itself. A private picture has its `/files/{id}` address and no
+     * variants. Null for no such file, or one that is not an image.
+     *
+     * @return array{url: string, width: ?int, height: ?int, alt: string, variants: array<int, string>}|null
+     */
+    public static function image(int|string|null $id): ?array
+    {
+        $row = empty($id) ? null : self::find((int) $id);
+        if ($row === null || !str_starts_with((string) ($row['mime_type'] ?? ''), 'image/')) {
+            return null;
+        }
+        $root     = rtrim(defined('BASE_PATH') ? (string) BASE_PATH : '', '/');
+        $variants = [];
+        if (($row['visibility'] ?? 'public') === 'public') {
+            foreach (\Cms\Media\Sizes::addresses($row) as $width => $address) {
+                $variants[$width] = $root . $address;
+            }
+        }
+
+        return [
+            'url'      => $root . self::address($row),
+            'width'    => $row['width'] !== null ? (int) $row['width'] : null,
+            'height'   => $row['height'] !== null ? (int) $row['height'] : null,
+            'alt'      => (string) ($row['alt_text'] ?? ''),
+            'variants' => $variants,
+        ];
+    }
+
+    /**
+     * Get the physical filesystem path for an attachment: a file the site
+     * already had where it is (`register()`), else its place in uploads/.
      */
     public static function getFilePath(array $attachment): string
     {
+        if (self::isSiteFile($attachment)) {
+            return PUBLIC_PATH . $attachment['site_path'];
+        }
         return self::getDirectory($attachment['visibility'] ?? 'public') . $attachment['filename'];
     }
 
@@ -636,5 +865,79 @@ class Media
         return $visibility === 'private'
             ? PUBLIC_PATH . '/uploads/private/'
             : PUBLIC_PATH . '/uploads/';
+    }
+
+    /**
+     * A PICTURE DESCRIBED BY ITS FILE, for another install to find in its own
+     * library (`Content\Import`), where its id names some other file: its
+     * name as uploaded, its file's name, the file's size and its contents'
+     * SHA-256, the file reached as everything else reaches it
+     * (`getFilePath()`). Null when there is no such attachment.
+     *
+     * @return array{name: string, file: string, size: int, sha256: string}|null
+     */
+    public static function describe(int $id): ?array
+    {
+        $media = $id > 0 ? self::find($id) : null;
+        if ($media === null) {
+            return null;
+        }
+        $path = self::getFilePath($media);
+
+        return [
+            'name'   => (string) ($media['original_name'] ?? ''),
+            'file'   => basename($path),
+            'size'   => is_file($path) ? (int) filesize($path) : (int) ($media['file_size'] ?? 0),
+            'sha256' => is_file($path) ? (string) hash_file('sha256', $path) : '',
+        ];
+    }
+
+    /**
+     * THE PICTURE IN THIS LIBRARY THAT A DESCRIPTION NAMES (`describe()`): the
+     * public image with the same contents, looked for among those of the same
+     * size; or else the one public image whose name as uploaded, and then
+     * whose file's name, is the same, when only one has it. Null when none
+     * does, or when a name is shared and the contents match none.
+     *
+     * @param array{name?: string, file?: string, size?: int, sha256?: string} $image
+     */
+    public static function findDescribed(array $image): ?int
+    {
+        static $found = [];
+        $name = trim((string) ($image['name'] ?? ''));
+        $file = basename(trim((string) ($image['file'] ?? '')));
+        $size = (int) ($image['size'] ?? 0);
+        $sha  = strtolower(trim((string) ($image['sha256'] ?? '')));
+        $key  = $name . "\0" . $file . "\0" . $size . "\0" . $sha;
+        if (array_key_exists($key, $found)) {
+            return $found[$key];
+        }
+        $pdo    = Database::getInstance();
+        $public = "visibility = 'public' AND mime_type LIKE 'image/%'";
+        $id     = null;
+        if ($size > 0 && preg_match('/^[0-9a-f]{64}$/', $sha) === 1) {
+            $same = $pdo->prepare("SELECT * FROM attachments WHERE {$public} AND file_size = ? ORDER BY id");
+            $same->execute([$size]);
+            foreach ($same->fetchAll(PDO::FETCH_ASSOC) as $media) {
+                $path = self::getFilePath($media);
+                if (is_file($path) && hash_equals($sha, (string) hash_file('sha256', $path))) {
+                    $id = (int) $media['id'];
+                    break;
+                }
+            }
+        }
+        foreach ([['original_name = ?', [$name], $name], ["(filename = ? OR filename LIKE CONCAT('%/', ?))", [$file, $file], $file]] as [$where, $args, $given]) {
+            if ($id !== null || $given === '') {
+                continue;
+            }
+            $named = $pdo->prepare("SELECT id FROM attachments WHERE {$public} AND {$where} LIMIT 2");
+            $named->execute($args);
+            $ids = $named->fetchAll(PDO::FETCH_COLUMN);
+            if (count($ids) === 1) {
+                $id = (int) $ids[0];
+            }
+        }
+
+        return $found[$key] = $id;
     }
 }

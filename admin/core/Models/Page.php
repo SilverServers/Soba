@@ -125,9 +125,12 @@ class Page
      * are built from, and with `nameSql()` here an author with no display name
      * put their sign-in name in the source of every page they wrote.
      *
+     * A slug is unique within its language: the one in `$lang`, or, when it is
+     * null, in the page being drawn's (`Post::inLanguage()`).
+     *
      * @return array<string, mixed>|null
      */
-    public static function findBySlug(string $slug): ?array
+    public static function findBySlug(string $slug, ?string $lang = null): ?array
     {
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
@@ -135,6 +138,7 @@ class Page
              FROM pages p
              JOIN users u ON u.id = p.author_id
              WHERE p.slug = :slug AND p.status IN ('published', 'password', 'private')
+               AND " . \Cms\Models\Post::inLanguage('p', $lang) . "
              LIMIT 1"
         );
         $stmt->execute([':slug' => $slug]);
@@ -152,16 +156,21 @@ class Page
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO pages
-                 (parent_id, title, slug, content, menu_order, status, unpublish_at,
+                 (parent_id, title, slug, lang, translation_of, content, menu_order, status, unpublish_at,
                   password_hash, featured_image_id, seo_title, meta_description, author_id)
              VALUES
-                 (:parent_id, :title, :slug, :content, :menu_order, :status, :unpublish_at,
+                 (:parent_id, :title, :slug, :lang, :translation_of, :content, :menu_order, :status, :unpublish_at,
                   :password_hash, :featured_image_id, :seo_title, :meta_description, :author_id)'
         );
+        $lang = \Cms\Site\Language::checked((string) ($data['lang'] ?? ''));
         $stmt->execute([
             ':parent_id'         => $data['parent_id']         ?? null,
             ':title'             => $data['title'],
             ':slug'              => $data['slug'],
+            // '' the site's own language; a translation names its own and the
+            // page it translates.
+            ':lang'              => $lang,
+            ':translation_of'    => !empty($data['translation_of']) ? (int) $data['translation_of'] : null,
             ':content'           => Sanitizer::clean((string) ($data['content'] ?? '')),
             ':menu_order'        => $data['menu_order']        ?? 0,
             ':status'            => $data['status']            ?? 'private',
@@ -185,7 +194,10 @@ class Page
         // TOP-LEVEL ONLY. A child page joining the navigation at the top level is
         // not what "add new pages to this menu" means to anybody, and nesting it
         // under its parent assumes the parent is in that menu at all.
-        if (empty($data['parent_id'])) {
+        //
+        // IN THE SITE'S OWN LANGUAGE ONLY: a page in the second language is
+        // never put in a menu on its own.
+        if (empty($data['parent_id']) && $lang === '') {
             MenuItem::autoAddPage($id, (string) $data['title']);
         }
 
@@ -237,14 +249,16 @@ class Page
 
     /**
      * THE ONE RULE for "a visitor can see this page in a list": published,
-     * and not taken off by its unpublish date (`Post::notEnded()`, the same
-     * clause). As SQL, for a WHERE clause; `$alias` is a literal the caller
-     * writes.
+     * not taken off by its unpublish date (`Post::notEnded()`, the same
+     * clause), and in the language of the list: the page being drawn's, or
+     * `$lang` (`Post::inLanguage()`). As SQL, for a WHERE clause; `$alias` is
+     * a literal the caller writes.
      */
-    public static function live(string $alias = ''): string
+    public static function live(string $alias = '', ?string $lang = null): string
     {
         $a = $alias !== '' ? $alias . '.' : '';
-        return "{$a}status = 'published' AND " . \Cms\Models\Post::notEnded($alias);
+        return "{$a}status = 'published' AND " . \Cms\Models\Post::notEnded($alias)
+            . ' AND ' . \Cms\Models\Post::inLanguage($alias, $lang);
     }
 
     /** An unpublish date as stored: a UTC date and time, or null for none. */
@@ -254,19 +268,18 @@ class Page
     }
 
     /**
-     * Check whether a slug is already taken in the pages table.
+     * Check whether a slug is already taken in the pages table, within
+     * `$lang` ('' the site's own language).
      * Pass $excludeId when editing an existing page (exclude self).
      */
-    public static function slugExists(string $slug, ?int $excludeId = null): bool
+    public static function slugExists(string $slug, ?int $excludeId = null, string $lang = ''): bool
     {
-        $pdo = Database::getInstance();
-        if ($excludeId !== null) {
-            $stmt = $pdo->prepare('SELECT id FROM pages WHERE slug = :slug AND id != :id LIMIT 1');
-            $stmt->execute([':slug' => $slug, ':id' => $excludeId]);
-        } else {
-            $stmt = $pdo->prepare('SELECT id FROM pages WHERE slug = :slug LIMIT 1');
-            $stmt->execute([':slug' => $slug]);
-        }
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare(
+            'SELECT id FROM pages WHERE slug = :slug AND id != :id AND ' . \Cms\Models\Post::inLanguage('', $lang) . ' LIMIT 1'
+        );
+        $stmt->execute([':slug' => $slug, ':id' => $excludeId ?? 0]);
+
         return $stmt->fetch() !== false;
     }
 
@@ -283,9 +296,10 @@ class Page
     }
 
     /**
-     * Generate a URL-safe slug from a title, guaranteed unique in the pages table.
+     * Generate a URL-safe slug from a title, guaranteed unique in the pages
+     * table within `$lang` ('' the site's own language).
      */
-    public static function generateSlug(string $title, ?int $excludeId = null): string
+    public static function generateSlug(string $title, ?int $excludeId = null, string $lang = ''): string
     {
         $base = strtolower($title);
         $base = preg_replace('/[^a-z0-9\s-]/', '', $base) ?? $base;
@@ -296,31 +310,18 @@ class Page
             $base = 'page';
         }
 
-        $pdo       = Database::getInstance();
         $candidate = $base;
         $suffix    = 2;
 
-        while (true) {
-            if ($excludeId !== null) {
-                $stmt = $pdo->prepare(
-                    'SELECT id FROM pages WHERE slug = :slug AND id != :id LIMIT 1'
-                );
-                $stmt->execute([':slug' => $candidate, ':id' => $excludeId]);
-            } else {
-                $stmt = $pdo->prepare('SELECT id FROM pages WHERE slug = :slug LIMIT 1');
-                $stmt->execute([':slug' => $candidate]);
-            }
-
-            // A reserved address counts as taken: a page titled "Search" would
-            // otherwise be given `/search`, which a fixed route answers first.
-            if ($stmt->fetch() === false
-                && !in_array($candidate, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
-                return $candidate;
-            }
-
+        // A reserved address counts as taken: a page titled "Search" would
+        // otherwise be given `/search`, which a fixed route answers first.
+        while (self::slugExists($candidate, $excludeId, $lang)
+            || in_array($candidate, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
             $candidate = $base . '-' . $suffix;
             $suffix++;
         }
+
+        return $candidate;
     }
 
     /**
@@ -334,13 +335,14 @@ class Page
 
     /**
      * A copy's address: the page's own with `-copy` after it, or `-copy-2`,
-     * `-copy-3`… when that is taken or one of the site's own addresses.
+     * `-copy-3`… when that is taken in `$lang` (the page's own language) or
+     * one of the site's own addresses.
      */
-    public static function copySlug(string $slug): string
+    public static function copySlug(string $slug, string $lang = ''): string
     {
         $base      = mb_substr($slug, 0, 480) . '-copy';
         $candidate = $base;
-        for ($n = 2; self::slugExists($candidate)
+        for ($n = 2; self::slugExists($candidate, null, $lang)
                 || in_array($candidate, \Cms\Helpers\Slug::reservedFirstSegments(), true); $n++) {
             $candidate = $base . '-' . $n;
         }
@@ -348,22 +350,21 @@ class Page
     }
 
     /**
-     * Return all pages suitable as parent options for a dropdown.
-     * Excludes the page being edited (can't be its own parent).
+     * Return all pages suitable as parent options for a dropdown: those in
+     * `$lang`, the language of the page being edited ('' the site's own), as
+     * a page's parent is in its language. Excludes the page being edited
+     * (can't be its own parent).
      *
      * @return array<int, array<string, mixed>>
      */
-    public static function parentOptions(?int $excludeId = null): array
+    public static function parentOptions(?int $excludeId = null, string $lang = ''): array
     {
-        $pdo  = Database::getInstance();
-        if ($excludeId !== null) {
-            $stmt = $pdo->prepare(
-                "SELECT id, title FROM pages WHERE id != :id AND status != 'trash' ORDER BY menu_order ASC, title ASC"
-            );
-            $stmt->execute([':id' => $excludeId]);
-        } else {
-            $stmt = $pdo->query("SELECT id, title FROM pages WHERE status != 'trash' ORDER BY menu_order ASC, title ASC");
-        }
+        $stmt = Database::getInstance()->prepare(
+            "SELECT id, title FROM pages WHERE id != :id AND status != 'trash' AND " . \Cms\Models\Post::inLanguage('', $lang) . '
+             ORDER BY menu_order ASC, title ASC'
+        );
+        $stmt->execute([':id' => $excludeId ?? 0]);
+
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

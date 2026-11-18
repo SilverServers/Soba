@@ -190,7 +190,7 @@ final class Look
         $look = self::settings();
         $h    = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $logo = $look['logo'] > 0 && self::pictureProblem($look['logo']) === null ? Media::getUrl($look['logo']) : '';
-        $home = (defined('BASE_URL') ? BASE_URL : '') . '/';
+        $home = \Cms\Helpers\Url::home();
         if ($logo === '') {
             return '<a href="' . $h($home) . '" class="' . $h($class) . '" data-look-brand><span class="site-header__text">' . $h($siteName) . '</span></a>';
         }

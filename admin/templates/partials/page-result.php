@@ -15,7 +15,7 @@ $summary = \Cms\Models\Post::summary($row);
 ?>
 <li class="post-list__item">
     <h2 class="post-list__title">
-        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::page((string) $row['slug'])) ?>"><?= htmlspecialchars((string) $row['title']) ?></a>
+        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::pageOf($row)) ?>"><?= htmlspecialchars((string) $row['title']) ?></a>
     </h2>
     <?php if ($summary['text'] !== ''): ?>
         <p class="post-list__excerpt">

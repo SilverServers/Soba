@@ -27,5 +27,5 @@ declare(strict_types=1);
     <?php // ONE LINE, as page.php's: `.page-content` keeps white space
           // (pre-wrap), so a newline and an indent here were a blank line
           // between the heading and the message. ?>
-    <div class="page-content"><p class="cms-alert <?= $answer['success'] ? 'cms-alert--success imprint-alert--success' : 'cms-alert--error imprint-alert--error' ?> imprint-alert"><?= htmlspecialchars($answer['message']) ?></p></div>
+    <div class="page-content"><p class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes($answer['success'] ? 'cms-alert cms-alert--success' : 'cms-alert cms-alert--error')) ?>"><?= htmlspecialchars($answer['message']) ?></p></div>
 </article>

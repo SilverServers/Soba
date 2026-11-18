@@ -63,11 +63,7 @@ $hasRail  = $spec['nav'] !== [];
 
 // The environment badge. Non-production installs say so in the chrome, because
 // "which one am I editing" is the question behind most destructive accidents.
-$__config = @include ROOT_PATH . '/config/config.php';
-$env      = is_array($__config) && ($__config['app_env'] ?? 'production') !== 'production'
-    ? strtoupper((string) $__config['app_env'])
-    : '';
-unset($__config);
+$env = \Cms\Site\Environment::isProduction() ? '' : strtoupper(\Cms\Site\Environment::name());
 
 // WHICH RELEASE THIS IS, at the foot of the screen. Admins only: they update
 // the site and report its problems, and this is the line they read first. Not

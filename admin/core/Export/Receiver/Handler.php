@@ -133,7 +133,7 @@ final class Handler
             'source_page' => $source,
         ];
 
-        $turn = Guard::screen($_POST, $_SERVER);
+        $turn = Guard::screen($_POST, $_SERVER, $settings);
         if ($turn !== null) {
             self::turnAway($form, $fields, $turn, $meta);
             return;
@@ -172,7 +172,8 @@ final class Handler
             return;
         }
 
-        $turn = Guard::content($checked['data'], $fields, $settings, $checked['raw']);
+        $turn = Guard::content($checked['data'], $fields, $settings, $checked['raw'])
+            ?? Guard::siteRule($form, $checked['data'], $meta);
         if ($turn !== null) {
             self::discard($files);
             self::turnAway($form, $fields, $turn, $meta);
@@ -213,11 +214,14 @@ final class Handler
      * discarded (unless the site keeps all of it), anything else kept in
      * `data/spam/` with its reason — and the sender answered as the guard
      * says, "thank you" to a caught bot and the rule's words to anyone who
-     * might be a person. Spam is never mailed.
+     * might be a person. Spam is never mailed. A form answering like a sent
+     * message is answered and kept as on the site (`Guard::answersSent()`,
+     * `Guard::keeps()`).
      */
     private static function turnAway(array $form, array $fields, array $turn, array $meta): void
     {
-        if (empty($turn['certain']) || \Cms\Models\Option::get('forms_spam_keep', '0') === '1') {
+        $settings = is_array($form['settings'] ?? null) ? $form['settings'] : [];
+        if (Guard::keeps($turn, $settings, \Cms\Models\Option::get('forms_spam_keep', '0') === '1')) {
             $data = [];
             foreach ($fields as $field) {
                 $name = (string) ($field['name'] ?? '');
@@ -245,8 +249,8 @@ final class Handler
             Store::spam(Guard::postedTokenHash($_POST), $meta['ip'], (string) $turn['reason']);
         }
 
-        if (!empty($turn['fake'])) {
-            self::answer(true, (string) (($form['settings'] ?? [])['success_message'] ?? 'Thank you! Your submission has been received.'),
+        if (Guard::answersSent($turn, $settings)) {
+            self::answer(true, (string) ($settings['success_message'] ?? 'Thank you! Your submission has been received.'),
                 200, $form, $meta['source_page']);
             return;
         }

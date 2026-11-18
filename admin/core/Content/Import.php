@@ -7,6 +7,7 @@ namespace Cms\Content;
 use Cms\Compat\OldNames;
 use Cms\ContentType\Registry;
 use Cms\Database\Database;
+use Cms\Models\Media;
 use Cms\Models\Meta;
 use Cms\Models\Option;
 use Cms\Models\Page;
@@ -73,12 +74,34 @@ final class Import
             'entries'     => [],
             'settings'    => [],
             'skipped'     => [],
+            // WHAT THE TWO TICKS WOULD KEEP (`apply()`): rows that were not
+            // Private there, and rows with a featured image, of which so many
+            // are in this library.
+            'kept'        => ['status' => 0, 'images' => 0, 'found' => 0],
         ];
+        $kept = static function (array $row) use (&$plan): void {
+            if (self::statusOf($row)[0] !== 'private') {
+                $plan['kept']['status']++;
+            }
+            if (($image = self::imageIn($row)) !== null) {
+                $plan['kept']['images']++;
+                $plan['kept']['found'] += Media::findDescribed($image) !== null ? 1 : 0;
+            }
+        };
 
         foreach (self::rowsOf($data, 'pages') as $row) {
             $slug = self::slugOf($row);
             if ($slug === '') {
                 $plan['skipped'][] = ['what' => 'a page', 'why' => 'it has no slug, so there is nothing to match it on'];
+                continue;
+            }
+            // A TRANSLATION IS MATCHED IN ITS OWN LANGUAGE (`langOf()`).
+            $lang = self::langOf($row);
+            if ($lang === null) {
+                $plan['skipped'][] = [
+                    'what' => sprintf('the page "%s"', (string) ($row['title'] ?? $slug)),
+                    'why'  => 'its language is not one an address can hold',
+                ];
                 continue;
             }
             // ── A SLUG IN THE TRASH IS INVISIBLE AND STILL TAKEN ────────────
@@ -87,20 +110,22 @@ final class Import
             // matcher cannot see and the INSERT cannot have — and the import
             // would die on it with a raw SQLSTATE, roll the whole file back,
             // and tell the person nothing they could act on.
-            $live = Page::findBySlug($slug);
-            if ($live === null && Page::slugExists($slug)) {
+            $live = Page::findBySlug($slug, $lang);
+            if ($live === null && Page::slugExists($slug, null, $lang)) {
                 $plan['skipped'][] = [
                     'what' => sprintf('the page "%s"', (string) ($row['title'] ?? $slug)),
-                    'why'  => sprintf('a page at /%s is in the trash — restore it to overwrite it, or empty the trash to import this as new', $slug),
+                    'why'  => sprintf('a page at /%s is in the trash — restore it to overwrite it, or empty the trash to import this as new', self::at($slug, $lang)),
                 ];
                 continue;
             }
 
             $plan['pages'][] = [
-                'slug'   => $slug,
+                'slug'   => self::at($slug, $lang),
                 'title'  => (string) ($row['title'] ?? $slug),
                 'action' => $live === null ? 'create' : 'overwrite',
+                'detail' => self::said($row),
             ];
+            $kept($row);
         }
 
         // ── AN EXPORT NAMES ITS TYPES; THIS INSTALL MAY NOT HAVE THEM ───────
@@ -137,26 +162,34 @@ final class Import
                         $plan['skipped'][] = ['what' => 'an entry in ' . $key, 'why' => 'it has no slug'];
                         continue;
                     }
+                    $lang = self::langOf($row);
+                    if ($lang === null) {
+                        $plan['skipped'][] = [
+                            'what' => sprintf('"%s" (%s)', (string) ($row['title'] ?? $slug), $key),
+                            'why'  => 'its language is not one an address can hold',
+                        ];
+                        continue;
+                    }
                     // A SLUG IS UNIQUE ACROSS EVERY POST TYPE in this system —
                     // `Post::slugExists()` checks the whole table, and the
                     // public router looks a slug up without a type. So a row
                     // whose slug is already taken BY ANOTHER TYPE cannot be
                     // matched and must not be overwritten: that is the id
                     // collision this file exists to avoid, wearing a slug.
-                    $held = Post::findBySlug($slug);
+                    $held = Post::findBySlug($slug, $lang);
                     if ($held !== null && (string) $held['post_type'] !== $key) {
                         $plan['skipped'][] = [
                             'what' => sprintf('"%s" (%s)', (string) ($row['title'] ?? $slug), $key),
                             'why'  => sprintf('the address /%s is already taken by a %s here — rename one of them and import again',
-                                $slug, (string) $held['post_type']),
+                                self::at($slug, $lang), (string) $held['post_type']),
                         ];
                         continue;
                     }
 
-                    if ($held === null && Post::slugExists($slug)) {
+                    if ($held === null && Post::slugExists($slug, null, $lang)) {
                         $plan['skipped'][] = [
                             'what' => sprintf('"%s" (%s)', (string) ($row['title'] ?? $slug), $key),
-                            'why'  => sprintf('an entry at /%s is in the trash — restore it to overwrite it, or empty the trash to import this as new', $slug),
+                            'why'  => sprintf('an entry at /%s is in the trash — restore it to overwrite it, or empty the trash to import this as new', self::at($slug, $lang)),
                         ];
                         continue;
                     }
@@ -172,10 +205,12 @@ final class Import
 
                     $plan['entries'][] = [
                         'type'   => $key,
-                        'slug'   => $slug,
+                        'slug'   => self::at($slug, $lang),
                         'title'  => (string) ($row['title'] ?? $slug),
                         'action' => $held === null ? 'create' : 'overwrite',
+                        'detail' => self::said($row),
                     ];
+                    $kept($row);
                 }
             }
         }
@@ -217,9 +252,14 @@ final class Import
      * rows from it would mean two parsers that can disagree.
      *
      * @param  bool  $withSettings the settings tick — off by default; see plan()
+     * @param  bool  $keepStatus   "Publish what was published there": each row's status, its
+     *                             password and an entry's date as the file has them
+     *                             (`statusOf()`); unticked, everything arrives Private
+     * @param  bool  $findImages   "Give each its featured image from the library": found by
+     *                             its contents or its name (`Media::findDescribed()`)
      * @return array{created: int, overwritten: int, settings: int, skipped: int, log: list<string>}
      */
-    public static function apply(string $json, int $authorId, bool $withSettings = false): array
+    public static function apply(string $json, int $authorId, bool $withSettings = false, bool $keepStatus = false, bool $findImages = false): array
     {
         $data = json_decode($json, true);
         $out  = ['created' => 0, 'overwritten' => 0, 'settings' => 0, 'skipped' => 0, 'log' => []];
@@ -241,7 +281,7 @@ final class Import
         $db->beginTransaction();
 
         try {
-            $out = self::run($data, $authorId, $withSettings, $out);
+            $out = self::run($data, $authorId, $withSettings, $out, $keepStatus, $findImages);
             $db->commit();
         } catch (\Throwable $e) {
             $db->rollBack();
@@ -266,20 +306,39 @@ final class Import
      * @param  array<string, mixed> $out
      * @return array<string, mixed>
      */
-    private static function run(array $data, int $authorId, bool $withSettings, array $out): array
+    private static function run(array $data, int $authorId, bool $withSettings, array $out, bool $keepStatus = false, bool $findImages = false): array
     {
+        // THE FEATURED IMAGE THE FILE NAMES, found here when asked; a row whose
+        // picture is not in this library comes without one, and the report
+        // says which.
+        $picture = static function (array $row, string $what) use ($findImages, &$out): ?int {
+            $image = $findImages ? self::imageIn($row) : null;
+            if ($image === null) {
+                return null;
+            }
+            $id = Media::findDescribed($image);
+            if ($id === null) {
+                $out['log'][] = 'no featured image for ' . $what . ': ' . self::imageName($image) . ' is not in the library';
+            }
+            return $id;
+        };
+
+        // EACH TRANSLATION, linked to its original once every row is in
+        // (`Content\Translation`): table, id, language, the original's slug.
+        $links = [];
 
         foreach (self::rowsOf($data, 'pages') as $row) {
             $slug = self::slugOf($row);
-            if ($slug === '') {
+            $lang = self::langOf($row);
+            if ($slug === '' || $lang === null) {
                 $out['skipped']++;
                 continue;
             }
 
-            $existing = Page::findBySlug($slug);
-            if ($existing === null && Page::slugExists($slug)) {
+            $existing = Page::findBySlug($slug, $lang);
+            if ($existing === null && Page::slugExists($slug, null, $lang)) {
                 $out['skipped']++;
-                $out['log'][] = 'skipped page /' . $slug . ' — that address is in the trash';
+                $out['log'][] = 'skipped page /' . self::at($slug, $lang) . ' — that address is in the trash';
                 continue;
             }
 
@@ -288,35 +347,49 @@ final class Import
                 'slug'              => $slug,
                 'content'           => (string) ($row['content'] ?? ''),
                 'menu_order'        => (int) ($row['menu_order'] ?? 0),
-                // AN IMPORTED PAGE LANDS `private`, whatever the file said.
-                // Every other route into this system defaults there for the same
-                // reason: the failure has to land on the state that keeps a page
-                // OFF the public site. A file from elsewhere publishing fifty
-                // pages the moment it is uploaded is not a recoverable mistake.
+                // AN IMPORTED PAGE LANDS `private`, whatever the file said,
+                // unless the person ticks "Publish what was published there"
+                // (below). Every other route into this system defaults there for
+                // the same reason: the failure has to land on the state that
+                // keeps a page OFF the public site. A file from elsewhere
+                // publishing fifty pages the moment it is uploaded, unasked, is
+                // not a recoverable mistake.
                 'status'            => 'private',
                 'seo_title'         => $row['seo_title'] ?? null,
                 'meta_description'  => $row['meta_description'] ?? null,
                 // NOT `parent_id`, NOT `featured_image_id`, NOT `author_id`.
                 // Every one of them is an id from another install: a parent that
                 // is a different page here, an attachment that is a different
-                // file, an author who is a different person.
+                // file, an author who is a different person. The featured image
+                // comes by its file instead, when asked (`Media::findDescribed()`).
             ];
+            // KEPT AS IT WAS THERE, when the person asked: published, or behind
+            // its password, which comes as its hash (`statusOf()`).
+            if ($keepStatus) {
+                [$fields['status'], $hash] = self::statusOf($row);
+                if ($hash !== null) {
+                    $fields['password_hash'] = $hash;
+                }
+            }
+            $image = $picture($row, 'page /' . $slug);
 
             if ($existing === null) {
                 // `author_id` IS NOT NULLABLE on `pages`, and the importer owns
                 // what they import — the id in the file is a user on another
                 // install. Omitting it fails the INSERT.
-                Page::create($fields + [
+                $pageId = Page::create($fields + [
                     'parent_id'         => null,
-                    'featured_image_id' => null,
+                    'featured_image_id' => $image,
                     'author_id'         => $authorId,
+                    'lang'              => $lang,
                 ]);
                 $out['created']++;
-                $out['log'][] = 'created page /' . $slug;
+                $out['log'][] = 'created page /' . self::at($slug, $lang);
             } else {
+                $pageId = (int) $existing['id'];
                 Page::update((int) $existing['id'], $fields + [
                     'parent_id'         => $existing['parent_id'],
-                    'featured_image_id' => $existing['featured_image_id'],
+                    'featured_image_id' => $image ?? $existing['featured_image_id'],
                     // NO `author_id` HERE, and it would be ignored if there
                     // were: `Page::update()` does not name that column, so an
                     // overwrite leaves the page with the author it had. Which is
@@ -325,7 +398,10 @@ final class Import
                     // one, and the asymmetry otherwise reads as an oversight.
                 ]);
                 $out['overwritten']++;
-                $out['log'][] = 'overwrote page /' . $slug;
+                $out['log'][] = 'overwrote page /' . self::at($slug, $lang);
+            }
+            if ($lang !== '' && is_string($row['translates'] ?? null) && $row['translates'] !== '') {
+                $links[] = ['pages', $pageId, $lang, (string) $row['translates']];
             }
         }
 
@@ -346,22 +422,23 @@ final class Import
                     continue;
                 }
                 $slug = self::slugOf($row);
-                if ($slug === '') {
+                $lang = self::langOf($row);
+                if ($slug === '' || $lang === null) {
                     $out['skipped']++;
                     continue;
                 }
 
-                $existing = Post::findBySlug($slug);
-                if ($existing === null && Post::slugExists($slug)) {
+                $existing = Post::findBySlug($slug, $lang);
+                if ($existing === null && Post::slugExists($slug, null, $lang)) {
                     $out['skipped']++;
-                    $out['log'][] = 'skipped /' . $slug . ' — that address is in the trash';
+                    $out['log'][] = 'skipped /' . self::at($slug, $lang) . ' — that address is in the trash';
                     continue;
                 }
                 if ($existing !== null && (string) $existing['post_type'] !== $key) {
                     // The plan said so and said why; this is the same refusal
                     // at the moment it would have done the damage.
                     $out['skipped']++;
-                    $out['log'][] = 'skipped /' . $slug . ' — that address belongs to a '
+                    $out['log'][] = 'skipped /' . self::at($slug, $lang) . ' — that address belongs to a '
                                   . (string) $existing['post_type'] . ' here';
                     continue;
                 }
@@ -399,16 +476,35 @@ final class Import
                 if (array_key_exists('excerpt', $row)) {
                     $fields['excerpt'] = $row['excerpt'];
                 }
+                // KEPT AS IT WAS THERE, when the person asked: its status, its
+                // password's hash, and the date it was published or is to be;
+                // a file with no date leaves an overwritten entry's own, and a
+                // new one is dated now, as publishing it here would.
+                if ($keepStatus) {
+                    [$fields['status'], $hash] = self::statusOf($row);
+                    if ($hash !== null) {
+                        $fields['password_hash'] = $hash;
+                    }
+                    if ($fields['status'] !== 'private' && ($at = self::utcOf($row['published_at'] ?? null)) !== null) {
+                        $fields['published_at'] = $at;
+                    }
+                }
+                if (($image = $picture($row, $key . ' /' . $slug)) !== null) {
+                    $fields['featured_image_id'] = $image;
+                }
 
                 if ($existing === null) {
-                    $id = Post::create($fields);
+                    $id = Post::create($fields + ['lang' => $lang]);
                     $out['created']++;
-                    $out['log'][] = 'created ' . $key . ' /' . $slug;
+                    $out['log'][] = 'created ' . $key . ' /' . self::at($slug, $lang);
                 } else {
                     $id = (int) $existing['id'];
                     Post::update($id, $fields);
                     $out['overwritten']++;
-                    $out['log'][] = 'overwrote ' . $key . ' /' . $slug;
+                    $out['log'][] = 'overwrote ' . $key . ' /' . self::at($slug, $lang);
+                }
+                if ($lang !== '' && is_string($row['translates'] ?? null) && $row['translates'] !== '') {
+                    $links[] = ['posts', $id, $lang, (string) $row['translates']];
                 }
 
                 // THE FIELDS AN ARCHETYPE DECLARES come across, because they are
@@ -451,6 +547,17 @@ final class Import
             }
         }
 
+        // ── EACH TRANSLATION LINKED TO ITS ORIGINAL, by the original's slug in
+        // the site's own language, now that every row is here: an original
+        // that is not, or that already has a translation in that language,
+        // leaves it unlinked, and the report says so.
+        foreach ($links as [$table, $rowId, $lang, $of]) {
+            $note = \Cms\Content\Translation::link($table, $rowId, $of);
+            if ($note !== null) {
+                $out['log'][] = 'not linked: /' . $lang . '/… to /' . $of . ' — ' . $note;
+            }
+        }
+
         if ($withSettings) {
             $settings = $data['settings'] ?? [];
             foreach (is_array($settings) ? $settings : [] as $k => $v) {
@@ -463,6 +570,92 @@ final class Import
         }
 
         return $out;
+    }
+
+    /**
+     * HOW A ROW WAS THERE, AS IT CAN BE HERE: published, behind a password with
+     * the password's hash the file carries, or Private. A row behind a
+     * password whose file carries no usable hash (a file made before exports
+     * carried one) is Private: kept behind a password nobody knows, it could
+     * never be opened.
+     *
+     * @param  array<string, mixed> $row
+     * @return array{0: string, 1: ?string} the status, and the hash for 'password'
+     */
+    private static function statusOf(array $row): array
+    {
+        $hash = is_string($row['password_hash'] ?? null) && password_get_info($row['password_hash'])['algo'] !== null
+            ? $row['password_hash'] : null;
+
+        return match ((string) ($row['status'] ?? '')) {
+            'published' => ['published', null],
+            'password'  => $hash !== null ? ['password', $hash] : ['private', null],
+            default     => ['private', null],
+        };
+    }
+
+    /**
+     * What the plan says of a row, beside it: how it was there, published and
+     * when, scheduled, behind a password or private, and whether its featured
+     * image is in this library. Said whether or not the ticks are ticked, so
+     * the person ticking one knows what it would keep.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function said(array $row): string
+    {
+        $at     = self::utcOf($row['published_at'] ?? null);
+        $status = (string) ($row['status'] ?? '');
+        $parts  = [match (true) {
+            $status === 'published' && $at !== null && $at > gmdate('Y-m-d H:i:s') => 'scheduled there for ' . \Cms\Helpers\Dates::short($at),
+            $status === 'published' => 'published there' . ($at !== null ? ', ' . \Cms\Helpers\Dates::short($at) : ''),
+            $status === 'password'  => self::statusOf($row)[0] === 'password' ? 'behind a password there' : 'behind a password there that the file does not carry',
+            $status !== ''          => 'private there',
+            default                 => '',
+        }];
+        if (($image = self::imageIn($row)) !== null) {
+            $parts[] = Media::findDescribed($image) !== null ? 'its featured image is in the library' : 'its featured image is not in the library';
+        }
+
+        return implode(' · ', array_filter($parts, 'strlen'));
+    }
+
+    /** A date as the export writes it, UTC 'Y-m-d H:i:s', or null for anything else. */
+    private static function utcOf(mixed $value): ?string
+    {
+        $text = is_string($value) ? trim($value) : '';
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $text, new \DateTimeZone('UTC'));
+
+        return $date !== false && $date->format('Y-m-d H:i:s') === $text ? $text : null;
+    }
+
+    /**
+     * The row's featured image as the file describes it, when it describes one
+     * with something to find it by.
+     *
+     * @param  array<string, mixed> $row
+     * @return array{name: string, file: string, size: int, sha256: string}|null
+     */
+    private static function imageIn(array $row): ?array
+    {
+        $image = $row['featured_image'] ?? null;
+        if (!is_array($image)) {
+            return null;
+        }
+        $found = [
+            'name'   => trim((string) ($image['name'] ?? '')),
+            'file'   => basename(trim((string) ($image['file'] ?? ''))),
+            'size'   => (int) ($image['size'] ?? 0),
+            'sha256' => strtolower(trim((string) ($image['sha256'] ?? ''))),
+        ];
+
+        return $found['name'] !== '' || $found['file'] !== '' || $found['sha256'] !== '' ? $found : null;
+    }
+
+    /** The picture's name, for the report. @param array{name: string, file: string} $image */
+    private static function imageName(array $image): string
+    {
+        return $image['name'] !== '' ? $image['name'] : ($image['file'] !== '' ? $image['file'] : 'its picture');
     }
 
     /**
@@ -590,6 +783,29 @@ final class Import
         }
 
         return $log;
+    }
+
+    /**
+     * THE LANGUAGE A ROW IS IN (`Site\Language`): '' the site's own, which a
+     * file with no `lang` says; a translation's prefix (`fr`); or null for a
+     * value an address cannot hold, which is skipped.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function langOf(array $row): ?string
+    {
+        $lang = $row['lang'] ?? '';
+        if (!is_string($lang)) {
+            return null;
+        }
+
+        return preg_match(\Cms\Site\Language::PREFIX, $lang) === 1 ? $lang : null;
+    }
+
+    /** A row's address as the report writes it: `about`, or `fr/about` for a translation. */
+    private static function at(string $slug, string $lang): string
+    {
+        return ($lang !== '' ? $lang . '/' : '') . $slug;
     }
 
     /** @return list<array<string, mixed>> */

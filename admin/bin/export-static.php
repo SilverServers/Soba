@@ -36,7 +36,7 @@ if (PHP_SAPI !== 'cli') {
 $admin = dirname(__DIR__);
 require $admin . '/vendor/autoload.php';
 require_once $admin . '/core/Helpers/Url.php';
-$settings = require $admin . '/config/config.php';
+$settings = \Cms\Site\ConfigFile::read($admin . '/config/config.php');
 defined('ROOT_PATH') || define('ROOT_PATH', $admin);
 defined('PUBLIC_PATH') || define('PUBLIC_PATH', dirname($admin) . '/www');
 defined('BASE_URL') || define('BASE_URL', rtrim((string) ($settings['base_url'] ?? ''), '/'));

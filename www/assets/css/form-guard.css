@@ -8,3 +8,53 @@
   left: -9999px;
   top: -9999px;
 }
+
+/* A FIELD SHOWN ON A CHOICE (`Helpers\Shortcode::showsOnChoice()`): hidden on
+   the first draw, with a script or without one, while no choice that shows it
+   is made (`data-when`), or while one that hides it is made (`data-unless`),
+   and shown as the choice is made. Numbered by the form, at most 20 a form,
+   the same number on the field and on each choice that shows it
+   (`data-shows`). logic.js decides the same with a script, and the rules a
+   stylesheet cannot read as well. */
+.cms-form__form:not(:has([data-shows~="1"]:checked)) [data-when="1"],
+.cms-form__form:has([data-shows~="1"]:checked) [data-unless="1"],
+.cms-form__form:not(:has([data-shows~="2"]:checked)) [data-when="2"],
+.cms-form__form:has([data-shows~="2"]:checked) [data-unless="2"],
+.cms-form__form:not(:has([data-shows~="3"]:checked)) [data-when="3"],
+.cms-form__form:has([data-shows~="3"]:checked) [data-unless="3"],
+.cms-form__form:not(:has([data-shows~="4"]:checked)) [data-when="4"],
+.cms-form__form:has([data-shows~="4"]:checked) [data-unless="4"],
+.cms-form__form:not(:has([data-shows~="5"]:checked)) [data-when="5"],
+.cms-form__form:has([data-shows~="5"]:checked) [data-unless="5"],
+.cms-form__form:not(:has([data-shows~="6"]:checked)) [data-when="6"],
+.cms-form__form:has([data-shows~="6"]:checked) [data-unless="6"],
+.cms-form__form:not(:has([data-shows~="7"]:checked)) [data-when="7"],
+.cms-form__form:has([data-shows~="7"]:checked) [data-unless="7"],
+.cms-form__form:not(:has([data-shows~="8"]:checked)) [data-when="8"],
+.cms-form__form:has([data-shows~="8"]:checked) [data-unless="8"],
+.cms-form__form:not(:has([data-shows~="9"]:checked)) [data-when="9"],
+.cms-form__form:has([data-shows~="9"]:checked) [data-unless="9"],
+.cms-form__form:not(:has([data-shows~="10"]:checked)) [data-when="10"],
+.cms-form__form:has([data-shows~="10"]:checked) [data-unless="10"],
+.cms-form__form:not(:has([data-shows~="11"]:checked)) [data-when="11"],
+.cms-form__form:has([data-shows~="11"]:checked) [data-unless="11"],
+.cms-form__form:not(:has([data-shows~="12"]:checked)) [data-when="12"],
+.cms-form__form:has([data-shows~="12"]:checked) [data-unless="12"],
+.cms-form__form:not(:has([data-shows~="13"]:checked)) [data-when="13"],
+.cms-form__form:has([data-shows~="13"]:checked) [data-unless="13"],
+.cms-form__form:not(:has([data-shows~="14"]:checked)) [data-when="14"],
+.cms-form__form:has([data-shows~="14"]:checked) [data-unless="14"],
+.cms-form__form:not(:has([data-shows~="15"]:checked)) [data-when="15"],
+.cms-form__form:has([data-shows~="15"]:checked) [data-unless="15"],
+.cms-form__form:not(:has([data-shows~="16"]:checked)) [data-when="16"],
+.cms-form__form:has([data-shows~="16"]:checked) [data-unless="16"],
+.cms-form__form:not(:has([data-shows~="17"]:checked)) [data-when="17"],
+.cms-form__form:has([data-shows~="17"]:checked) [data-unless="17"],
+.cms-form__form:not(:has([data-shows~="18"]:checked)) [data-when="18"],
+.cms-form__form:has([data-shows~="18"]:checked) [data-unless="18"],
+.cms-form__form:not(:has([data-shows~="19"]:checked)) [data-when="19"],
+.cms-form__form:has([data-shows~="19"]:checked) [data-unless="19"],
+.cms-form__form:not(:has([data-shows~="20"]:checked)) [data-when="20"],
+.cms-form__form:has([data-shows~="20"]:checked) [data-unless="20"] {
+  display: none;
+}

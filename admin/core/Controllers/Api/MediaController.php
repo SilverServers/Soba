@@ -124,6 +124,21 @@ class MediaController
 
         $data = [];
 
+        // ── THE FILE'S NAME (editor+ only): the file renamed, and every
+        // address the site keeps for it (`Media::rename()`). Done first, and a
+        // name refused saves nothing else.
+        if (array_key_exists('file_name', $_POST)) {
+            if (!Auth::hasRole('editor')) {
+                $this->json(['success' => false, 'error' => 'Insufficient permissions.'], 403);
+                return;
+            }
+            $why = Media::rename($id, (string) $_POST['file_name']);
+            if ($why !== null) {
+                $this->json(['success' => false, 'error' => $why], 400);
+                return;
+            }
+        }
+
         // Title (stored as original_name)
         if (isset($_POST['title'])) {
             $data['original_name'] = trim($_POST['title']);
@@ -178,6 +193,12 @@ class MediaController
             }
             $newVisibility = $_POST['visibility'];
             if (in_array($newVisibility, ['public', 'private'], true)) {
+                // A file the site already had is public at its own address
+                // (`Media::register()`): refused before anything is saved.
+                if ($newVisibility === 'private' && Media::isSiteFile($attachment)) {
+                    $this->json(['success' => false, 'error' => 'This is the site\'s own file, public at its own address: it cannot be made private.'], 400);
+                    return;
+                }
                 Media::changeVisibility($id, $newVisibility);
             }
         }
@@ -203,6 +224,12 @@ class MediaController
 
         if ($attachment === null) {
             $this->json(['success' => false, 'error' => 'Attachment not found.'], 404);
+            return;
+        }
+
+        // A file the site already had keeps its own file and address (`Media::register()`).
+        if (Media::isSiteFile($attachment)) {
+            $this->json(['success' => false, 'error' => 'This is the site\'s own file, kept at its own address: it cannot be replaced here.'], 400);
             return;
         }
 
@@ -418,13 +445,12 @@ class MediaController
     private function attachmentPayload(array $attachment): array
     {
         $visibility = $attachment['visibility'] ?? 'public';
-        $url = $visibility === 'private'
-            ? BASE_URL . '/files/' . $attachment['id']
-            : BASE_URL . '/uploads/' . $attachment['filename'];
 
         return [
             'id'            => (int) $attachment['id'],
-            'url'           => $url,
+            'url'           => Media::urlOf($attachment),
+            // A file the site already had: its own address (`Media::register()`), else null.
+            'site_path'     => Media::isSiteFile($attachment) ? (string) $attachment['site_path'] : null,
             'filename'      => $attachment['filename'],
             'original_name' => $attachment['original_name'],
             'mime_type'     => $attachment['mime_type'],

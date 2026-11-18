@@ -141,8 +141,40 @@
         var vis = q('[data-md-visibility]');
         if (vis) { vis.value = current.visibility || 'public'; }
 
+        // A FILE THE SITE ALREADY HAD (`Media::register()`) stays where the
+        // site keeps it: it is never replaced or made private, and removing it
+        // only forgets it. The template draws both ways; this shows the one
+        // that is true of this file.
+        var site = !!current.site;
+        var replace = q('[data-md-replace]');
+        if (replace) { replace.hidden = site; }
+        var visField = q('[data-md-visibility-field]');
+        if (visField) { visField.hidden = site; }
+        // ITS NAME, as an address carries it (`Media::rename()`): the site's
+        // own file keeps the name the site gave it.
+        var fileField = q('[data-md-file-field]');
+        if (fileField) { fileField.hidden = site; }
+        var fileName = q('[data-md-file]');
+        if (fileName) { fileName.value = stemOf(current.file); }
+        var siteNote = q('[data-md-site]');
+        if (siteNote) { siteNote.hidden = !site; }
+        Array.prototype.forEach.call(panel.querySelectorAll('[data-md-delete]'), function (b) {
+            b.hidden = (b.getAttribute('data-md-delete') === 'site') !== site;
+        });
+        // A SECTION WITH NOTHING LEFT IN IT is not drawn: Filing, for such a
+        // file in a library with no folders, would be a heading over nothing.
+        var filing = q('[data-md-filing]');
+        if (filing) {
+            filing.hidden = !Array.prototype.some.call(filing.querySelectorAll('.field'), function (f) { return !f.hidden; });
+        }
+
         var msg = q('[data-md-msg]');
         if (msg) { msg.hidden = true; }
+    }
+
+    /** A stored name without its extension: what the File name box holds. */
+    function stemOf(name) {
+        return String(name || '').replace(/\.[A-Za-z0-9]+$/, '');
     }
 
     function deselect() {
@@ -270,7 +302,13 @@
         var folder = q('[data-md-folder]');
         if (folder) { body.append('folder_id', folder.value); }
         var vis = q('[data-md-visibility]');
-        if (vis) { body.append('visibility', vis.value); }
+        if (vis && !current.site) { body.append('visibility', vis.value); }
+        // A NAME IS SENT ONLY WHEN IT WAS CHANGED: renaming moves the file and
+        // every address the site keeps for it.
+        var fileName = q('[data-md-file]');
+        if (fileName && !current.site && fileName.value.trim() !== stemOf(current.file)) {
+            body.append('file_name', fileName.value.trim());
+        }
         // A DATE IS SENT ONLY WHEN IT WAS CHANGED. The box holds minutes, and
         // the server keeps the stored seconds for a date that comes back as
         // it went out — but a date nobody touched has no reason to travel.
@@ -306,13 +344,24 @@
                 if (added) { current.added = added.value; }
                 if (taken && current.is_image) { current.taken = taken.value; }
                 if (data && data.url) { current.url = data.url; q('[data-md-url]').value = data.url; }
+                // RENAMED: the name it was given (a taken one gains -2), and the
+                // picture shown from its new address.
+                if (data && data.filename) {
+                    current.file = data.filename;
+                    if (fileName) { fileName.value = stemOf(data.filename); }
+                    var shown = q('[data-md-preview] img');
+                    if (shown && shown.getAttribute('src') !== data.url) { shown.src = data.url; }
+                }
 
                 if (tile) {
                     tile.setAttribute('data-payload', JSON.stringify(current));
                     var cap = tile.querySelector('.media-card__name');
                     if (cap) { cap.textContent = name; cap.setAttribute('title', name); }
                     var img = tile.querySelector('img');
-                    if (img) { img.alt = current.alt || ''; }
+                    if (img) {
+                        img.alt = current.alt || '';
+                        if (img.getAttribute('src') !== current.url) { img.src = current.url; }
+                    }
                 }
                 q('[data-md-name]').textContent = name;
             })

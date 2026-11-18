@@ -1,0 +1,3321 @@
+/* THE PUBLIC THEME — the front end's component vocabulary.
+   ════════════════════════════════════════════════════════════════════════════
+
+   WHY THIS FILE EXISTS. The CMS writes its own classes into the front end:
+
+     · `cms-gallery`, `cms-gallery--grid|masonry`, `cms-gallery__item`
+       and the inline `--gallery-columns` custom property, all emitted by
+       Helpers\Shortcode::renderGallery()
+     · the whole `cms-form__*` set, emitted by Shortcode::renderForm()
+     · `entry-meta--event|listing|product`, `listing-subtitle`, `product-price`,
+       `u-text-muted`, `u-text-sm`, emitted by templates/post.php
+
+   A class or custom property that resolves to nothing is the same shape of
+   failure as a stored setting no code reads: the gallery editor's Layout and
+   Columns controls would write real markup that changes nothing. This file is
+   the consumer; the gallery's own layout rules are in gallery.css, which the
+   gallery editor shares.
+
+   ── LOAD ORDER (base.php links all four; the order matters) ─────────────────
+       fonts.css        @font-face first, so the faces exist before use
+       reset.css        the app reset — see the PROSE section below
+       tokens-base.css  the token layer; its bare :root carries the full
+                        default palette, so first paint is never untokenized
+       theme.css        THIS FILE
+
+   All three of the others are BYTE-IDENTICAL to the admin's copies in
+   www/admin/assets/css/. Do not edit them here: the two sets change together.
+
+   ── WHAT THIS FILE IS NOT ───────────────────────────────────────────────────
+   It is not core.css. The admin's component vocabulary is a dense tool UI built
+   around a 240px rail; a public reading surface is a different surface and gets
+   its own components. What it shares is the TOKENS — every colour, radius,
+   spacing step and control height below resolves through the same variables the
+   admin uses, so the two cannot drift apart on a value.
+
+   Radius follows the role rule, not taste: the page's substance (content,
+   images, list rows, alert surfaces) is `--r-none`; controls (inputs, buttons)
+   are `--r`. Nothing here floats, so no `--r-lg` appears at all.            */
+
+
+/* ── Layout scale ────────────────────────────────────────────────────────────
+   Two local measurements, both derived from the spacing scale so they cannot
+   drift into a one-off. `--measure` is the reading column: 66ch at this size,
+   which is where prose stops being comfortable to track back across.        */
+:root {
+  --measure:   860px;
+  --site-pad:  var(--sp-5);
+  --band-pad:  var(--sp-4);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   1. THE PAGE SHELL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── THE THREE-TONE LADDER, AND WHICH WAY UP IT GOES ────────────────────────
+   The page itself is `--surface` — the reading sheet — and the header and
+   footer bands are `--bg`, the trim. `--surface-2` is then a block nested
+   inside the sheet (the archetype meta panel, a code span, a submenu).
+
+   THE OTHER WAY UP IS WRONG: with the body on `--bg`, the chrome bands would
+   be BRIGHTER than the writing they frame, and the event page's `--surface-2`
+   fact panel would sit on `--bg` at almost the same tone — a panel you could
+   not see. core.css's
+   own note states the ladder ("--bg is the page AND the trim; --surface is the
+   content sheet"); on a public site there is no card, so the sheet IS the
+   page and the bands are what steps down.
+
+   Controls keep `--surface` and lean on the hairline rather than on a tone
+   step, which is the house separation anyway.                              */
+/* THE OWNER'S FONTS (Appearance → Customizer, `Site\Look`): attributes on
+   <html>, so no page needs an inline style. Inter is served by the site
+   (fonts.css); the other two are the visitor's own and load nothing. The
+   text takes --font-body; the headings and the site's name --font-head; code
+   keeps the code face. */
+:root[data-font-body="inter"] { --font-body: var(--font-sans); }
+:root[data-font-body="sans"]  { --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+:root[data-font-body="serif"] { --font-body: Georgia, 'Times New Roman', Times, serif; }
+:root[data-font-head="inter"] { --font-head: var(--font-sans); }
+:root[data-font-head="sans"]  { --font-head: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+:root[data-font-head="serif"] { --font-head: Georgia, 'Times New Roman', Times, serif; }
+h1, h2, h3, h4, h5, h6, .site-header__name { font-family: var(--font-head, var(--font-body, var(--font-sans))); }
+
+body {
+  font-family: var(--font-body, var(--font-sans));
+  font-size: var(--fs-lg);
+  line-height: 1.7;
+  color: var(--ink);
+  background: var(--surface);
+  color-scheme: var(--color-scheme);
+  /* The footer sits at the bottom of short pages instead of halfway up. */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────
+   The trim tone, so the band frames the sheet instead of outshining it. */
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: var(--band-pad) var(--site-pad);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header__name {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+}
+.site-header__name:hover { color: var(--accent); }
+/* THE LOGO (`Site\Look::brand()`): a line and a half of the name tall, the
+   name beside it when the owner keeps it there. */
+.site-header__name--logo { display: inline-flex; align-items: center; gap: var(--sp-3); }
+.site-header__logo { display: block; height: 2.5rem; width: auto; max-width: 12rem; object-fit: contain; }
+.site-header__text[hidden] { display: none; }
+
+/* ── The primary menu ───────────────────────────────────────────────────────
+   Helpers\MenuRenderer emits a nested <ul> for a menu item with children, and
+   the admin's menu builder lets an owner nest one — so the nested list is real
+   markup this theme has to handle, not a hypothetical. It becomes a hover/focus
+   dropdown. No JS: `:focus-within` keeps it reachable from the keyboard, which
+   a hover-only rule would not.                                             */
+.site-header__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+}
+
+.site-header__nav li { position: relative; }
+
+.site-header__nav a {
+  display: block;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  padding: var(--sp-1) 0;
+}
+.site-header__nav a:hover,
+.site-header__nav a:focus-visible { color: var(--ink); }
+
+/* Submenu — a panel, so it gets a surface and a hairline. Substance radius:
+   it is a list of links, not a floating widget with its own life. */
+.site-header__nav ul {
+  position: absolute;
+  top: 100%;
+  left: calc(var(--sp-3) * -1);
+  z-index: 10;
+  min-width: 180px;
+  padding: var(--sp-2) 0;
+  /* The sheet tone, because this panel drops OUT of the `--bg` trim band and
+     has to separate from it. */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+  display: none;
+}
+.site-header__nav li:hover > ul,
+.site-header__nav li:focus-within > ul { display: block; }
+
+.site-header__nav ul a {
+  padding: var(--sp-2) var(--sp-3);
+  white-space: nowrap;
+}
+.site-header__nav ul a:hover { background: var(--hover); }
+
+/* ── Where you are ──────────────────────────────────────────────────────────
+   A navigation that cannot say which page you are on is the commonest
+   accessibility failure on the web and the commonest reason a site "feels
+   confusing". `MenuRenderer` marks the item with `aria-current="page"` for a
+   screen reader and `is-current` for the eye — this is the eye's half, and
+   neither is any use alone.
+
+   WEIGHT AND A RULE, NOT COLOUR ALONE. A state is never a colour on its own,
+   because two greens are one grey to a good few readers. */
+.site-header__nav > li.is-current > a,
+.site-header__nav > li.is-current-parent > a {
+  color: var(--ink);
+  font-weight: var(--fw-semi);
+}
+.site-header__nav > li.is-current > a { box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* The ancestor of the current page is marked more quietly than the page itself:
+   it is a signpost, not the destination. */
+.site-header__nav > li.is-current-parent > a { box-shadow: inset 0 -2px 0 var(--border); }
+
+.site-header__nav ul li.is-current > a { background: var(--hover); font-weight: var(--fw-semi); }
+
+/* ── A mega panel ───────────────────────────────────────────────────────────
+   The same dropped panel as a sub-menu, laid out in columns. It exists because
+   the thing a site owner actually wants is "my twelve links should not be a
+   twelve-item vertical list" — `MenuRenderer::renderMega()` has the argument
+   for why the control is one number and not a layout engine.
+
+   IT IS A `<div>`, so the absolute positioning that `.site-header__nav ul`
+   carries has to move here, and the `<ul>`s INSIDE it go back to static — a
+   column of absolutely-positioned lists would stack on top of each other. */
+.menu__mega {
+  position: absolute;
+  top: 100%;
+  left: calc(var(--sp-3) * -1);
+  z-index: 10;
+  display: none;
+  gap: var(--sp-5);
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+.site-header__nav li:hover > .menu__mega,
+.site-header__nav li:focus-within > .menu__mega { display: flex; }
+
+/* ── THE PANEL IS A GRID ──────────────────────────────────────────────────
+   N columns, each item a tile spanning K of them, row-major. The column count
+   and every span are CLASSES rather than inline styles, so the theme owns every
+   width and nothing in the markup does — twelve rules each, one per value the
+   admin can store. */
+.menu__mega--grid { flex-direction: column; width: min(calc(var(--mega-cols, 2) * 190px), calc(100vw - 2 * var(--site-pad, 24px))); }
+/* `.menu__mega > .menu__mega-items`, (0,2,0), and NOT the bare class. The
+   list is a `<ul>` inside the panel, and `.menu__mega ul { display: block }` two
+   rules down is (0,1,1) — it beats a bare `.menu__mega-items` (0,1,0), and
+   every panel would render as one full-width column. */
+.menu__mega > .menu__mega-items {
+  display: grid;
+  grid-template-columns: repeat(var(--mega-cols, 2), minmax(0, 1fr));
+  gap: var(--sp-3) var(--sp-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* An item with its own list under it is a COLUMN HEADING in a panel, marked
+   by weight, not colour. */
+.menu__mega-items > li.menu__item--parent > .menu__link { font-weight: var(--fw-semi); color: var(--ink); }
+.menu__mega--cols-1  { --mega-cols: 1; }   .menu__span--1  { grid-column: span 1; }
+.menu__mega--cols-2  { --mega-cols: 2; }   .menu__span--2  { grid-column: span 2; }
+.menu__mega--cols-3  { --mega-cols: 3; }   .menu__span--3  { grid-column: span 3; }
+.menu__mega--cols-4  { --mega-cols: 4; }   .menu__span--4  { grid-column: span 4; }
+.menu__mega--cols-5  { --mega-cols: 5; }   .menu__span--5  { grid-column: span 5; }
+.menu__mega--cols-6  { --mega-cols: 6; }   .menu__span--6  { grid-column: span 6; }
+.menu__mega--cols-7  { --mega-cols: 7; }   .menu__span--7  { grid-column: span 7; }
+.menu__mega--cols-8  { --mega-cols: 8; }   .menu__span--8  { grid-column: span 8; }
+.menu__mega--cols-9  { --mega-cols: 9; }   .menu__span--9  { grid-column: span 9; }
+.menu__mega--cols-10 { --mega-cols: 10; }  .menu__span--10 { grid-column: span 10; }
+.menu__mega--cols-11 { --mega-cols: 11; }  .menu__span--11 { grid-column: span 11; }
+.menu__mega--cols-12 { --mega-cols: 12; }  .menu__span--12 { grid-column: span 12; }
+.menu__mega ul {
+  position: static;
+  display: block;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+/* ── The menu on a phone ────────────────────────────────────────────────────
+   The bar above opens its sub-menus on `:hover` and `:focus-within`, and a
+   phone has neither — so a mega panel there is an absolutely-positioned
+   three-column box that does not fit and cannot be opened.
+
+   `MenuRenderer` wraps the list in a `<details>`, which is the disclosure the
+   platform already has: it opens on a tap with no script, it is a button to a
+   screen reader, and it carries its own expanded state.
+
+   ABOVE 720px THE SUMMARY IS GONE AND THE LIST IS SHOWN WHETHER OR NOT THE
+   DETAILS IS OPEN, so the desktop bar is exactly what it was. The UA hides a
+   closed details' content; `display` on that content overrides it. */
+/* The switch is never seen and is always FOCUSABLE — visually hidden, not
+   `display: none`, or the label could not be reached from a keyboard. */
+.menu__toggle { display: none; }
+.menu__switch {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  /* The toggle is a word, not three lines. A hamburger with no label is the
+     most-complained-about control on the mobile web and costs nothing to fix.
+     `list-style: none` because a `<summary>` draws a marker triangle by
+     default, and `::-webkit-details-marker` is Safari's separate one. */
+  .menu__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: var(--sp-1) 0;
+    font-size: var(--fs-md);
+    color: var(--ink-2);
+    cursor: pointer;
+    list-style: none;
+  }
+  .menu__toggle::-webkit-details-marker { display: none; }
+  .menu__toggle:hover,
+  .menu__switch:checked ~ .menu__bar .menu__toggle { color: var(--ink); }
+
+  /* THE FOCUS RING BELONGS ON THE LABEL, because the input it belongs to is
+     a pixel wide and off in the corner. Without this the control is reachable
+     from a keyboard and gives no sign of where you are. */
+  .menu__switch:focus-visible ~ .menu__bar .menu__toggle {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ── EVERYTHING STACKS, AND SUB-MENUS ARE ALREADY OPEN ──────────────────
+     A floating panel needs a hover to appear and a phone cannot give it one.
+     Showing the children inline is longer and it WORKS, which is the trade a
+     navigation should always make. */
+  /* ── THE OPEN LIST IS A PANEL UNDER THE HEADER, NOT A ROW INSIDE IT ─────
+     In flow, at 390px, it would make the header three rows tall and drag the
+     brand into the middle of the menu, with the basket link wrapping in beside
+     a sub-item.
+
+     Dropped from the header's bottom edge instead: the top row stays brand ·
+     Menu · Basket, and the list covers the page the way every phone menu does.
+     `.site-header` carries the `position: relative` this hangs from. */
+  .menu .site-header__nav { display: none; }
+  .menu__switch:checked ~ .site-header__nav {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 20;
+    padding: var(--sp-3) var(--site-pad);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-header__nav > li { padding: var(--sp-1) 0; }
+
+  .site-header__nav ul,
+  .menu__mega {
+    position: static;
+    display: block;
+    min-width: 0;
+    padding: 0 0 0 var(--sp-4);
+    background: none;
+    border: 0;
+  }
+  /* ── AND THE DESKTOP EFFECT IS UNDONE HERE ──────────────────────────────
+     The animating effects hide a sub-menu until its parent is hovered, which is
+     exactly right for a dropdown and exactly wrong for the phone panel, where
+     the sub-items are a static indented list and there is nothing to hover.
+
+     `.menu--fx-fade-up .site-header__nav li > ul` is (0,2,1) and beats the
+     (0,1,1) rule above it, so without this the default effect would empty
+     every phone menu of its sub-items. */
+  .menu[class*="menu--fx-"] .site-header__nav li > ul,
+  .menu[class*="menu--fx-"] .site-header__nav li > .menu__mega {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    transition: none;
+  }
+  /* AND THE COLUMNS STACK AGAIN. The effect rules set the panel to `flex` at
+     (0,3,1), which outranks the `display: block` this block already asked for at
+     (0,1,0) — so without this a mega panel keeps its columns side by side on a
+     375px screen, which the comment above says does not fit. (0,3,1) as well,
+     and later in the file, so it wins. */
+  .menu[class*="menu--fx-"] .site-header__nav li > .menu__mega { display: block; }
+  /* The same for open-on-click: a phone panel is already open, and an item whose
+     sub-list only appears after a tap is a list with items missing. */
+  .menu--open-click .site-header__nav li:hover > ul,
+  .menu--open-click .site-header__nav li:hover > .menu__mega {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* The mega panel's columns become one column: two 160px columns do not fit
+     beside each other on a 375px screen, and the reading order down a column is
+     the order the owner arranged them in either way. */
+  .menu__mega { display: block; }
+  /* ON A PHONE THE GRID IS A LIST, every tile at full width in order — two
+     160px columns do not fit beside each other on a 375px screen, and a span
+     means nothing in one column. */
+  .menu__mega--grid { width: auto; }
+  .menu__mega > .menu__mega-items { display: block; }
+
+  .site-header__nav ul a { padding: var(--sp-1) 0; white-space: normal; }
+  .site-header__nav ul a:hover { background: none; color: var(--ink); }
+
+  /* The current-page marker moves to the left edge: an underline under a
+     full-width row reads as a rule between rows, not as a state. */
+  .site-header__nav > li.is-current > a,
+  .site-header__nav > li.is-current-parent > a {
+    box-shadow: inset 2px 0 0 var(--accent);
+    padding-left: var(--sp-2);
+  }
+  .site-header__nav > li.is-current-parent > a { box-shadow: inset 2px 0 0 var(--border); }
+}
+
+/* ── Content column ─────────────────────────────────────────────────────────
+   `flex: 1` is what pins the footer down; see body above. */
+.site-content {
+  flex: 1;
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--sp-7) var(--site-pad);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────────
+   `margin-top` deliberately absent: the flex column already pushes it down, and
+   a margin on top of that is the "three margins summing" bug the gap hierarchy
+   exists to prevent. */
+.site-footer {
+  padding: var(--band-pad) var(--site-pad);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  /* The text and any footer menus sit on one line with the menus pushed right,
+     and wrap to two on a phone. `gap` rather than margins: three margins
+     summing is the bug the gap hierarchy exists to prevent. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-3) var(--sp-5);
+}
+.site-footer__menus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+  margin-left: auto;
+}
+
+/* A FOOTER MENU IS A ROW OF LINKS, not the header's bar: no dropdowns, no
+   panel, no current-page underline. A footer with a mega panel hanging off it
+   is a thing nobody has ever wanted.
+
+   Sub-items are shown inline after their parent rather than hidden — an owner
+   who nested something in a footer menu meant it to be there, and hiding it
+   behind a hover nobody will perform is the same as deleting it. */
+.site-footer__nav,
+.site-footer__nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-4);
+  position: static;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+.site-footer__nav li { display: flex; gap: var(--sp-3) var(--sp-4); }
+.site-footer__nav a { color: var(--ink-3); }
+.site-footer__nav a:hover { color: var(--ink); }
+/* The footer's nav emits no switch and no toggle at all — see `MenuRenderer`:
+   a second `id="menu-open"` on one page would make the footer's label toggle
+   the HEADER's menu. `display: contents` stays, so the nav does not add a box
+   between the footer's flex row and its list. */
+.site-footer .menu { display: contents; }
+/* COOKIE SETTINGS (`Site\Google::consentLink()`): a button, since it opens
+   something on this page, worded and coloured as the footer's links are. */
+.site-footer__consent {
+  padding: 0;
+  font: inherit;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.site-footer__consent:hover { color: var(--ink); }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   2. PROSE — undoing the app reset for editor content
+   ════════════════════════════════════════════════════════════════════════════
+   reset.css is an APPLICATION reset. It zeroes every heading and paragraph
+   margin, strips list markers, and removes link underlines — all correct for a
+   tool UI, all wrong for a page of writing. Restore those semantics INSIDE the
+   content containers only, so the chrome above keeps the app reset.
+
+   `white-space: pre-wrap` is here because the CMS ships no rich-text editor —
+   content is plain text, and the line breaks the author typed are the only
+   paragraph structure there is. It is scoped to the containers'
+   direct text rather than set on the container itself, because a shortcode
+   injects real HTML into this same box and pre-wrap would render the newlines
+   between its tags as blank lines.                                          */
+
+.post-content,
+.page-content {
+  font-size: var(--fs-lg);
+  line-height: 1.7;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* Anything the shortcodes inject is real markup, so it opts back out. */
+.post-content .cms-gallery,
+.page-content .cms-gallery,
+.post-content .cms-form,
+.page-content .cms-form { white-space: normal; }
+
+.post-content > * + *,
+.page-content > * + * { margin-top: var(--sp-4); }
+
+.post-content h2, .page-content h2,
+.post-content h3, .page-content h3,
+.post-content h4, .page-content h4 {
+  line-height: var(--lh-tight);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+  margin-top: var(--sp-6);
+}
+.post-content h2, .page-content h2 { font-size: var(--fs-2xl); }
+.post-content h3, .page-content h3 { font-size: var(--fs-xl); }
+.post-content h4, .page-content h4 { font-size: var(--fs-lg); }
+
+.post-content ul, .page-content ul,
+.post-content ol, .page-content ol {
+  padding-left: var(--sp-5);
+  list-style: disc;
+}
+.post-content ol, .page-content ol { list-style: decimal; }
+.post-content li, .page-content li { margin-top: var(--sp-1); }
+
+.post-content a, .page-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.post-content a:hover, .page-content a:hover { color: var(--accent-strong); }
+
+.post-content blockquote, .page-content blockquote {
+  padding-left: var(--sp-4);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-none);
+  color: var(--ink-2);
+}
+
+.post-content code, .page-content code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: 2px var(--sp-1);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+
+.post-content img, .page-content img {
+  border-radius: var(--r-none);
+  margin-top: var(--sp-4);
+}
+
+/* AN EMBED is printed as its provider's code wrote it, at the size the code
+   gave it (`Html\Embed`), and no wider than the column, so a phone does not
+   scroll sideways to see a video or a post. */
+.post-content iframe, .page-content iframe { max-width: 100%; }
+
+.post-content hr, .page-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin-top: var(--sp-6);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   3. ENTRY HEADERS AND LISTS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.post-header { margin-bottom: var(--sp-6); }
+
+.post-header__back {
+  display: inline-block;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  margin-bottom: var(--sp-3);
+}
+.post-header__back:hover { color: var(--accent); }
+
+.post-header h1 {
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+  margin-bottom: var(--sp-2);
+}
+
+.post-header__meta,
+.post-list__meta {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.archive-header {
+  margin-bottom: var(--sp-6);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.archive-header h1 {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+}
+
+/* A term archive says what KIND of thing it is a list of, above the name. A
+   heading reading "Campus" alone does not tell you it is a Topic, and the
+   breadcrumb is not always on screen. Small, muted, and above — it is a label
+   for the heading, not a heading of its own. */
+.archive-header__kind {
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* The term's own description, where the owner wrote one. Reads as body text,
+   because that is what it is. */
+.archive-header__intro {
+  margin-top: var(--sp-2);
+  color: var(--ink-2);
+}
+
+/* AN EVENTS LIST AS A CALENDAR TO SUBSCRIBE TO (`Content\Calendar`): under
+   the heading, small, and a link that looks like one, as the event's own
+   "Add to calendar" does in its panel. */
+.archive-header__calendar {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.archive-header__calendar a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── The entry list ─────────────────────────────────────────────────────────
+   Rows separated by a hairline, not by boxes. The house separation is a crisp
+   1px border; a list of cards would turn a reading surface into a dashboard. */
+.post-list__item {
+  padding: var(--sp-5) 0;
+  border-bottom: 1px solid var(--border);
+}
+.post-list__item:first-child { padding-top: 0; }
+.post-list__item:last-child { border-bottom: none; }
+
+/* The entry's picture, on a list. A LINK, not an ornament: an image beside a
+   headline that the headline alone opens is a thing people click and nothing
+   happens.
+
+   --r-none, not a rounded corner. tokens-base.css states the rule at the
+   declaration: the radius preference decides how round a control or a floater
+   is, never whether page CONTENT rounds. A photo in a list is substance. */
+.post-list__media {
+  display: block;
+  width: 96px;
+  margin-bottom: var(--sp-3);
+  border-radius: var(--r-none);
+  overflow: hidden;
+}
+.post-list__media img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.post-list__title {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  margin-bottom: var(--sp-1);
+}
+.post-list__title a { color: var(--ink); }
+.post-list__title a:hover { color: var(--accent); }
+
+.post-list__meta { margin-bottom: var(--sp-2); }
+
+.post-list__excerpt {
+  color: var(--ink-2);
+  font-size: var(--fs-md);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────────
+   Occupies the box its list would — the page-level rule the admin already
+   follows. */
+.post-list-empty {
+  padding: var(--sp-7) 0;
+  color: var(--ink-3);
+  text-align: center;
+}
+/* The way back from a shop's list narrowed to nothing: a link, so it looks
+   like one, as a link in the product panel does. */
+.post-list-empty a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Pagination ─────────────────────────────────────────────────────────────
+   These are controls, so they take the control radius and the control height. */
+.pagination {
+  display: flex;
+  gap: var(--sp-3);
+  justify-content: center;
+  padding-top: var(--sp-6);
+}
+.pagination a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.pagination a:hover { background: var(--surface-2); }
+
+/* ── An entry's neighbours, and entries like it ─────────────────────────────
+   Previous and Next carry the other entry's TITLE, which is the thing a reader
+   decides on — so they are text links on the reading surface, not the
+   bordered controls the pager above uses for page numbers. Older on the left,
+   newer on the right, as a timeline reads; one column when there is no room
+   for two. */
+.post-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+}
+.post-nav__link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  color: var(--ink);
+}
+.post-nav__link--next {
+  grid-column: 2;
+  text-align: right;
+}
+.post-nav__label {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+.post-nav__title { font-weight: var(--fw-semi); }
+.post-nav__link:hover .post-nav__title { color: var(--accent); }
+@media (max-width: 600px) {
+  .post-nav { grid-template-columns: 1fr; }
+  .post-nav__link--next { grid-column: 1; text-align: left; }
+}
+
+.post-related {
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+}
+
+/* The way past the header (`base.php`): out of sight until a key reaches it,
+   then at the top corner. The admin's own skip link, the design language's
+   core.css rule, on the public site's tokens. */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--accent);
+  color: var(--ink-on-strong);
+  font-weight: var(--fw-semi);
+  font-size: var(--fs-sm);
+  border-radius: var(--r);
+  text-decoration: none;
+  z-index: 99999;
+  transition: top var(--t-fast);
+}
+.skip-link:focus {
+  top: var(--sp-3);
+  outline: 2px solid var(--ink-on-strong);
+  outline-offset: 2px;
+}
+.site-content:focus { outline: none; }
+
+/* An events list's past: what is over, after what is still to come, under a
+   heading of its own. Spaced from the list above it as "Related" is; at the
+   top of a page of past events it sits under the archive's header. */
+.post-list + .post-list-past {
+  margin-top: var(--sp-7);
+}
+.post-list-past__title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  margin-bottom: var(--sp-4);
+}
+.post-related__title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  margin-bottom: var(--sp-4);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   4. ARCHETYPE META — event / listing / product
+   ════════════════════════════════════════════════════════════════════════════
+   templates/post.php renders one of these blocks per archetype on the entry's
+   content type. They are a fact panel above the body copy: nested tone
+   (`--surface-2`) so they read as a block inside the content, not as the
+   content.                                                                   */
+
+.entry-meta {
+  margin-bottom: var(--sp-5);
+  padding: var(--sp-4);
+  background: var(--surface-2);
+  border-radius: var(--r-none);
+  font-size: var(--fs-md);
+}
+.entry-meta > * + * { margin-top: var(--sp-2); }
+.entry-meta strong {
+  font-weight: var(--fw-semi);
+  color: var(--ink-2);
+}
+.entry-meta a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── An owner's own fields ──────────────────────────────────────────────────
+   The same fact panel, as a definition list: label and value side by side,
+   stacked when there is no room. A value can be an address or a picture, so
+   it may break anywhere and never push the page sideways. */
+.entry-fields__list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+}
+.entry-fields__list dt { color: var(--ink-2); font-weight: var(--fw-semi); }
+.entry-fields__list dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.entry-fields__list dd img { display: block; max-width: 100%; height: auto; }
+.entry-fields__list dd ul { margin: 0; padding-left: var(--sp-4); }
+@media (max-width: 600px) {
+  .entry-fields__list { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
+  .entry-fields__list dd + dt { margin-top: var(--sp-2); }
+}
+
+/* ── The entry's own picture ────────────────────────────────────────────────
+   Content, so --r-none, as the list's picture is. NEVER STRETCHED PAST ITS OWN
+   SIZE: `width: 100%` would blow a 96px picture up to the column and print
+   mush. A wide photo still fills the column; a small one stays sharp. */
+.post-featured { margin: 0 0 var(--sp-5); }
+.post-featured img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-none);
+}
+
+.listing-subtitle {
+  font-size: var(--fs-lg);
+  color: var(--ink-2);
+}
+
+.product-price {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+}
+.product-price del {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-regular);
+  color: var(--ink-3);
+  margin-right: var(--sp-2);
+}
+/* THE PRICE PAID, in the price's own ink. `.entry-meta strong` gives a label
+   in the panel its quieter colour, and the sale price is the one figure there
+   a customer pays: it must not be paler than the price struck out beside it. */
+.product-price strong { color: inherit; }
+
+/* Utilities post.php already emits. Two only — this is not a utility layer. */
+.u-text-muted { color: var(--ink-3); }
+.u-text-sm    { font-size: var(--fs-sm); }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   5. GALLERY  —  [gallery id="N"]  ·  IN gallery.css
+   ════════════════════════════════════════════════════════════════════════════
+   The gallery is the one component BOTH surfaces render: the public page, and
+   the gallery editor, whose tile area is the gallery itself rather than a
+   second grid that agrees with it only on the day it is written.
+
+   This file cannot be the shared one — it opens with `:root` and `body` blocks
+   carrying the public palette and page background, and linking it into the
+   admin would repaint the admin with them. So the gallery rules live in
+   `gallery.css`, which depends on tokens and nothing else, and both surfaces
+   link it. base.php links it right after this file; the editor links it on its
+   own. See that file's header for the full reasoning.                        */
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   6. FORM  —  [form id="N"]
+   ════════════════════════════════════════════════════════════════════════════
+   The control skin matches the admin's `.input` / `.btn` through the same
+   tokens, one tier larger: a public form is filled in once by someone who has
+   never seen it, so it sits at --control-h's 40px "large input" step rather
+   than the admin's dense 32.
+
+   A `half`-width field spans one of two columns; everything else spans both.  */
+
+.cms-form { margin: var(--sp-5) 0; }
+
+/* TWELVE COLUMNS, BECAUSE HALVES AND THIRDS NEED THEM. A two-column grid, with
+   full spanning both and half taking one cell, expresses exactly two widths and
+   no more. A field can be a half, a third, a quarter or full width; 6, 4 and 3
+   have no common grid below twelve, which is why every system offering thirds
+   and quarters uses it.
+
+   `Ui\FieldWidth` is the one list — it names the widths, the spans, and the
+   modifier appended here, and both selects and both whitelists read it. */
+.cms-form__fields {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.cms-form__field                  { grid-column: span 12; }
+.cms-form__field--three-quarters  { grid-column: span 9; }
+.cms-form__field--two-thirds      { grid-column: span 8; }
+.cms-form__field--half            { grid-column: span 6; }
+.cms-form__field--third           { grid-column: span 4; }
+.cms-form__field--quarter         { grid-column: span 3; }
+
+/* ── A SECTION ───────────────────────────────────────────────────────────────
+   A divider that says what comes next. The rule is the same hairline `divider`
+   draws — the heading is what is added, not a second treatment. */
+.cms-form__section {
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+}
+.cms-form__section:first-child { padding-top: 0; border-top: 0; }
+.cms-form__section-title {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+}
+.cms-form__section-text {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}
+
+/* ── A SCALE, AND A STAR RATING ──────────────────────────────────────────────
+   The same control twice: a row of radios where the LABEL is the target and
+   the input itself is out of sight. Not `appearance: none` on the radio — that
+   loses the keyboard and the form value; the label is what gets painted and the
+   input keeps doing its job underneath.
+
+   A scale shows its numbers. A rating shows stars, and the number is still in
+   the markup as the radio's accessible name, because a star-shaped control
+   that announces nothing is a control a screen reader cannot use. */
+.cms-form__scale,
+.cms-form__rating {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.cms-form__scale-step,
+.cms-form__rating-step {
+  position: relative;
+  cursor: pointer;
+}
+.cms-form__scale-step input,
+.cms-form__rating-step input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+/* A scale step is a numbered button. */
+.cms-form__scale-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+}
+.cms-form__scale-step:hover .cms-form__scale-mark { border-color: var(--accent); }
+.cms-form__scale-step input:checked + .cms-form__scale-mark {
+  color: var(--ink-on-strong);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cms-form__scale-step input:focus-visible + .cms-form__scale-mark {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A RATING STEP IS A STAR. The number is present and unreadable-by-eye rather
+   than absent: `font-size: 0` on the mark and a star drawn as content, so the
+   accessible name survives while the glyph is what is seen. */
+.cms-form__rating-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  font-size: 0;
+  color: var(--border-strong);
+}
+.cms-form__rating-mark::before {
+  content: '\2605';
+  font-size: var(--fs-2xl);
+  line-height: 1;
+}
+.cms-form__rating-step:hover .cms-form__rating-mark { color: var(--accent); }
+.cms-form__rating-step input:checked + .cms-form__rating-mark { color: var(--accent); }
+.cms-form__rating-step input:focus-visible + .cms-form__rating-mark {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The words at either end — "which way is good", which a bare row of numbers
+   asks the visitor to guess. */
+.cms-form__scale-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* ── PAGES ───────────────────────────────────────────────────────────────────
+   Back, where you are, Next. The count is words rather than a bar of dots: the
+   question a step indicator answers is "how much is left", and a row of dots
+   makes you count them. */
+.cms-form__pages {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+}
+/* NEXT IS THE PRIMARY ACTION ON EVERY STEP BUT THE LAST, so it wears the
+   submit's face — same height, same weight, same accent. Back is the quiet
+   one: an outline, because two filled buttons side by side make the visitor
+   choose between two equally loud things. */
+.cms-form__page-next,
+.cms-form__page-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--sp-5);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.cms-form__page-next {
+  color: var(--ink-on-strong);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+}
+.cms-form__page-back {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+}
+.cms-form__page-back:hover { background: var(--hover); }
+.cms-form__page-next[hidden],
+.cms-form__page-back[hidden] { display: none; }
+
+.cms-form__page-count {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+/* Next sits at the end of the row, and Back at the start, so the two never
+   swap places as steps come and go. */
+.cms-form__page-next { margin-left: auto; }
+/* A STEP IS A GRID OF ITS OWN, spanning the whole row.
+   `pages.js` moves the fields INTO these, so without this the step becomes the
+   single grid item and every field inside it loses the twelve-column context
+   its width depends on: a full-width Name field would render 55px wide, its
+   label wrapped onto two lines, while the markup looks correct. */
+.cms-form__step {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-4);
+  align-content: start;
+}
+.cms-form__step[hidden] { display: none; }
+
+/* ── A SIGNATURE ─────────────────────────────────────────────────────────────
+   A box to draw in. `touch-action: none` is not decoration: without it a
+   finger on the canvas scrolls the page instead of drawing, which is the whole
+   interaction failing on the device most likely to be used for it.
+
+   `color` is the ink — `signature.js` reads it off the element, so the
+   stylesheet decides and the script does not carry a colour. */
+.cms-form__signature { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cms-form__signature-pad {
+  width: 100%;
+  height: 160px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-none);
+  touch-action: none;
+  cursor: crosshair;
+}
+.cms-form__signature-clear { align-self: flex-start; }
+
+/* A file input keeps the browser's own control — it is the one widget every
+   visitor already knows, and a restyled one is a button that no longer says
+   which file is attached. */
+.cms-form__file { max-width: 100%; }
+.cms-form__hint { font-size: var(--fs-sm); color: var(--ink-3); }
+
+/* ── THE BUILT-IN CAPTCHA ────────────────────────────────────────────────────
+   A question and a small box. Narrow on purpose: the answer is one or two
+   digits, and a full-width box for two characters tells the visitor to expect
+   a sentence. The services draw their own widget and get nothing from here. */
+.cms-form__captcha { display: flex; flex-direction: column; gap: var(--sp-1); }
+.cms-form__captcha-q { font-size: var(--fs-md); color: var(--ink); }
+.cms-form__captcha-a { max-width: 8rem; }
+
+/* ── TAGS ────────────────────────────────────────────────────────────────────
+   Chips above the box you type into. `--r-sm` because tokens-base names that
+   step for "tiny chips, tags, status pills" — which is what these are. */
+.cms-form__tags { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cms-form__tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.cms-form__tag-list:empty { display: none; }
+.cms-form__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.cms-form__tag-kill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 24px is the touch floor and this is the smallest control on the row. */
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  font-size: var(--fs-md);
+  line-height: 1;
+  color: var(--ink-3);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.cms-form__tag-kill:hover { color: var(--ink); }
+
+/* ── A SUMMARY ───────────────────────────────────────────────────────────────
+   The answers read back. `--surface-2` because it is a block nested inside the
+   sheet, which is what that tone is for — and it separates the recap from the
+   questions without a second border. */
+.cms-form__summary {
+  padding: var(--sp-4);
+  background: var(--surface-2);
+  border-radius: var(--r-none);
+}
+.cms-form__summary:has(.cms-form__summary-list:empty) { display: none; }
+.cms-form__summary-title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+  margin-bottom: var(--sp-2);
+}
+.cms-form__summary-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+}
+.cms-form__summary-term { color: var(--ink-3); }
+.cms-form__summary-value { color: var(--ink); margin: 0; }
+
+/* ── AN APPOINTMENT ──────────────────────────────────────────────────────────
+   The whole calendar on the page: a heading per day, and the free times under
+   it. Radios with the input out of sight and the label painted — the same
+   arrangement the Scale uses, and for the same reason: the control keeps the
+   keyboard and the form value while the label is what you can see and click. */
+.cms-form__appt { display: flex; flex-direction: column; gap: var(--sp-4); }
+.cms-form__appt-date {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+  margin-bottom: var(--sp-2);
+}
+.cms-form__appt-slots { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.cms-form__appt-slot { position: relative; cursor: pointer; }
+.cms-form__appt-slot input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.cms-form__appt-slot span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-3);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+}
+.cms-form__appt-slot:hover span { border-color: var(--accent); }
+.cms-form__appt-slot input:checked + span {
+  color: var(--ink-on-strong);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cms-form__appt-slot input:focus-visible + span {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── REPEATING ROWS ──────────────────────────────────────────────────────────
+   A row of the author's columns, and a control to add another. The columns
+   share the row evenly — `auto-fit`, so two columns and six both lay out
+   without a rule per shape, the same reasoning the composites use. */
+.cms-form__repeater { display: flex; flex-direction: column; gap: var(--sp-3); }
+.cms-form__rep-rows { display: flex; flex-direction: column; gap: var(--sp-3); }
+.cms-form__rep-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--sp-3);
+  align-items: start;
+}
+.cms-form__rep-cell { display: flex; flex-direction: column; }
+/* The column name goes UNDERNEATH, quieter than the field's own label — the
+   same treatment a composite's parts get, because it is the same idea. */
+.cms-form__rep-cell .cms-form__part-label { order: 2; }
+.cms-form__rep-kill {
+  align-self: center;
+  min-width: 24px;
+  min-height: 24px;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  color: var(--ink-3);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.cms-form__rep-kill:hover { color: var(--ink); }
+.cms-form__rep-kill[hidden] { display: none; }
+.cms-form__rep-add {
+  align-self: flex-start;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-4);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  cursor: pointer;
+}
+.cms-form__rep-add:hover { background: var(--hover); }
+
+/* ── A RANKING ───────────────────────────────────────────────────────────────
+   Drag the options into their order. `list-style: decimal` so the POSITION is
+   printed — a ranking whose numbers are implied asks the visitor to count, and
+   the number is the whole answer. */
+.cms-form__ranking {
+  /* NO `list-style`. `display: flex` on an <li> suppresses its marker in every
+     engine, so a decimal list drew nothing at all — the position is printed as
+     real markup instead, which it has to be anyway: it is the answer, and it
+     has to be repaintable after a drag. */
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+.cms-form__rank {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+.cms-form__rank + .cms-form__rank { margin-top: var(--sp-2); }
+.cms-form__rank-num {
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  text-align: right;
+}
+.cms-form__rank-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 24px is the touch floor, and this is the one thing on the row you have to
+     aim at. */
+  min-width: 24px;
+  min-height: 24px;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+}
+.cms-form__rank-grip:active { cursor: grabbing; }
+.cms-form__rank-icon { width: 16px; height: 16px; }
+.cms-form__rank-text { min-width: 0; }
+
+/* ── A LIKERT ────────────────────────────────────────────────────────────────
+   A real <table>, because it is one: statements down the side, answers across
+   the top, and a screen reader reads both headers for a cell. A grid of divs
+   would be thirty identical radios with no way to tell which question each
+   one answers. */
+.cms-form__likert {
+  width: 100%;
+  border-collapse: collapse;
+}
+.cms-form__likert th,
+.cms-form__likert td {
+  padding: var(--sp-2);
+  border-bottom: 1px solid var(--border);
+}
+.cms-form__likert thead th {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+  text-align: center;
+}
+.cms-form__likert tbody th {
+  font-weight: var(--fw-regular);
+  color: var(--ink);
+  text-align: left;
+}
+.cms-form__likert td { text-align: center; }
+/* A WHOLE CELL IS THE TARGET, not the 13px dot in the middle of it. */
+.cms-form__likert td label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+/* ── A TOGGLE ────────────────────────────────────────────────────────────────
+   A track and a knob: two states, both readable at rest. A checkbox answers
+   "does this apply"; a toggle answers "is this on", and the difference is
+   worth a different control rather than a skin on the same one.
+
+   THE REAL CHECKBOX IS STILL THERE, moved out of sight rather than replaced —
+   `appearance: none` on the input itself loses the label association, the
+   keyboard, and the form value. `--r-full` is the one place a pill radius is
+   right: it is a track, and a track with corners is a slot. */
+.cms-form__toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.cms-form__toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.cms-form__toggle-track {
+  display: block;
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  /* A track and a knob are circles BY SHAPE, which is what --r-full is
+     for — tokens-base calls it out by name and says it is never scaled.
+     The escape hatch is the token, not a raw 999px with a comment on it. */
+  border-radius: var(--r-full);
+  transition: background var(--t-fast);
+}
+.cms-form__toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  transition: transform var(--t-fast);
+}
+.cms-form__toggle-input:checked + .cms-form__toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cms-form__toggle-input:checked + .cms-form__toggle-track::after {
+  transform: translateX(20px);
+}
+.cms-form__toggle-input:focus-visible + .cms-form__toggle-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── A SLIDER ────────────────────────────────────────────────────────────────
+   With its value beside it. A slider whose number is not on screen is a
+   control whose answer the visitor cannot state, which is most of why a
+   slider is worse than a number box when it is drawn badly. */
+.cms-form__range {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cms-form__range-input { flex: 1 1 auto; min-width: 0; }
+.cms-form__range-value {
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+/* ── A COMPOSITE'S BOXES ─────────────────────────────────────────────────────
+   One field, several boxes, one label above them all — Name is First and Last,
+   Address is six lines. The boxes share the row evenly, which is what says they
+   belong to one answer; two Text fields side by side would not, because each
+   would carry its own heading.
+
+   `auto-fit` rather than a fixed count: Name has two parts and Address has six,
+   and a rule per composite is a rule that goes stale the first time a type is
+   added. 12rem is roughly where a text box stops being usable. */
+.cms-form__parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--sp-3);
+}
+.cms-form__part { display: flex; flex-direction: column; }
+
+/* THE SUB-LABEL GOES UNDERNEATH, and it is the quieter of the two. Above the
+   box it would compete with the field's own label and the pair would read as
+   two headings; underneath it reads as a caption on the thing it names, which
+   is what makes "First"/"Last" legible as one field.
+   It is a real `<label for>` — a screen reader that announces six identically
+   named "Address" boxes has not been helped by a caption. */
+.cms-form__part-label {
+  order: 2;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.cms-form__label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+  /* 4px — label to its control, the within-a-field step. */
+  margin-bottom: var(--sp-1);
+}
+
+/* The required mark is --accent, not --danger. Alert colour is a surface, never
+   a state: an asterisk marking a field is not an error, and painting it red
+   spends the alarm colour before anything has gone wrong. */
+.cms-form__required { color: var(--accent); }
+
+.cms-form__input {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-lg);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  color-scheme: var(--color-scheme);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.cms-form__input::placeholder { color: var(--ink-3); }
+.cms-form__input:hover { border-color: var(--ink-3); }
+.cms-form__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus);
+  outline: none;
+}
+
+/* A textarea is a block of lines, not a centred single line, so it declares no
+   height and keeps its vertical padding — the same split core.css makes. */
+.cms-form__textarea {
+  min-height: 0;
+  padding: var(--sp-2) var(--sp-3);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.cms-form__checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  color: var(--ink);
+  cursor: pointer;
+}
+.cms-form__checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 5px;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.cms-form__actions { margin-top: var(--sp-5); }
+
+/* Saturated accent fill: this button ACTS. */
+.cms-form__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--sp-5);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  color: var(--ink-on-strong);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.cms-form__submit:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.cms-form__submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   7. ALERT SURFACES
+   ════════════════════════════════════════════════════════════════════════════
+   An alert is a STANDALONE surface with its own box — a soft tint plus a
+   coloured edge bar — never a state colour painted into themed chrome. The
+   coloured single edge forces `--r-none`; that pairing is a locked rule, not a
+   preference.                                                                */
+
+.cms-alert,
+.cms-form__alert {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-none);
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: var(--fs-md);
+}
+
+.cms-form__alert { margin-top: var(--sp-4); }
+
+.cms-alert--success,
+.cms-form__alert--success {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+.cms-alert--error,
+.cms-form__alert--error {
+  background: var(--danger-soft);
+  border-left-color: var(--danger);
+}
+
+/* ABOVE ITS FORM (the form's "Messages show"): the space goes below it. */
+.cms-form__alert--above { margin-top: 0; margin-bottom: var(--sp-4); }
+
+/* A FIELD'S OWN MESSAGE (`Helpers\Shortcode`, form.js): the same surface,
+   small, under the field it is about, and only while its answer is wrong
+   (the `hidden` attribute, which reset.css keeps above any display). */
+.cms-form__error {
+  display: block;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-none);
+  border-left: 3px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   8. STANDALONE PAGES — password gate, 404
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.gate {
+  max-width: 480px;
+  margin: 0 auto;
+}
+.gate__title {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  margin-bottom: var(--sp-2);
+}
+.gate__intro {
+  color: var(--ink-2);
+  margin-bottom: var(--sp-5);
+}
+.gate .cms-alert { margin-bottom: var(--sp-4); }
+.gate__field { margin-bottom: var(--sp-4); }
+
+.notfound {
+  text-align: center;
+  padding: var(--sp-7) 0;
+}
+.notfound__code {
+  font-size: var(--fs-4xl);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  color: var(--ink-disabled);
+}
+.notfound__text {
+  color: var(--ink-2);
+  margin-top: var(--sp-3);
+}
+.notfound__home {
+  display: inline-block;
+  margin-top: var(--sp-4);
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   9. RESPONSIVE
+   ════════════════════════════════════════════════════════════════════════════
+   The canonical widths only — sm560 / md720 / lg1080 / xl1280. A one-off width
+   is how a layout ends up right at one size and broken 40px away.            */
+
+@media (max-width: 720px) {
+  .site-header {
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    /* The menu panel drops from this edge — see `.menu__switch:checked`. */
+    position: relative;
+  }
+  .site-content { padding: var(--sp-6) var(--sp-4); }
+
+  /* A QUARTER OF A PHONE-WIDTH COLUMN IS NOT A FIELD. Thirds and quarters
+     become halves here and full at 560 — the setting is a ceiling on how many
+     fit beside each other, the same way the gallery's Columns is. A control
+     narrow enough to show four characters of a postcode is not honouring the
+     owner's choice, it is obeying it off a cliff. */
+  .cms-form__field--third,
+  .cms-form__field--quarter { grid-column: span 6; }
+
+  /* The two wide ones go the other way: at this width a nine-twelfths field
+     beside a three-twelfths one is a full-width field beside a stub, so both
+     take the whole row rather than pretending to share it. */
+  .cms-form__field--three-quarters,
+  .cms-form__field--two-thirds { grid-column: span 12; }
+}
+
+@media (max-width: 560px) {
+  .site-header {
+    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-2);
+  }
+  /* A LONG NAME SHRINKS, IT DOES NOT PUSH. An unset Site title is the site's
+     host (migration 058) — a staging server's ran to 31 characters
+     — and at 390 it wrapped the header, pushing the menu button onto a row of
+     its own. It ends in an ellipsis instead; the link still carries all of it. */
+  .site-header__name {
+    /* From ZERO, then grow: a wrapping row breaks before it shrinks, so an
+       auto basis still put the name on a line of its own. */
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .site-header__nav { gap: var(--sp-4); }
+  .site-footer { padding: var(--sp-3) var(--sp-4); }
+
+  .post-header h1 { font-size: var(--fs-2xl); }
+
+  /* A half-width field has nothing to sit beside. Every width is full here,
+     and the grid keeps its twelve tracks so nothing has to redefine a span —
+     one rule, not four. */
+  .cms-form__field,
+  .cms-form__field--three-quarters,
+  .cms-form__field--two-thirds,
+  .cms-form__field--half,
+  .cms-form__field--third,
+  .cms-form__field--quarter { grid-column: span 12; }
+}
+
+
+/* ═══ THE SHOP ════════════════════════════════════════════════════════════════
+
+   Basket, checkout and the receipt. Three pages, one vocabulary.
+
+   ── WHY THIS IS NOT `cms-form__*` ──────────────────────────────────────
+   Those classes are emitted by `Shortcode::renderForm()` for a form the OWNER
+   built out of arbitrary fields, and they carry the twelve-column width system
+   that goes with it. A checkout is a fixed form with a known set of fields and
+   a summary panel beside it; borrowing the builder's grid would mean every
+   change to a form field's width rule landing on the checkout too. Separate
+   surface, separate components, SAME TOKENS — so the two cannot disagree about
+   what the accent is.
+
+   ── RADIUS BY ROLE ─────────────────────────────────────────────────────────
+   Panels, tables and address blocks are the page's substance: `--r-none`.
+   Buttons and inputs are controls: `--r`. Nothing here is a circle by shape, so
+   `--r-full` does not appear. */
+
+/* A LABEL THAT IS READ BUT NOT SEEN. The quantity boxes and the Remove buttons
+   each need to say WHICH product they act on, or a screen reader hears "Remove"
+   seven times with nothing to tell them apart. The public theme had no such
+   utility, which is why this is here and not borrowed. */
+.u-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.shop {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5);
+}
+.shop__title {
+  margin: 0 0 var(--sp-5);
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+}
+.shop__lede {
+  margin: 0 0 var(--sp-6);
+  font-size: var(--fs-lg);
+  color: var(--ink-2);
+}
+.shop__link { color: var(--accent); text-decoration: underline; }
+
+/* ── The empty state ─────────────────────────────────────────────────────────
+   A state, not an error: it says what is true and offers the way out. An empty
+   table with "$0.00" under it reads as a shop that is broken. */
+.shop-empty {
+  padding: var(--sp-7) var(--sp-5);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+.shop-empty__title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-lg);
+  color: var(--ink-2);
+}
+
+/* ── Panels ──────────────────────────────────────────────────────────────── */
+.shop-panel {
+  margin: 0 0 var(--sp-5);
+  padding: var(--sp-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+.shop-panel__title {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+}
+/* The payment instructions are the reason the receipt page exists — an offline
+   method with no account number is an order nobody can pay for. `--accent-soft`
+   rather than a warning tone: this is the next step, not a problem. */
+.shop-panel--instructions {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.shop-instructions { margin: 0; color: var(--ink); }
+
+/* ── The line-item table ─────────────────────────────────────────────────── */
+.shop-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--sp-5);
+}
+.shop-table th,
+.shop-table td {
+  padding: var(--sp-3) var(--sp-2);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.shop-table thead th {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-3);
+}
+/* SPECIFICITY, NOT ORDER. Written as `.shop-table__num`, this rule LOST to
+   `.shop-table th, .shop-table td` above — (0,1,0) against (0,1,1) — and every
+   money column rendered left-aligned, so the figures in a basket did not line
+   up under each other. It looked like a spacing choice rather than a bug, which
+   is why it survived being looked at. Qualifying the selector with the element
+   matches the specificity it has to beat. */
+.shop-table th.shop-table__num,
+.shop-table td.shop-table__num { text-align: right; }
+.shop-table__name { font-weight: var(--fw-medium); color: var(--ink); }
+.shop-table__name span { display: block; font-weight: var(--fw-regular); }
+
+.shop-qty {
+  width: 5rem;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--sp-2);
+  text-align: right;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.shop-qty:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* ── The option chooser ───────────────────────────────────────────────────
+   A product sold in several forms gets a select beside the quantity box, and
+   it has to look like it belongs to the same row — a browser-default select
+   next to a themed input and a themed button is the one unstyled control on
+   the page, which reads as something half-built. Same height, same border,
+   same radius as `.shop-qty`.
+
+   `appearance: none` and a drawn chevron for the same reason `core.css` does
+   it in the admin: a native select cannot be given a border radius on every
+   platform, so the two would differ on one of them. */
+.shop-variant {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--sp-6) 0 var(--sp-3);
+  font: inherit;
+  color: var(--ink);
+  background-color: var(--surface);
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+                    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: right var(--sp-4) center, right calc(var(--sp-4) - 4px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  appearance: none;
+}
+.shop-variant:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* WHICH ONE THIS LINE IS, on the basket and the receipt. Beside the product's
+   name rather than under it: "Associate" and "Small" are one thing, and a
+   picker reading a packing slip needs them on one line. */
+.shop-table__variant {
+  display: inline-block;
+  margin-left: var(--sp-2);
+  padding: 1px var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+
+/* Remove is a submit of the cart's own form — see cart.php on why there is no
+   nested form here. It reads as a quiet text action because it is destructive
+   and secondary; the danger tone is on hover, where the intent is committed. */
+.shop-remove {
+  padding: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.shop-remove:hover { color: var(--danger); }
+
+/* ── Totals ──────────────────────────────────────────────────────────────── */
+.shop-totals { margin: 0 0 var(--sp-5); }
+.shop-totals__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-2) 0;
+  color: var(--ink-2);
+}
+.shop-totals__row--grand {
+  padding-top: var(--sp-3);
+  font-size: var(--fs-lg);
+  color: var(--ink);
+  border-top: 1px solid var(--border-strong);
+}
+/* ── A LINE THAT IS NOT A CHARGE ──────────────────────────────────────────
+   When tax is already in the prices, "Includes GST (5%)" says how much of the
+   total WAS tax — it is not another row to add up. Smaller and muted, so the
+   column of figures the customer is checking is the one that adds up and this
+   sits beside it as a note. Printed identically to the rows above it, it is
+   how a customer decides they have been charged twice. */
+.shop-totals__row--note {
+  padding-top: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.shop-totals__note { margin: var(--sp-2) 0 0; }
+
+/* ── The discount code ────────────────────────────────────────────────────
+   A labelled box and a button on one line, under the totals and above the two
+   things you do next. It is deliberately QUIET — a code box shouted at every
+   customer is a shop telling the ones without a code that they are paying too
+   much, which is the opposite of what it is for. */
+.shop-coupon { margin: 0 0 var(--sp-5); }
+.shop-coupon__label {
+  display: block;
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.shop-coupon__row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: stretch;
+}
+/* `max-width` AND `flex`, so it is a box a code fits in rather than one that
+   spans the page. A twelve-character field stretched to 900px reads as a search
+   bar, and a customer types their postcode into it. */
+.shop-coupon__input {
+  flex: 0 1 18rem;
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  text-transform: uppercase;
+}
+.shop-coupon__input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.shop-coupon__input::placeholder { color: var(--ink-3); text-transform: none; }
+.shop-coupon__applied { margin: 0; color: var(--ink-2); }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.shop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 var(--sp-5);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  color: var(--ink-on-strong);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.shop-btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.shop-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.shop-btn--quiet {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+.shop-btn--quiet:hover { background: var(--hover); border-color: var(--border-strong); }
+.shop-btn--wide { width: 100%; margin-top: var(--sp-4); }
+
+.shop-cart__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  justify-content: flex-end;
+}
+
+/* ── Add to basket, on a product page ────────────────────────────────────── */
+.shop-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.shop-add__unavailable { margin-top: var(--sp-4); }
+
+/* "Email me" under a sold-out size: the same row of controls as the basket
+   form above it, led by the line that says what the address is for. The quiet
+   button, because the basket's is the page's action. The address box is sized
+   to an address, as the code box is to a code. */
+.shop-waitlist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+.shop-waitlist__lead {
+  flex-basis: 100%;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.shop-waitlist .shop-field__input { flex: 0 1 18rem; min-width: 0; }
+
+/* "Only 2 left." — the reason somebody buys today rather than next week. It is
+   a FACT the page is telling, not an alarm, so it takes the quiet register and
+   no alert colour: alert colour is a surface and never a state. */
+.product-stock-low {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* ── A chooser for each thing a customer picks ───────────────────────────────
+   Size and Colour, each a `.shop-variant` select in the same row as the
+   quantity box and the button, so the row reads as one control group whatever
+   the product is sold in. `display: contents` lets the wrappers' selects take
+   their places in the `.shop-add` row; each wrapper has to restate `[hidden]`,
+   because an author's `display` outranks the browser's own rule for it. The
+   note — "Only 2 left.", "Sold out." — takes a line of its own after the
+   button, in the quiet register: a fact, not an alarm. */
+.shop-variant-wrap,
+.shop-choosers { display: contents; }
+.shop-variant-wrap[hidden],
+.shop-choosers[hidden],
+.shop-choosers__note[hidden] { display: none; }
+.shop-choosers__note {
+  order: 1;
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* ── More photos ─────────────────────────────────────────────────────────────
+   Small squares under the main photo, each a link to the full picture. Square
+   and sharp, as the photo above them is: they are the page's substance, not a
+   floating control. The current one carries the accent edge. */
+/* The strip belongs to the photo above it, so the photo's own gap below
+   shrinks to the strip's gap when one follows. */
+.post-featured:has(+ .product-thumbs) { margin-bottom: var(--sp-2); }
+.product-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-5);
+}
+.product-thumbs__item {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.product-thumbs__item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.product-thumbs__item[aria-current="true"] { border-color: var(--accent); }
+.product-thumbs__item:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* ── A shop's list, ordered and narrowed ─────────────────────────────────────
+   One row of `.shop-variant` selects and a quiet button, wrapping on a phone.
+   It sits between the heading and the list it changes. */
+.shop-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-5);
+}
+
+/* ── Checkout layout ─────────────────────────────────────────────────────── */
+.shop-checkout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-5);
+  align-items: start;
+}
+.shop-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+/* A street address in half a column wraps for no reason, so the name and the
+   first address line take the whole row.
+
+   BY MODIFIER, NOT BY POSITION. This was `:nth-child(3), :nth-child(4)`, which
+   is correct only for the exact field order `Checkout::FIELDS` happens to have
+   today — insert a field above them and two unrelated boxes go full width while
+   the address goes back to half, silently. `Checkout::WIDE_FIELDS` names them,
+   and the template asks that list. */
+.shop-field--wide { grid-column: 1 / -1; }
+
+.shop-field { display: flex; flex-direction: column; gap: var(--sp-1); }
+.shop-field__label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+}
+/* THE ASTERISK IS NOT THE ONLY SIGNAL. It is `aria-hidden`, the input carries
+   `required`, and a field that fails carries its message in text — so the
+   requirement is stated three ways and none of them is colour alone. */
+.shop-field__req { color: var(--danger); margin-left: 2px; }
+.shop-field__input {
+  min-height: var(--control-h);
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+textarea.shop-field__input { min-height: 0; padding: var(--sp-3); line-height: var(--lh); }
+.shop-field__input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.shop-field--error .shop-field__input { border-color: var(--danger); }
+.shop-field__error {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+
+.shop-check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* Delivered or collected: two of the same rows, under the panel's own label,
+   with the owner's where-and-when below them in the quiet register. */
+.shop-choice {
+  margin: 0 0 var(--sp-4);
+  padding: 0;
+  border: 0;
+}
+.shop-choice .shop-check { margin-bottom: var(--sp-2); }
+.shop-choice__where { margin: 0 0 0 var(--sp-5); }
+
+/* What the customer agrees to: its link reads as one, inside the label, and a
+   label that wraps to two lines keeps its box beside the first. */
+.shop-check a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.shop-check--agree { align-items: flex-start; }
+
+/* Whose receipt it is, at its foot: the business's name, address and GST/HST
+   number, in the quiet register of a letterhead's small print. */
+.shop-business { margin: var(--sp-5) 0; }
+
+/* ── Payment method choice ───────────────────────────────────────────────── */
+.shop-pay {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+  cursor: pointer;
+}
+.shop-pay:hover { background: var(--hover); }
+/* THE WHOLE ROW SHOWS THE CHOICE, not just the dot. A 14px radio is a small
+   target for the one decision on the page that cannot be undone. */
+.shop-pay:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.shop-pay__body { display: flex; flex-direction: column; gap: 2px; }
+.shop-pay__title { font-weight: var(--fw-medium); color: var(--ink); }
+
+/* ── Order summary ───────────────────────────────────────────────────────── */
+.shop-summary { margin: 0 0 var(--sp-4); padding: 0; list-style: none; }
+.shop-summary__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.shop-summary__num { white-space: nowrap; color: var(--ink); }
+
+/* ── Addresses on the receipt ────────────────────────────────────────────── */
+.shop-addresses {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-5);
+}
+.shop-address__title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-3);
+}
+.shop-address { font-style: normal; color: var(--ink); line-height: var(--lh); }
+
+/* ── The link to the page in the other language ──────────────────────────── */
+/* In the header's register, as "Your orders" is: a way to the same page, not
+   a control of its own. */
+.site-header__lang { color: var(--ink); }
+
+/* ── The basket link in the site header ──────────────────────────────────── */
+/* "Your orders", beside the basket and in its register: the two are the
+   shop's own corner of the header. */
+.site-header__account { color: var(--ink); }
+.shop-account__ask { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3); }
+.shop-account__ask .shop-field { flex: 0 1 22rem; margin: 0; }
+.shop-account__note { color: var(--ink-2); font-size: var(--fs-sm); }
+.shop-account__places { display: flex; flex-wrap: wrap; gap: var(--sp-6); }
+.shop-account__place-title { margin: 0 0 var(--sp-1); font-size: var(--fs-sm); color: var(--ink-2); }
+.site-header__cart {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink);
+}
+/* A COUNT IS DRAWN ONLY WHEN THERE IS ONE. A "0" badge is a permanent piece of
+   furniture that tells the visitor nothing; the template omits it entirely at
+   zero rather than styling it away. This is the one circle-by-shape on the
+   page, so it is the one `--r-full`. */
+.site-header__cart-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ink-on-strong);
+  background: var(--accent);
+  border-radius: var(--r-full);
+}
+
+/* ── The four canonical breakpoints, and only those ──────────────────────── */
+@media (min-width: 1080px) {
+  /* The summary and payment panels sit beside the address form, so the figures
+     a customer is confirming stay on screen while they type. */
+  .shop-checkout { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .shop { padding: var(--sp-5) var(--sp-4); }
+  .shop-fields { grid-template-columns: minmax(0, 1fr); }
+  .shop-addresses { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .shop__title { font-size: var(--fs-2xl); }
+  /* THE PRICE COLUMN GOES, NOT THE TOTAL. At this width the table has room for
+     the name, the quantity and one figure, and the figure that matters is what
+     the line costs — the unit price is on the product page. Hiding the total
+     instead would leave a basket that does not say what it comes to. */
+  .shop-table thead th:nth-child(2),
+  .shop-table tbody td:nth-child(2) { display: none; }
+  .shop-cart__actions { flex-direction: column-reverse; }
+  .shop-cart__actions .shop-btn { width: 100%; }
+}
+
+
+/* ═══ ALIGNED IMAGES IN AUTHORED CONTENT ═════════════════════════════════════
+
+   `Html\Sanitizer::CLASSES` is the whole vocabulary an author can put on a
+   picture: `align-left`, `align-center`, `align-right`. Nothing else survives
+   a save, so nothing else needs styling here.
+
+   ── THESE RULES ARE THE EDITOR'S, TO THE PIXEL ─────────────────────────────
+   `admin.css`'s `.editor__surface` block carries the same four declarations.
+   That duplication is the POINT: the editor is a preview, and a preview whose
+   floats behave differently from the page is a preview of something else. If
+   one changes, change both — there is no shared sheet to put them in, because
+   the admin and the public theme deliberately do not share a component layer
+   (see theme.css's header).
+
+   `align-none` is not here. It is the ABSENCE of the other three, so an image
+   the author never aligned and one they explicitly set to "None" render
+   identically — which is what "none" means. */
+
+.post-content .align-left,
+.page-content .align-left,
+.post-content .align-right,
+.page-content .align-right { max-width: 50%; }
+
+.post-content .align-left,
+.page-content .align-left  { float: left;  margin: 0 var(--sp-4) var(--sp-3) 0; }
+
+.post-content .align-right,
+.page-content .align-right { float: right; margin: 0 0 var(--sp-3) var(--sp-4); }
+
+.post-content .align-center,
+.page-content .align-center {
+  display: block;
+  margin-inline: auto;
+  margin-bottom: var(--sp-3);
+}
+
+/* A FLOAT ESCAPES ITS CONTAINER unless something stops it — a short paragraph
+   beside a tall picture otherwise lets the footer ride up alongside it. */
+.post-content::after,
+.page-content::after { content: ''; display: block; clear: both; }
+
+.post-content figure,
+.page-content figure { margin: 0 0 var(--sp-4); }
+
+.post-content figcaption,
+.page-content figcaption {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* ── TABLES IN AUTHORED CONTENT ───────────────────────────────────────────
+   `table`, `tr`, `th` and `td` have been on the sanitiser's allowlist since it
+   was written, and the editor can make one now — so the page has to be able to
+   render one. Without these rules a price list authored in the admin arrives
+   here as unstyled rows with no borders, which is the editor lying about what
+   the page will look like.
+
+   The admin carries the identical rules on `.editor__surface`. That is the
+   whole promise: what is built while writing is what the visitor sees. */
+.post-content table,
+.page-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--sp-4);
+}
+.post-content th, .page-content th,
+.post-content td, .page-content td {
+  padding: var(--sp-2);
+  text-align: left;
+  border: 1px solid var(--border);
+}
+/* A HEADER ROW MUST LOOK LIKE ONE. The `<th>` is what lets a screen reader say
+   which column a cell belongs to; sighted readers get the same information
+   from the tone, and without it the first row is just another row. */
+.post-content thead th,
+.page-content thead th {
+  background: var(--surface-2);
+  font-weight: var(--fw-semi);
+}
+/* A TABLE IS THE ONE THING IN AUTHORED PROSE THAT CANNOT REFLOW. Six columns
+   in a 360px column either overflow the page or squeeze to one character
+   each — so it scrolls inside its own box rather than breaking the layout
+   around it. */
+.post-content table,
+.page-content table { display: block; overflow-x: auto; }
+
+/* ── TEXT ALIGNMENT, WHICH IS NOT IMAGE ALIGNMENT ─────────────────────────
+   `text-*` on a block sets `text-align`; `align-*` on a picture FLOATS it. Two
+   vocabularies, kept apart by tag in `Html\Sanitizer`, because one word for
+   both would mean either the paragraphs float or the pictures stop wrapping.
+
+   THE ADMIN CARRIES THE IDENTICAL THREE RULES on `.editor__surface`. That is
+   the whole promise of the editor: what is centred while writing is centred on
+   the page, and a rule that exists on one side only is the promise broken. */
+.post-content .text-left,   .page-content .text-left   { text-align: left; }
+.post-content .text-center, .page-content .text-center { text-align: center; }
+.post-content .text-right,  .page-content .text-right  { text-align: right; }
+
+/* ── NARROW ───────────────────────────────────────────────────────────────
+   A picture floated to 50% of a 360px column leaves 180px of text beside it,
+   which wraps to two words a line. Below the md breakpoint every alignment
+   becomes a full-width block — the same answer the form field widths give at
+   the same width, and for the same reason. */
+@media (max-width: 720px) {
+  .post-content .align-left,  .page-content .align-left,
+  .post-content .align-right, .page-content .align-right {
+    float: none;
+    max-width: 100%;
+    margin: 0 0 var(--sp-3);
+  }
+}
+
+/* ── WHAT A MENU ITEM WAS TOLD ─────────────────────────────────────────────
+   Migration 050's settings bag, rendered. `MenuRenderer` turns each one into a
+   class and this is where each class does its work.
+
+   EVERY ONE OF THESE HAS TO EXIST OR THE SETTING IS A CONTROL THAT LIES. A
+   dialog that offers "Hide it on a phone", a store that saves it, a renderer
+   that emits `menu__item--no-phone`, and no rule anywhere that hides anything,
+   is the same failure as the three columns migration 022 shipped with no reader
+   — worse, because this one has a tick box saying it works.
+
+   THE BREAKPOINT IS 720px, which is the one the header's own phone panel uses
+   twenty lines up. A second number here would mean "phone" meant two different
+   widths on one page. */
+/* SCOPED TO `.menu`, and that is specificity arithmetic rather than taste.
+   `.site-header__nav a` is (0,1,1) and sets `display: block`; a bare
+   `.menu__link` is (0,1,0) and LOSES to it however far down the file it sits.
+   The icon and the badge would have laid out as blocks, one under the other,
+   and the setting would have looked broken rather than absent. `.menu
+   .menu__link` is (0,2,0) and wins. */
+.menu .menu__link { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.menu .menu__icon { display: inline-flex; flex: none; }
+
+/* The text, always in a span, so it can be taken out of SIGHT without being
+   taken out of the ACCESSIBILITY TREE. An icon-only item whose label has been
+   deleted is an unlabelled link — the commonest accessibility failure there is
+   in a navigation, and the reason `hide_text` is a class and not a deletion. */
+.menu__label--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── A DESCRIPTION UNDER THE LABEL ────────────────────────────────────────
+   Where a location's card shows them. Label and description stack as one block,
+   so an icon beside them sits beside both. The description is secondary but it
+   is still READ, so --ink-2 and not the faintest ink there is. */
+.menu .menu__text { display: inline-flex; flex-direction: column; gap: 2px; }
+.menu .menu__desc {
+  font-size: 0.8em;
+  font-weight: var(--fw-regular);
+  line-height: 1.3;
+  color: var(--ink-2);
+  white-space: normal;
+}
+/* An icon beside a two-line item sits level with the LABEL, not halfway down
+   the description. */
+.menu .menu__link:has(> .menu__text) { align-items: flex-start; }
+/* And the bar lines its items up on the LABELS' baseline. Centred, a one-line
+   item beside a described one floats halfway down its neighbour's description,
+   and no two labels share a line. */
+.site-header__nav:has(> li > .menu__link > .menu__text) { align-items: baseline; }
+/* The same for the header's own row, or the name and the basket stay centred
+   on a bar that is now two lines tall and sit below every label beside them. */
+.site-header:has(.site-header__nav > li > .menu__link > .menu__text) { align-items: baseline; }
+
+/* A short word ON the item. Quiet by default — a badge that shouts is a badge
+   every item ends up wanting. That is Style 1; the other three are drawn from
+   this theme's tokens. None of them is an alert colour:
+   a red "New" borrows the colour that means something went wrong. */
+.menu .menu__badge {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+}
+.menu .menu__badge--two   { color: var(--ink-on-strong); background: var(--accent); border-color: var(--accent); }
+.menu .menu__badge--three { color: var(--accent-strong); background: var(--accent-soft); border-color: transparent; }
+.menu .menu__badge--four  { color: var(--surface); background: var(--ink); border-color: var(--ink); }
+/* Hiding the badge alone on a phone or on a desktop, at the same width as the
+   item's own hiding. */
+@media (max-width: 720px) {
+  .menu .menu__badge--no-phone { display: none; }
+}
+@media (min-width: 721px) {
+  .menu .menu__badge--no-desktop { display: none; }
+}
+
+/* AN ITEM THAT IS NOT A LINK — a heading that only opens its sub-menu. It keeps
+   the link's shape and its cursor, and `MenuRenderer` gives it `tabindex="0"`
+   and `role="button"` so it is still reachable and still announced. */
+.menu .menu__link--static { cursor: default; }
+
+/* THE ICON ABOVE THE WORD rather than beside it. */
+.menu__item--icon-top > .menu__link {
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* PUSHED TO ONE END OF THE BAR. `margin-left: auto` on the first right-pushed
+   item carries every item after it along to the end of the bar — one rule
+   instead of a reordering pass. */
+.site-header__nav > li.menu__item--right { margin-left: auto; }
+.site-header__nav > li.menu__item--right ~ li.menu__item--right { margin-left: 0; }
+.site-header__nav > li.menu__item--left { margin-right: auto; }
+
+/* A SUB-MENU THAT OPENS FROM THE RIGHT EDGE, so the last item in a bar does not
+   push its panel off the side of the window. */
+.site-header__nav > li.menu__item--sub-right > ul,
+.site-header__nav > li.menu__item--sub-right > .menu__mega {
+  left: auto;
+  right: calc(var(--sp-3) * -1);
+}
+
+/* THE ARROW THAT SAYS "THERE IS MORE UNDER THIS". Drawn here rather than in the
+   markup so `hide_arrow` is one rule and not a branch in the renderer — and so
+   a theme that wants a different mark changes one place. */
+.site-header__nav > li.menu__item--parent > .menu__link::after {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border: 4px solid transparent;
+  border-top-color: currentColor;
+  transform: translateY(2px);
+}
+.site-header__nav > li.menu__item--no-arrow > .menu__link::after { content: none; }
+
+/* COLLAPSED CHILDREN, inside a mega panel: the column's heading stays and its
+   list is folded away until the heading is hovered or focused. Only meaningful
+   in a panel, which is what the dialog's depth rule already enforces. */
+.menu__mega .menu__item--collapsed > ul { display: none; }
+.menu__mega .menu__item--collapsed:hover > ul,
+.menu__mega .menu__item--collapsed:focus-within > ul { display: block; }
+
+/* ── THE PHONE'S TOGGLE BAR ─────────────────────────────────────────────────
+   What a phone shows in place of the menu: three zones of blocks, the toggle
+   among them. The nav fills the header's row between the site's name and the
+   basket, so the left zone starts after the name and the right one ends at the
+   basket. Owner-chosen colours and sizes arrive as custom properties
+   (`--tb-*`); every rule that reads one falls back to the theme's own. */
+.menu__bar { display: none; }
+@media (max-width: 720px) {
+  .site-header > .menu:not(.menu--plain) { flex: 1 1 auto; min-width: 0; }
+  .menu__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: 32px;
+  }
+  .menu__bar-zone { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+  .menu__bar-zone--left:empty,
+  .menu__bar-zone--right:empty { display: none; }
+  .menu__bar-zone--center { flex: 1; justify-content: center; }
+
+  /* The standard toggle: its words and its icon, each in its own colour and
+     size, and a second word or icon for while the menu is open. */
+  .menu__toggle { color: var(--tb-text, var(--ink-2)); }
+  .menu__toggle--text-small  { font-size: var(--fs-sm); }
+  .menu__toggle--text-large  { font-size: var(--fs-lg); }
+  .menu__toggle-icon { display: inline-flex; color: var(--tb-icon, currentColor); }
+  .menu__toggle--icon-small  .menu__toggle-icon .icon { width: 14px; height: 14px; }
+  .menu__toggle--icon-medium .menu__toggle-icon .icon { width: 18px; height: 18px; }
+  .menu__toggle--icon-large  .menu__toggle-icon .icon { width: 22px; height: 22px; }
+  .menu__toggle-text--open,
+  .menu__toggle-icon--open,
+  .menu__toggle-img--open { display: none; }
+  .menu__switch:checked ~ .menu__bar .menu__toggle-text--open,
+  .menu__switch:checked ~ .menu__bar .menu__toggle-icon--open { display: inline-flex; }
+  .menu__switch:checked ~ .menu__bar .menu__toggle-img--open { display: block; }
+  /* The closed one steps aside only for an open one that exists — a toggle
+     given one icon keeps it, rather than going blank while the menu is open. */
+  .menu__switch:checked ~ .menu__bar .menu__toggle-text--closed,
+  .menu__switch:checked ~ .menu__bar .menu__toggle-icon--closed:has(~ .menu__toggle-icon--open),
+  .menu__switch:checked ~ .menu__bar .menu__toggle-img--closed:has(~ .menu__toggle-img--open) { display: none; }
+
+  /* The animated toggle: three lines that turn into a cross. */
+  .menu__toggle--animated { --tb-scale: 1; padding: 6px 2px; }
+  .menu__toggle--small   { --tb-scale: 0.75; }
+  .menu__toggle--large   { --tb-scale: 1.25; }
+  .menu__toggle--x-large { --tb-scale: 1.5; }
+  .menu__burger {
+    position: relative;
+    display: block;
+    width: calc(22px * var(--tb-scale));
+    height: calc(16px * var(--tb-scale));
+  }
+  .menu__burger > span,
+  .menu__burger > span::before,
+  .menu__burger > span::after {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--tb-icon, var(--ink));
+    border-radius: 2px;
+    transition: transform 0.2s ease, top 0.2s ease, background-color 0.2s ease;
+  }
+  .menu__burger > span { top: calc(50% - 1px); }
+  .menu__burger > span::before,
+  .menu__burger > span::after { content: ""; }
+  .menu__burger > span::before { top: calc(-7px * var(--tb-scale)); }
+  .menu__burger > span::after  { top: calc(7px * var(--tb-scale)); }
+  .menu__switch:checked ~ .menu__bar .menu__burger > span { background-color: transparent; }
+  .menu__switch:checked ~ .menu__bar .menu__burger > span::before { top: 0; transform: rotate(45deg); }
+  .menu__switch:checked ~ .menu__bar .menu__burger > span::after  { top: 0; transform: rotate(-45deg); }
+
+  .menu__toggle-img { display: block; max-height: 32px; width: auto; }
+
+  .menu__bar-spacer { display: block; flex: none; width: var(--tb-w, 16px); }
+
+  .menu__bar-logo { display: block; line-height: 0; }
+  .menu__bar-logo img {
+    position: relative;
+    top: var(--tb-y, 0);
+    display: block;
+    width: auto;
+    max-height: var(--tb-h, 32px);
+  }
+
+  .menu__bar-icon { display: inline-flex; color: var(--tb-icon, var(--ink-2)); }
+  .menu__bar-icon:hover { color: var(--tb-icon, var(--ink)); }
+  .menu__bar-icon--small  .icon { width: 14px; height: 14px; }
+  .menu__bar-icon--medium .icon { width: 18px; height: 18px; }
+  .menu__bar-icon--large  .icon { width: 22px; height: 22px; }
+
+  .menu__bar-html { font-size: var(--fs-sm); color: var(--ink-2); }
+
+  /* SEARCH: a box, or an icon that opens into one on the side it was told —
+     open while anything in it has focus, and `theme-menu.js` turns an empty
+     submit into focusing the box rather than searching for nothing. */
+  .menu__bar-search { display: flex; align-items: center; }
+  .menu__bar-search--expand-right { flex-direction: row-reverse; }
+  .menu__bar-search-input {
+    width: var(--tb-w, 180px);
+    height: 32px;
+    padding: 0 var(--sp-2);
+    font-size: var(--fs-sm);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r);
+    transition: width 0.2s ease, padding 0.2s ease, border-color 0.2s ease;
+  }
+  /* THE EXPANDING BOX OPENS OVER ITS NEIGHBOURS. In the flow it would push the
+     bar wide enough to wrap the header onto two rows the moment it opens.
+     Closed it is nothing at all — no background, so its two pixels of border
+     do not draw a line on the header — and still focusable, so Tab opens it
+     too. */
+  .menu__bar-search--expand-left,
+  .menu__bar-search--expand-right { position: relative; }
+  .menu__bar-search--expand-left .menu__bar-search-input,
+  .menu__bar-search--expand-right .menu__bar-search-input {
+    position: absolute;
+    top: 50%;
+    z-index: 5;
+    width: 0;
+    padding: 0;
+    background: transparent;
+    border-color: transparent;
+    transform: translateY(-50%);
+  }
+  .menu__bar-search--expand-left .menu__bar-search-input  { right: 100%; }
+  .menu__bar-search--expand-right .menu__bar-search-input { left: 100%; }
+  .menu__bar-search--expand-left:focus-within .menu__bar-search-input,
+  .menu__bar-search--expand-right:focus-within .menu__bar-search-input {
+    width: var(--tb-w, 180px);
+    padding: 0 var(--sp-2);
+    background: var(--surface);
+    border-color: var(--border-strong);
+  }
+  .menu__bar-search-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--ink-2);
+    background: none;
+    border: 0;
+  }
+}
+
+/* ── REPLACEMENTS: an item that is a logo, a search box or HTML ─────────────
+   A logo keeps the link's place and its size from the item. The search box is
+   the toggle bar's, drawn in the menu: a box, or an icon that opens over its
+   neighbours; on a phone it is a plain box across the panel. Owner colours and
+   sizes arrive as `--rs-*`, each falling back to the theme's own. */
+.menu .menu__link--logo { padding-top: 0; padding-bottom: 0; }
+/* The size is the item's own, as width and height on the <img> — nothing here
+   overrides it but a column too narrow to hold it. */
+.menu .menu__logo { display: block; max-width: 100%; object-fit: contain; }
+.menu .menu__link--html { cursor: default; }
+.menu__search { position: relative; top: var(--rs-y, 0); display: flex; align-items: center; }
+.menu__search--expand-right { flex-direction: row-reverse; }
+.menu__search-input {
+  width: var(--rs-w, 180px);
+  height: var(--rs-h, 32px);
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--rs-text, var(--ink));
+  background: var(--rs-bg-open, var(--surface));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--rs-radius, var(--r));
+  transition: width 0.2s ease, padding 0.2s ease, border-color 0.2s ease;
+}
+.menu__search-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--rs-h, 32px);
+  height: var(--rs-h, 32px);
+  color: var(--rs-icon, var(--ink-2));
+  background: var(--rs-bg, transparent);
+  border: 0;
+  border-radius: var(--rs-radius, var(--r));
+}
+.menu__search:focus-within .menu__search-button {
+  color: var(--rs-icon-open, var(--rs-icon, var(--ink)));
+  background: var(--rs-bg-open, var(--rs-bg, transparent));
+}
+@media (min-width: 721px) {
+  /* The expanding box opens OVER its neighbours, closed it is nothing at all
+     and still focusable — the toggle bar's search, and for the same reasons. */
+  .menu__search--expand-left .menu__search-input,
+  .menu__search--expand-right .menu__search-input {
+    position: absolute;
+    top: 50%;
+    z-index: 12;
+    width: 0;
+    padding: 0;
+    background: transparent;
+    border-color: transparent;
+    transform: translateY(-50%);
+  }
+  .menu__search--expand-left .menu__search-input  { right: 100%; }
+  .menu__search--expand-right .menu__search-input { left: 100%; }
+  .menu__search--expand-left:focus-within .menu__search-input,
+  .menu__search--expand-right:focus-within .menu__search-input {
+    width: var(--rs-w, 180px);
+    padding: 0 var(--sp-2);
+    background: var(--rs-bg-open, var(--surface));
+    border-color: var(--border-strong);
+  }
+}
+@media (max-width: 720px) {
+  .menu__search { width: 100%; }
+  .menu__search .menu__search-input { flex: 1; width: auto; min-width: 0; }
+}
+
+/* ── A CUSTOM ICON: a picture in the icon's place ──────────────────────────
+   Its size from the item's own settings, a second picture while pointed at,
+   and its own size on a phone when it has one. */
+.menu .menu__icon--custom { display: inline-flex; flex: none; align-self: var(--ci-align, center); }
+.menu .menu__icon-img { display: block; width: var(--ci-w, 20px); height: var(--ci-h, 20px); object-fit: contain; }
+.menu .menu__icon-img--hover { display: none; }
+.menu .menu__link:hover .menu__icon-img--hover,
+.menu .menu__link:focus-visible .menu__icon-img--hover { display: block; }
+.menu .menu__link:hover .menu__icon--custom:has(.menu__icon-img--hover) .menu__icon-img:not(.menu__icon-img--hover),
+.menu .menu__link:focus-visible .menu__icon--custom:has(.menu__icon-img--hover) .menu__icon-img:not(.menu__icon-img--hover) { display: none; }
+@media (max-width: 720px) {
+  .menu .menu__icon-img { width: var(--ci-mw, var(--ci-w, 20px)); height: var(--ci-mh, var(--ci-h, 20px)); }
+}
+
+/* ── IMAGE SWAP ─────────────────────────────────────────────────────────────
+   A panel whose items carry pictures has a picture column beside its items;
+   pointing at an item brings its picture up there (`theme-menu.js`). Each
+   picture is drawn at its own item's size. Not on a phone: the stacked panel is
+   a list of links, and a picture beside a list that is not beside anything is a
+   picture in the way. */
+/* `max-content`, not `auto`: the panel is absolutely positioned inside an item
+   a few dozen pixels wide, and `auto` shrinks it to its MINIMUM content — the
+   grid collapses to 110px and its links draw over each other. */
+.menu__mega--grid.menu__mega--swap {
+  flex-direction: row;
+  align-items: flex-start;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--site-pad, 24px));
+}
+.menu__mega--swap > .menu__mega-items { flex: 0 1 auto; width: min(calc(var(--mega-cols, 2) * 190px), 60vw); }
+.menu__swap { flex: none; margin: 0; }
+.menu__swap-img { display: block; height: auto; max-width: 100%; }
+.menu__swap-img--thumbnail { width: 150px; }
+.menu__swap-img--medium    { width: 300px; }
+.menu__swap-img--large     { width: 480px; }
+.menu__swap-img--full      { width: auto; max-width: 600px; }
+@media (max-width: 720px) {
+  .menu__swap { display: none; }
+}
+
+/* ── STYLING — per-item overrides ───────────────────────────────────────────
+   One rule per row of the item dialog's Styling tab, each reading the custom
+   property `MenuItemStyles::apply()` sets beside its class. A row that is not
+   ticked has no class, so its rule never fires and the theme's own styling
+   stands. "Hover" means the pointer, keyboard focus, or an open sub-menu. */
+.menu .menu__item--st-bg > .menu__link { background: linear-gradient(var(--st-bg), var(--st-bg-to)); }
+.menu .menu__item--st-bg-hover > .menu__link:hover,
+.menu .menu__item--st-bg-hover > .menu__link:focus-visible,
+.menu .menu__item--st-bg-hover.is-open > .menu__link { background: linear-gradient(var(--st-bg-hover), var(--st-bg-hover-to)); }
+.menu .menu__item--st-color > .menu__link { color: var(--st-color); }
+.menu .menu__item--st-color-hover > .menu__link:hover,
+.menu .menu__item--st-color-hover > .menu__link:focus-visible,
+.menu .menu__item--st-color-hover.is-open > .menu__link { color: var(--st-color-hover); }
+.menu .menu__item--st-weight > .menu__link { font-weight: var(--st-weight); }
+.menu .menu__item--st-weight-hover > .menu__link:hover,
+.menu .menu__item--st-weight-hover > .menu__link:focus-visible { font-weight: var(--st-weight-hover); }
+.menu .menu__item--st-size > .menu__link { font-size: var(--st-size); }
+.menu .menu__item--st-align > .menu__link { display: flex; justify-content: var(--st-align); }
+.menu .menu__item--st-transform > .menu__link { text-transform: var(--st-transform); }
+.menu .menu__item--st-decoration > .menu__link { text-decoration: var(--st-decoration); }
+.menu .menu__item--st-decoration-hover > .menu__link:hover,
+.menu .menu__item--st-decoration-hover > .menu__link:focus-visible { text-decoration: var(--st-decoration-hover); }
+.menu .menu__item--st-border-color > .menu__link { border-color: var(--st-border-color); }
+.menu .menu__item--st-border-color-hover > .menu__link:hover,
+.menu .menu__item--st-border-color-hover > .menu__link:focus-visible { border-color: var(--st-border-color-hover); }
+.menu .menu__item--st-border-top > .menu__link    { border-top: var(--st-border-top) solid var(--st-border-color, var(--border)); }
+.menu .menu__item--st-border-right > .menu__link  { border-right: var(--st-border-right) solid var(--st-border-color, var(--border)); }
+.menu .menu__item--st-border-bottom > .menu__link { border-bottom: var(--st-border-bottom) solid var(--st-border-color, var(--border)); }
+.menu .menu__item--st-border-left > .menu__link   { border-left: var(--st-border-left) solid var(--st-border-color, var(--border)); }
+.menu .menu__item--st-radius-tl > .menu__link { border-top-left-radius: var(--st-radius-tl); }
+.menu .menu__item--st-radius-tr > .menu__link { border-top-right-radius: var(--st-radius-tr); }
+.menu .menu__item--st-radius-br > .menu__link { border-bottom-right-radius: var(--st-radius-br); }
+.menu .menu__item--st-radius-bl > .menu__link { border-bottom-left-radius: var(--st-radius-bl); }
+.menu .menu__item--st-icon-size > .menu__link .menu__icon .icon { width: var(--st-icon-size); height: var(--st-icon-size); }
+.menu .menu__item--st-icon-color > .menu__link .menu__icon { color: var(--st-icon-color); }
+.menu .menu__item--st-icon-color-hover > .menu__link:hover .menu__icon,
+.menu .menu__item--st-icon-color-hover > .menu__link:focus-visible .menu__icon { color: var(--st-icon-color-hover); }
+.menu .menu__item--st-padding-left > .menu__link   { padding-left: var(--st-padding-left); }
+.menu .menu__item--st-padding-right > .menu__link  { padding-right: var(--st-padding-right); }
+.menu .menu__item--st-padding-top > .menu__link    { padding-top: var(--st-padding-top); }
+.menu .menu__item--st-padding-bottom > .menu__link { padding-bottom: var(--st-padding-bottom); }
+.menu .menu__item--st-margin-left   { margin-left: var(--st-margin-left); }
+.menu .menu__item--st-margin-right  { margin-right: var(--st-margin-right); }
+.menu .menu__item--st-margin-top    { margin-top: var(--st-margin-top); }
+.menu .menu__item--st-margin-bottom { margin-bottom: var(--st-margin-bottom); }
+.menu .menu__item--st-height > .menu__link { min-height: var(--st-height); align-items: center; }
+.menu .menu__item--st-sub-bg > ul,
+.menu .menu__item--st-sub-bg > .menu__mega { background: linear-gradient(var(--st-sub-bg), var(--st-sub-bg-to)); }
+.menu .menu__item--st-sub-image > ul,
+.menu .menu__item--st-sub-image > .menu__mega {
+  background-image: var(--st-sub-image);
+  background-size: var(--st-sub-image-size, cover);
+  background-repeat: var(--st-sub-image-repeat, no-repeat);
+  background-position: var(--st-sub-image-position, right bottom);
+}
+/* A picture over a colour, when both rows are ticked. */
+.menu .menu__item--st-sub-bg.menu__item--st-sub-image > ul,
+.menu .menu__item--st-sub-bg.menu__item--st-sub-image > .menu__mega {
+  background-image: var(--st-sub-image), linear-gradient(var(--st-sub-bg), var(--st-sub-bg-to));
+}
+/* The three rows about WHERE a dropped panel sits mean nothing in the phone's
+   stacked panel, so they are the desktop's alone. */
+@media (min-width: 721px) {
+  .menu .menu__item--st-sub-width > ul,
+  .menu .menu__item--st-sub-width > .menu__mega { width: var(--st-sub-width); min-width: 0; }
+  .menu .menu__item--st-sub-x > ul,
+  .menu .menu__item--st-sub-x > .menu__mega { margin-left: var(--st-sub-x); }
+  .menu .menu__item--st-sub-y > ul,
+  .menu .menu__item--st-sub-y > .menu__mega { margin-top: var(--st-sub-y); }
+}
+
+/* ── SITE SEARCH ────────────────────────────────────────────────────────────
+   `/search`: what the menu's search block and search replacement submit to.
+   The field and the button are the public form's own; this only puts them on
+   one line. */
+.search-form {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-6);
+}
+.search-form .cms-form__input { flex: 1; min-width: 0; }
+.search-form .cms-form__submit { flex: none; }
+.search-summary { margin: 0 0 var(--sp-4); color: var(--ink-2); }
+
+/* ── VERTICAL AND ACCORDION ─────────────────────────────────────────────────
+   The General tab's "Orientation". A vertical bar is a column whose sub-menus
+   open beside it; an accordion is a column whose sub-menus open beneath their
+   item, in the page's flow, on a click (`theme-menu.js`). Desktop only — on a
+   phone every menu is the phone's panel. */
+@media (min-width: 721px) {
+  .menu--vertical .site-header__nav,
+  .menu--accordion .site-header__nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .menu--vertical .site-header__nav > li > .menu__link,
+  .menu--accordion .site-header__nav > li > .menu__link { display: flex; }
+
+  /* BESIDE, NOT BELOW, and towards the side the item opens: the default opens
+     rightwards, as a bar's does; "the right edge of this item" opens leftwards,
+     as a bar's does. Not the other way round, as a vertical menu for a sidebar
+     on the right of a page would read it: this header sits on the left, and a
+     sub-menu opening left would open over the site's name. */
+  .menu--vertical .site-header__nav li > ul,
+  .menu--vertical .site-header__nav li > .menu__mega {
+    top: calc(var(--sp-2) * -1);
+    left: 100%;
+    right: auto;
+  }
+  .menu--vertical .site-header__nav li.menu__item--sub-right > ul,
+  .menu--vertical .site-header__nav li.menu__item--sub-right > .menu__mega {
+    left: auto;
+    right: 100%;
+  }
+  .menu--vertical .site-header__nav li.menu__item--parent > .menu__link::after {
+    content: "";
+    flex: none;
+    width: 0;
+    height: 0;
+    margin-left: auto;
+    border: 4px solid transparent;
+    border-left-color: currentColor;
+    border-top-color: transparent;
+    transform: none;
+  }
+  .menu--vertical .site-header__nav li.menu__item--sub-right > .menu__link::after {
+    border-left-color: transparent;
+    border-right-color: currentColor;
+  }
+
+  /* THE ACCORDION: in the flow, shut until opened, whatever the effect or the
+     pointer says. (0,4,2), to outrank the effects' own display and visibility. */
+  .menu.menu--accordion .site-header__nav li.menu__item--parent > ul,
+  .menu.menu--accordion .site-header__nav li.menu__item--parent > .menu__mega {
+    position: static;
+    display: none;
+    width: auto;
+    min-width: 0;
+    padding: 0 0 0 var(--sp-4);
+    background: none;
+    border: 0;
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    transition: none;
+  }
+  .menu.menu--accordion .site-header__nav li.menu__item--parent.is-open > ul,
+  .menu.menu--accordion .site-header__nav li.menu__item--parent.is-open > .menu__mega { display: block; }
+  .menu.menu--accordion .site-header__nav .menu__mega--grid { width: auto; }
+  .menu.menu--accordion .site-header__nav li.menu__item--parent > .menu__link { cursor: pointer; }
+  .menu.menu--accordion .site-header__nav li.menu__item--parent > .menu__link::after {
+    content: "";
+    flex: none;
+    width: 0;
+    height: 0;
+    margin-left: auto;
+    border: 4px solid transparent;
+    border-top-color: currentColor;
+    transform: translateY(2px);
+  }
+  .menu.menu--accordion .site-header__nav li.menu__item--parent.is-open > .menu__link::after {
+    transform: translateY(-2px) rotate(180deg);
+  }
+  .menu--vertical .site-header__nav li.menu__item--no-arrow > .menu__link::after,
+  .menu.menu--accordion .site-header__nav li.menu__item--no-arrow > .menu__link::after { content: none; }
+}
+
+@media (max-width: 720px) {
+  /* ── THE PHONE'S SUB-MENUS FOLD, once the script is running ──────────────
+     "On a phone, sub-menus start": all open (the default), all closed, or open
+     around the current page — and a tap on a closed item opens it. WITH NO
+     SCRIPT nothing folds, so every link is still reachable: the safe half. */
+  .menu.menu--js .site-header__nav li.menu__item--parent:not(.is-open) > ul,
+  .menu.menu--js .site-header__nav li.menu__item--parent:not(.is-open) > .menu__mega { display: none; }
+  .menu.menu--js .site-header__nav li.menu__item--parent > .menu__link::after {
+    content: "";
+    flex: none;
+    width: 0;
+    height: 0;
+    margin-left: var(--sp-2);
+    border: 4px solid transparent;
+    border-top-color: currentColor;
+    transform: translateY(2px);
+  }
+  .menu.menu--js .site-header__nav li.menu__item--parent.is-open > .menu__link::after {
+    transform: translateY(-2px) rotate(180deg);
+  }
+  .menu.menu--js .site-header__nav li.menu__item--no-arrow > .menu__link::after,
+  .menu.menu--js .site-header__nav li.menu__item--sub-no-phone > .menu__link::after { content: none; }
+}
+
+/* ── PAGE OVERLAY ───────────────────────────────────────────────────────────
+   The page dims while the menu is in use: a shadow spread far past the window
+   from the menu itself, so the menu and everything in it stays bright. In after
+   0.2s, so a pointer crossing the bar on its way somewhere does not flash it;
+   out at once. No setting changes the colour. */
+.menu { --menu-overlay: rgba(0, 0, 0, 0.3); }
+@media (min-width: 721px) {
+  .menu--overlay-desktop { transition: box-shadow 0.2s ease-in-out 0s; }
+  .menu--overlay-desktop:hover,
+  .menu--overlay-desktop:focus-within,
+  .menu--overlay-desktop:has(.is-open) {
+    box-shadow: 0 0 0 9999px var(--menu-overlay);
+    transition-delay: 0.2s;
+  }
+  /* ABOVE THE PAGE while it casts the shadow, or the content after the header
+     paints over it and only the header dims. A stuck bar is already fixed and
+     above everything, and keeps its own position. */
+  .menu--overlay-desktop:not(.menu--stuck):hover,
+  .menu--overlay-desktop:not(.menu--stuck):focus-within,
+  .menu--overlay-desktop:not(.menu--stuck):has(.is-open) {
+    position: relative;
+    z-index: 25;
+  }
+}
+@media (max-width: 720px) {
+  /* ON A PHONE THE OPEN PANEL CASTS IT, cut off at the panel's top edge so the
+     row it drops from — the name, the Menu button, the basket — stays bright.
+     Not the nav: positioning the nav would make it the box the panel hangs
+     from, and the panel would shrink to the width of the word "Menu". */
+  .menu--overlay-mobile .menu__switch:checked ~ .site-header__nav {
+    box-shadow: 0 0 0 9999px var(--menu-overlay);
+    clip-path: inset(0 -9999px -9999px -9999px);
+  }
+}
+
+/* ── STICKY ─────────────────────────────────────────────────────────────────
+   `theme-menu.js` fixes the bar to the top of the window once the page has
+   scrolled past it, leaving a placeholder of its exact size where it was. The
+   stuck bar carries the header's own tone and hairline, so it reads as the
+   header's bar and not as links floating over the page. Its left, width, top
+   and opacity come from the location's Sticky tab, set by the script. */
+.menu.menu--stuck {
+  position: fixed;
+  z-index: 30;
+  padding-top: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  transition: transform 0.25s ease-in-out;
+}
+/* "Hide until scrolling up": out of the window by its own height AND the gap
+   above it, or a stuck bar with an offset leaves its bottom edge showing. */
+.menu.menu--stuck.menu--sticky-hidden {
+  transform: translateY(calc(-100% - var(--menu-stuck-offset, 0px)));
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu.menu--stuck { transition: none; }
+}
+/* "Visibility in Sticky Menu": an item for the stuck bar only, or one the
+   stuck bar can do without. */
+.menu .menu__item--sticky-show { display: none; }
+.menu.menu--stuck .menu__item--sticky-show { display: list-item; }
+.menu.menu--stuck .menu__item--sticky-hide { display: none; }
+@media (max-width: 720px) {
+  /* The phone's panel drops from the STUCK bar — which has left the header
+     the panel used to hang from — across the whole width of the window. */
+  .menu.menu--stuck .menu__switch:checked ~ .site-header__nav {
+    position: fixed;
+    top: var(--menu-stuck-bottom, 0px);
+    max-height: calc(100vh - var(--menu-stuck-bottom, 0px));
+    overflow-y: auto;
+  }
+  /* An item hidden on a phone stays hidden in the stuck bar too. */
+  .menu.menu--stuck .menu__item--sticky-show.menu__item--no-phone { display: none; }
+}
+@media (min-width: 721px) {
+  .menu.menu--stuck .menu__item--sticky-show.menu__item--no-desktop { display: none; }
+}
+
+/* ── AND THE TWO THAT ARE BREAKPOINT QUESTIONS ──────────────────────────── */
+@media (max-width: 720px) {
+  .menu .menu__item--no-phone { display: none; }
+  /* The item stays; what is under it does not. */
+  .menu .menu__item--sub-no-phone > ul,
+  .menu .menu__item--sub-no-phone > .menu__mega { display: none; }
+}
+@media (min-width: 721px) {
+  .menu .menu__item--no-desktop { display: none; }
+}
+
+/* ── HOW A MENU BEHAVES WHERE IT IS SHOWN ─────────────────────────────────
+   Migration 050's per-location bag, rendered as classes on the `<nav>` by
+   `MenuRenderer`. Every class here has a rule, for the reason the item settings
+   above have one: a card that saves "sub-menus open on click" and a stylesheet
+   that never mentions it is a control that lies with a tick box on it.
+
+   THE BREAKPOINT IS FOUR FIXED WIDTHS AND NOT A NUMBER, because a media query
+   cannot read a custom property. The control offers exactly the four that have
+   blocks here; anything else would be a value with nowhere to land. */
+
+/* ── THE EFFECT ─────────────────────────────────────────────────────────── */
+.menu--fx-none .site-header__nav ul,
+.menu--fx-none .menu__mega { transition: none; }
+
+/* A PANEL THAT ANIMATES CANNOT USE `display`, which is not animatable — so the
+   animating variants swap to visibility/opacity and keep the panel in the
+   layout. That is why these override the `display` rules above rather than
+   sitting beside them. */
+/* ── A DROPDOWN IS A BLOCK; A MEGA PANEL IS A ROW ────────────────────────
+   One grouped rule setting `display: block` on both would be (0,3,1) — so it
+   would silently flatten every mega panel's columns into a stack, at EVERY
+   width, whenever an effect is on. The default effect is `fade_up`, so that
+   would be every install.
+
+   A blanket `.menu__mega.menu__mega { display: flex }` cannot correct it:
+   (0,2,0) loses to (0,3,1). So the rule is split in two, each carrying the
+   display its own layout needs. */
+.menu--fx-fade .site-header__nav li > ul,
+.menu--fx-fade-up .site-header__nav li > ul,
+.menu--fx-slide-down .site-header__nav li > ul {
+  display: block;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--menu-fx-speed, 200ms) ease,
+              transform var(--menu-fx-speed, 200ms) ease,
+              visibility 0s linear var(--menu-fx-speed, 200ms);
+}
+.menu--fx-fade .site-header__nav li > .menu__mega,
+.menu--fx-fade-up .site-header__nav li > .menu__mega,
+.menu--fx-slide-down .site-header__nav li > .menu__mega {
+  display: flex;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--menu-fx-speed, 200ms) ease,
+              transform var(--menu-fx-speed, 200ms) ease,
+              visibility 0s linear var(--menu-fx-speed, 200ms);
+}
+.menu--fx-fade-up .site-header__nav li > ul,
+.menu--fx-fade-up .site-header__nav li > .menu__mega { transform: translateY(6px); }
+.menu--fx-slide-down .site-header__nav li > ul,
+.menu--fx-slide-down .site-header__nav li > .menu__mega { transform: translateY(-6px); }
+
+.menu--fx-fade .site-header__nav li:hover > ul,
+.menu--fx-fade .site-header__nav li:focus-within > ul,
+.menu--fx-fade-up .site-header__nav li:hover > ul,
+.menu--fx-fade-up .site-header__nav li:focus-within > ul,
+.menu--fx-slide-down .site-header__nav li:hover > ul,
+.menu--fx-slide-down .site-header__nav li:focus-within > ul,
+.menu--fx-fade .site-header__nav li:hover > .menu__mega,
+.menu--fx-fade .site-header__nav li:focus-within > .menu__mega,
+.menu--fx-fade-up .site-header__nav li:hover > .menu__mega,
+.menu--fx-fade-up .site-header__nav li:focus-within > .menu__mega,
+.menu--fx-slide-down .site-header__nav li:hover > .menu__mega,
+.menu--fx-slide-down .site-header__nav li:focus-within > .menu__mega {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.menu--fx-none .site-header__nav li > .menu__mega { display: none; }
+.menu--fx-none .site-header__nav li:hover > .menu__mega,
+.menu--fx-none .site-header__nav li:focus-within > .menu__mega { display: flex; }
+
+.menu--speed-150 { --menu-fx-speed: 150ms; }
+.menu--speed-200 { --menu-fx-speed: 200ms; }
+.menu--speed-300 { --menu-fx-speed: 300ms; }
+
+/* SOMEBODY WHO HAS ASKED FOR LESS MOTION GETS NONE, whatever the owner chose.
+   Their setting is a preference; this is a stated need. */
+@media (prefers-reduced-motion: reduce) {
+  .menu [class*="menu--fx-"] *,
+  .site-header__nav li > ul,
+  .site-header__nav li > .menu__mega { transition-duration: 0.01ms !important; }
+}
+
+/* ── OPEN ON CLICK ────────────────────────────────────────────────────────
+   Hover stops opening the panel; `:focus-within` still does, so a keyboard
+   reaches it either way and the setting never traps anybody. `theme-menu.js`
+   adds `.is-open` on a click and reads `data-second-click` for what a second one
+   does. WITH NO SCRIPT AT ALL the link simply works, which is the safe half. */
+.menu--open-click .site-header__nav li:hover > ul,
+.menu--open-click .site-header__nav li:hover > .menu__mega {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.menu--open-click .site-header__nav li:focus-within > ul,
+.menu--open-click .site-header__nav li.is-open > ul,
+.menu--open-click .site-header__nav li:focus-within > .menu__mega,
+.menu--open-click .site-header__nav li.is-open > .menu__mega {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.menu--open-click .site-header__nav li.menu__item--parent > .menu__link { cursor: pointer; }
+
+/* ── ON A PHONE ───────────────────────────────────────────────────────────
+   The panel that drops down is the theme's existing behaviour. The two drawers
+   are the alternative, and they slide from the edge named.
+
+   Scoped inside each breakpoint block below, because "on a phone" is precisely
+   the width the owner chose. */
+
+
+@media (max-width: 720px) {
+  .menu--bp-720 .menu__toggle { display: inline-flex; }
+  .menu--bp-720.menu--phone-slide-left .site-header__nav,
+  .menu--bp-720.menu--phone-slide-right .site-header__nav {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(320px, 86vw);
+    padding: var(--sp-5) var(--sp-4);
+    overflow-y: auto;
+    background: var(--surface);
+    border: 0;
+    transition: transform var(--menu-fx-speed, 200ms) ease;
+  }
+  .menu--bp-720.menu--phone-slide-left  .site-header__nav { left: 0;  transform: translateX(-100%); }
+  .menu--bp-720.menu--phone-slide-right .site-header__nav { right: 0; transform: translateX(100%); }
+  /* THE DRAWER IS ALWAYS IN THE DOM, just off-screen — so it can be animated,
+     and so a screen reader is not told the navigation has ceased to exist every
+     time it closes. */
+  .menu--bp-720.menu--phone-slide-left  .menu__switch:checked ~ .site-header__nav,
+  .menu--bp-720.menu--phone-slide-right .menu__switch:checked ~ .site-header__nav {
+    display: block;
+    transform: translateX(0);
+  }
+}
+
+
+/* "Never — always show the full menu." The toggle has nothing to toggle, so it
+   is not drawn: a button that opens a menu which is already open is a dead
+   control. */
+/* ── CLOSE AFTER CLICK: the menu stays shut until the pointer leaves it ────
+   Set by theme-menu.js when an item marked "close the menu when it is clicked"
+   is followed. Without it a hover-opened panel reopens the moment the page stops
+   scrolling under a pointer that has not moved — the setting would appear to do
+   nothing. (0,4,2) and later in the file, so it outranks every opening rule. */
+.menu.is-suppressed .site-header__nav li:hover > ul,
+.menu.is-suppressed .site-header__nav li:focus-within > ul,
+.menu.is-suppressed .site-header__nav li.is-open > ul,
+.menu.is-suppressed .site-header__nav li:hover > .menu__mega,
+.menu.is-suppressed .site-header__nav li:focus-within > .menu__mega,
+.menu.is-suppressed .site-header__nav li.is-open > .menu__mega {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu--bp-0 .menu__toggle,
+.menu--bp-0 .menu__bar { display: none; }
+.menu--bp-0 .site-header__nav { display: flex; }
+
+/* ── A TABBED PANEL ────────────────────────────────────────────────────────
+   A tabbed sub-menu, without a line of JavaScript.
+
+   The second level becomes tabs down the left of the panel; whatever is under
+   each tab fills the space beside it. The structure is the one the owner already
+   built by nesting — there is nothing new to author.
+
+   THE FIRST TAB'S PANEL SHOWS BY DEFAULT and hovering or focusing any tab swaps
+   to that one. `.menu__tabs:hover` turning the default off is what makes the
+   swap work with no script and no state: while the pointer is anywhere in the
+   tab column, only the hovered tab's panel shows. Keyboard users reach every one
+   by tabbing, because `:focus-within` is in the same rule. */
+.menu__mega--tabbed { display: block; padding: 0; }
+.menu__tabs {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  min-width: 480px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.menu__tab { grid-column: 1; }
+.menu__tab-link {
+  display: block;
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 2px solid transparent;
+}
+.menu__tab:hover > .menu__tab-link,
+.menu__tab:focus-within > .menu__tab-link {
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+}
+/* THE TAB HOLDING THE PAGE YOU ARE ON, marked the way the rest of this menu
+   marks it: weight and a rule, never colour alone. */
+.menu__tab.is-current > .menu__tab-link,
+.menu__tab.is-current-parent > .menu__tab-link {
+  font-weight: var(--fw-semi);
+  color: var(--ink);
+}
+.menu__tab.is-current > .menu__tab-link { border-left-color: var(--accent); }
+
+/* EVERY PANEL OCCUPIES THE SAME CELL, so the flyout does not change size as you
+   move between tabs — a panel that resizes under the pointer is one you chase. */
+.menu__tab-panel {
+  display: none;
+  grid-column: 2;
+  grid-row: 1 / -1;
+  padding: var(--sp-2) var(--sp-4);
+  border-left: 1px solid var(--border);
+}
+.menu__tab:first-child > .menu__tab-panel { display: block; }
+.menu__tabs:hover .menu__tab:first-child > .menu__tab-panel,
+.menu__tabs:focus-within .menu__tab:first-child > .menu__tab-panel { display: none; }
+.menu__tab:hover > .menu__tab-panel,
+.menu__tab:focus-within > .menu__tab-panel { display: block; }
+/* The lists inside a panel are static, like a mega column's. */
+.menu__tab-panel ul { position: static; display: block; min-width: 0;
+                      padding: 0; background: none; border: 0; }
+
+@media (max-width: 720px) {
+  /* ON A PHONE THERE ARE NO TABS. Two columns do not fit, and a panel that
+     swaps on hover is not reachable on a touchscreen at all — so it becomes
+     what it already is underneath: an indented list, every tab's items shown.
+     The same answer the mega panel gives at this width. */
+  .menu__mega--tabbed { min-width: 0; }
+  .menu__tabs { display: block; min-width: 0; }
+  .menu__tab-panel,
+  .menu__tabs:hover .menu__tab:first-child > .menu__tab-panel,
+  .menu__tabs:focus-within .menu__tab:first-child > .menu__tab-panel {
+    display: block;
+    padding: 0 0 0 var(--sp-4);
+    border-left: 0;
+  }
+  .menu__tab-link { border-left: 0; padding: var(--sp-1) 0; }
+}

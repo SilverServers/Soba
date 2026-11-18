@@ -21,6 +21,10 @@ use Cms\Database\Database;
  * deleted or made private. Made with Imagick, as WebP is; a server without it
  * keeps the one file, and `srcset()` names that alone. An image added before
  * these existed gets its widths from `php admin/bin/media-sizes.php`.
+ *
+ * A FILE THE SITE ALREADY HAD (`Models\Media::register()`) is never resized.
+ * Its widths are the copies the site keeps beside it (`siblings()`), listed
+ * where they are, and nothing here writes or deletes in its folder.
  */
 final class Sizes
 {
@@ -40,6 +44,11 @@ final class Sizes
      */
     public static function make(array $attachment): bool
     {
+        // A file the site already had has its own copies (`siblings()`), and
+        // nothing is written beside it.
+        if (\Cms\Models\Media::isSiteFile($attachment)) {
+            return false;
+        }
         self::forget($attachment);
         $width = (int) ($attachment['width'] ?? 0);
         if (($attachment['visibility'] ?? 'public') !== 'public' || !in_array($attachment['mime_type'] ?? '', self::IMAGES, true)
@@ -99,6 +108,10 @@ final class Sizes
      */
     public static function forget(array $attachment): void
     {
+        // A file the site already had: its copies are the site's own files.
+        if (\Cms\Models\Media::isSiteFile($attachment)) {
+            return;
+        }
         foreach (self::of($attachment) as $size) {
             $file = PUBLIC_PATH . '/uploads/' . $size['file'];
             if (is_file($file)) {
@@ -122,15 +135,75 @@ final class Sizes
         if (!is_array($list)) {
             return [];
         }
-        $out = [];
+        $site = \Cms\Models\Media::isSiteFile($attachment);
+        $out  = [];
         foreach ($list as $s) {
-            // A name made here, never a path: nothing outside the uploads folder.
-            if (is_array($s) && preg_match('/^[A-Za-z0-9._-]+-\d+w\.webp$/', (string) ($s['file'] ?? '')) === 1) {
-                $out[] = ['width' => (int) $s['width'], 'height' => (int) $s['height'], 'file' => (string) $s['file']];
+            $file = is_array($s) ? (string) ($s['file'] ?? '') : '';
+            // A NAME, NEVER A PATH: one made here in uploads/, or, for a file
+            // the site already had, one of its own copies in its own folder.
+            $named = $site
+                ? $file !== '' && $file !== '.' && $file !== '..' && strpbrk($file, "/\\\0") === false
+                : preg_match('/^[A-Za-z0-9._-]+-\d+w\.webp$/', $file) === 1;
+            if ($named) {
+                $out[] = ['width' => (int) $s['width'], 'height' => (int) $s['height'], 'file' => $file];
             }
         }
 
         return $out;
+    }
+
+    /**
+     * Each width's address after the site's own, by width, narrowest first: a
+     * width made in uploads/ (`/uploads/…-768w.webp`), or a file the site
+     * already had's own copy beside it (`/img/blog/x-768.jpg`).
+     *
+     * @param array<string, mixed> $attachment
+     * @return array<int, string>
+     */
+    public static function addresses(array $attachment): array
+    {
+        $dir = rtrim(dirname(\Cms\Models\Media::address($attachment)), '/');
+        $out = [];
+        foreach (self::of($attachment) as $size) {
+            $out[$size['width']] = $dir . '/' . rawurlencode($size['file']);
+        }
+
+        return $out;
+    }
+
+    /**
+     * THE COPIES A FILE THE SITE ALREADY HAS KEEPS BESIDE IT, as its widths
+     * (`Models\Media::register()`): each file named as it is plus `-<width>`
+     * (`x-480.jpg` and `x-768.jpg` for `x.jpg`) that is an image of the same
+     * kind, exactly that many pixels wide, and narrower than it. The number
+     * in a name must be the width, so `x-2023.jpg`, another photo, is not
+     * one. Narrowest first. Read only: nothing is made, moved or changed.
+     *
+     * @return list<array{width: int, height: int, file: string}>
+     */
+    public static function siblings(string $path, ?int $width): array
+    {
+        $kind = @getimagesize($path);
+        if ($width === null || $width <= 0 || $kind === false) {
+            return [];
+        }
+        $ext     = pathinfo($path, PATHINFO_EXTENSION);
+        $pattern = '/^' . preg_quote(pathinfo($path, PATHINFO_FILENAME), '/') . '-(\d+)'
+                 . ($ext !== '' ? '\.' . preg_quote($ext, '/') : '') . '$/';
+        $out = [];
+        foreach (@scandir(dirname($path)) ?: [] as $name) {
+            if (preg_match($pattern, $name, $m) !== 1) {
+                continue;
+            }
+            $dims = @getimagesize(dirname($path) . '/' . $name);
+            if ($dims === false || $dims[2] !== $kind[2] || (int) $dims[0] !== (int) $m[1] || (int) $dims[0] >= $width) {
+                continue;
+            }
+            $out[(int) $dims[0]] ??= ['width' => (int) $dims[0], 'height' => (int) $dims[1], 'file' => $name];
+        }
+        ksort($out);
+
+        return array_values($out);
     }
 
     /**
@@ -145,13 +218,18 @@ final class Sizes
         if ($row === null || ($row['visibility'] ?? 'public') !== 'public') {
             return '';
         }
-        $sizes = self::of($row);
-        if ($sizes === []) {
+        $addresses = self::addresses($row);
+        if ($addresses === []) {
             return '';
         }
-        $base  = (defined('BASE_URL') ? BASE_URL : '') . '/uploads/';
-        $parts = array_map(static fn (array $s): string => $base . rawurlencode($s['file']) . ' ' . $s['width'] . 'w', $sizes);
-        $parts[] = $base . rawurlencode((string) $row['filename']) . ' ' . (int) $row['width'] . 'w';
+        $base  = defined('BASE_URL') ? BASE_URL : '';
+        $parts = [];
+        foreach ($addresses as $width => $address) {
+            $parts[] = $base . $address . ' ' . $width . 'w';
+        }
+        // The image itself, beside them: in uploads/, or where the site keeps it.
+        $parts[] = $base . rtrim(dirname(\Cms\Models\Media::address($row)), '/') . '/' . rawurlencode((string) $row['filename'])
+                 . ' ' . (int) $row['width'] . 'w';
 
         return implode(', ', $parts);
     }

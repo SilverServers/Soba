@@ -66,7 +66,7 @@ class PageController
                 \Cms\SEO\Head::set([
                     'title'     => $page['title'],
                     'robots'    => 'noindex, nofollow',
-                    'canonical' => \Cms\Helpers\Url::page((string) $page['slug']),
+                    'canonical' => \Cms\Helpers\Url::pageOf($page),
                 ]);
 
                 ob_start();
@@ -85,7 +85,7 @@ class PageController
         $tokens['title'] = $page['title'];
         $title = Head::buildTitle(Head::titlePattern('page'), $tokens);
 
-        $canonical = \Cms\Helpers\Url::page((string) $page['slug']);
+        $canonical = \Cms\Helpers\Url::pageOf($page);
 
         // THE PAGE'S OWN TITLE AND DESCRIPTION, variables and all. The Search
         // engines panel edits both as pills, so `{title}` or
@@ -106,7 +106,7 @@ class PageController
         }
 
         $breadcrumbItems = [
-            ['label' => 'Home', 'url' => BASE_URL . '/'],
+            ['label' => \Cms\Site\Words::of('home'), 'url' => \Cms\Helpers\Url::home()],
             ['label' => $page['title'], 'url' => $canonical],
         ];
         Breadcrumbs::set($breadcrumbItems);
@@ -119,6 +119,8 @@ class PageController
             'title'       => $seoTitle !== '' ? Head::buildTitle($seoTitle, $tokens) : $title,
             'description' => $seoDesc,
             'canonical'   => $canonical,
+            // The page and its translation, both on the site (`Content\Translation`).
+            'alternates'  => \Cms\Content\Translation::versions('pages', $page, static fn (array $row): string => \Cms\Helpers\Url::pageOf($row)),
             'og_image'    => $ogImage,
             'og_type'     => 'website',
             'schema_json' => Schema::encode($graph),

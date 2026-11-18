@@ -14,9 +14,9 @@ namespace Cms\Helpers;
  * every other API error uses. Half-rendered output is thrown away first, so a
  * page cannot end in the middle of a table with an error glued to it.
  *
- * `www/index.php` installs it whenever `app_env` is not 'development', and
- * switches `display_errors` off there: errors are never displayed in
- * production.
+ * `www/index.php` installs it on every copy but a development one
+ * (`Site\Environment`), and switches `display_errors` off there: errors are
+ * never displayed in production.
  */
 final class ErrorPage
 {

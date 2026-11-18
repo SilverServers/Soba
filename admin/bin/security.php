@@ -88,7 +88,7 @@ if (!is_file($config)) {
     fwrite(STDERR, "No config at {$config}.\n");
     exit(1);
 }
-$settings = require $config;
+$settings = \Cms\Site\ConfigFile::read($config);
 
 // What LoginUrl needs to build an address: the site's own, from its config.
 define('ROOT_PATH', $admin);

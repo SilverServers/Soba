@@ -81,7 +81,7 @@ $pageTitle = $isNew ? 'Add page' : (string) $page['title'];
 // reading this screen — see the long note in content-type/edit.php.
 // `=== 'published'` would turn the address on a Private page into dead text.
 $viewUrl = (!$isNew && (string) ($page['status'] ?? '') !== 'trash')
-    ? Url::page((string) $page['slug'])
+    ? Url::pageOf($page)
     : null;
 
 ob_start();
@@ -141,7 +141,8 @@ ob_start();
                     // a URL, not a field; see partials/title-card.php.
                     $titleLabel = 'Page title';
                     $titleValue = $val('title');
-                    $slugPrefix = rtrim(Url::public(''), '/') . '/';
+                    // Under its language's prefix, for a translation (/fr/).
+                    $slugPrefix = rtrim(Url::public((string) ($page['lang'] ?? '')), '/') . '/';
                     $slugValue  = $val('slug');
                     // The address's own end: the preview is the address, so it
                     // ends the way the site's addresses do.
@@ -326,6 +327,11 @@ ob_start();
                         </div>
                     </div>
 
+                    <?php if (!$isNew): ?>
+                        <?php [$trPart, $trTable, $trRow, $trAdmin] = ['panel', 'pages', $page, 'pages']; ?>
+                        <?php require ROOT_PATH . '/admin/templates/partials/translation.php'; ?>
+                    <?php endif; ?>
+
                     <div class="form-card__section">
                         <?= panel_title('Featured image', 'media') ?>
                         <div class="field">
@@ -435,6 +441,8 @@ ob_start();
               action="<?= h(Url::admin('pages/' . $id . '/trash')) ?>" hidden>
             <?= Csrf::field() ?>
         </form>
+        <?php $trPart = 'forms'; ?>
+        <?php require ROOT_PATH . '/admin/templates/partials/translation.php'; ?>
         <?php if (!empty($shareable)): ?>
             <?php $sharePart = 'forms'; ?>
             <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>

@@ -199,7 +199,7 @@ final class Alerts
      */
     private static function insecureHosts(): array
     {
-        $config = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
+        $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
         $hosts  = is_array($config) ? ($config['alerts_insecure_hosts'] ?? []) : [];
 
         return array_values(array_filter(array_map(static fn ($h): string => strtolower(trim((string) $h)), (array) $hosts), 'strlen'));
@@ -553,8 +553,12 @@ final class Alerts
             }
 
             return Mailer::send($to, '[' . $site . '] ' . $message['subject'], $message['text'])
-                ? 'Handed to ' . (Mailer::transport() === 'brevo' ? 'Brevo'
-                    : (trim((string) Option::get('smtp_host', '')) !== '' ? trim((string) Option::get('smtp_host', '')) : "this host's own mail")) . ' for ' . count($to) . (count($to) === 1 ? ' address' : ' addresses')
+                ? 'Handed to ' . match (Mailer::transport()) {
+                    'log'   => 'the mail log (admin/logs/' . \Cms\Mail\MailLog::FILE . ')',
+                    'brevo' => 'Brevo',
+                    'smtp'  => trim((string) Option::get('smtp_host', '')),
+                    default => "this host's own mail",
+                } . ' for ' . count($to) . (count($to) === 1 ? ' address' : ' addresses')
                 : 'The mail could not be sent (Settings → Email).';
         }
 

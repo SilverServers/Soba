@@ -1606,6 +1606,24 @@ body {
   border-left-color: var(--danger);
 }
 
+/* ABOVE ITS FORM (the form's "Messages show"): the space goes below it. */
+.cms-form__alert--above, .imprint-form__alert--above { margin-top: 0; margin-bottom: var(--sp-4); }
+
+/* A FIELD'S OWN MESSAGE (`Helpers\Shortcode`, form.js): the same surface,
+   small, under the field it is about, and only while its answer is wrong
+   (the `hidden` attribute, which reset.css keeps above any display). */
+.cms-form__error,
+.imprint-form__error {
+  display: block;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-none);
+  border-left: 3px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+
 
 /* ════════════════════════════════════════════════════════════════════════════
    8. STANDALONE PAGES — password gate, 404
@@ -2239,6 +2257,11 @@ textarea.shop-field__input { min-height: 0; padding: var(--sp-3); line-height: v
   color: var(--ink-3);
 }
 .shop-address { font-style: normal; color: var(--ink); line-height: var(--lh); }
+
+/* ── The link to the page in the other language ──────────────────────────── */
+/* In the header's register, as "Your orders" is: a way to the same page, not
+   a control of its own. */
+.site-header__lang { color: var(--ink); }
 
 /* ── The basket link in the site header ──────────────────────────────────── */
 /* "Your orders", beside the basket and in its register: the two are the

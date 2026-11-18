@@ -19,8 +19,13 @@ declare(strict_types=1);
  * here, once, for whoever holds the server. Its owner chooses their own at
  * the first sign-in; `security.php password` prints a new one if it is lost.
  *
- * Exit status: 0 done (or nothing to do), 1 a migration failed or the database
- * could not be reached, 2 bad usage.
+ * THE SITE'S OWN FILES IN admin/config/ ARE CHECKED FIRST (`php -l`, through
+ * `Cms\Site\ConfigFile`): one that does not compile, such as a byte-order mark
+ * before `<?php` in a file that declares strict_types, is named and nothing is
+ * done; one that only prints a blank line is noted.
+ *
+ * Exit status: 0 done (or nothing to do), 1 a migration failed, the database
+ * could not be reached or a file in admin/config/ does not compile, 2 bad usage.
  *
  * The front controller applies pending migrations on the first request after a
  * deploy, and still does. This is the same runner (`Cms\Database\Migrator`)
@@ -68,6 +73,31 @@ if (!is_file($config)) {
 }
 
 $version = is_file($admin . '/VERSION') ? trim((string) file_get_contents($admin . '/VERSION')) : 'unknown (no admin/VERSION)';
+
+// THE SITE'S OWN FILES IN admin/config/, and the config.php given, before
+// anything reads them (`Site\ConfigFile`). One that does not compile stops
+// every page, and would stop this run with a fatal error, so it is named here
+// and nothing is done; one that only prints a blank line is noted.
+$problems = [];
+foreach (\Cms\Site\ConfigFile::problemsIn($admin . '/config') as $file => $found) {
+    $problems['admin/config/' . $file] = $found;
+}
+if (realpath(dirname($config)) !== realpath($admin . '/config')) {
+    $problems[$config] = \Cms\Site\ConfigFile::problems($config);
+}
+$broken = false;
+foreach ($problems as $file => $found) {
+    if (isset($found['fatal'])) {
+        fwrite(STDERR, "{$file}: {$found['fatal']}\n");
+        $broken = true;
+    } elseif (isset($found['output'])) {
+        echo "WARNING  {$file}: {$found['output']}\n";
+    }
+}
+if ($broken) {
+    fwrite(STDERR, "Nothing was done.\n");
+    exit(1);
+}
 
 try {
     $settings = require $config;

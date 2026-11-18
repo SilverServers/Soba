@@ -101,7 +101,8 @@ final class PageView
         // assistant would see the gate's challenge page instead of the site — and
         // report that the owner's own content does not exist, which is precisely
         // the failure mode this class was written to end.
-        $config = require ROOT_PATH . '/config/config.php';
+        $config = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
+        $config = is_array($config) ? $config : [];
         $user   = (string) ($config['preview_user'] ?? '');
         $pass   = (string) ($config['preview_password'] ?? '');
 

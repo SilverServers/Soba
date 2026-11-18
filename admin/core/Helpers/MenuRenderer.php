@@ -99,7 +99,11 @@ class MenuRenderer
      */
     public static function render(string $location, string $ulClass = ''): string
     {
-        $menu = Menu::findByLocation($location);
+        // IN THE PAGE'S LANGUAGE (`Site\Language`): a page drawn in the second
+        // language shows the menu at its location's twin (`primary--fr`), and
+        // none when that has none, never the site's own language's.
+        $at   = $location !== '' ? MenuLocationRegistry::inLanguage($location, \Cms\Site\Language::drawn()) : $location;
+        $menu = Menu::findByLocation($at);
         if ($menu === null) {
             return '';
         }
@@ -108,10 +112,10 @@ class MenuRenderer
         // Migration 050's per-pair bag. Read before the items, because the
         // `<nav>` carries it and an empty menu returns early below.
         self::$behaviour = MenuLocationSettings::read(
-            Menu::settingsFor((int) $menu['id'])[$location] ?? null
+            Menu::settingsFor((int) $menu['id'])[$at] ?? null
         );
         self::$toggleBlocks = MenuToggleBlocks::read(
-            Menu::toggleBlocksFor((int) $menu['id'])[$location] ?? null
+            Menu::toggleBlocksFor((int) $menu['id'])[$at] ?? null
         );
 
         $items = MenuItem::allForMenu((int) $menu['id']);
@@ -419,7 +423,7 @@ class MenuRenderer
         // is what tells them apart in a landmark list, and two of the same name
         // is the same as none.
         $label = $location === 'primary' || $location === ''
-            ? 'Main'
+            ? \Cms\Site\Words::of('nav_main')
             : (string) (MenuLocationRegistry::all()[$location]['label'] ?? ucfirst($location));
 
         // ── WHAT THE LOCATION WAS TOLD, AS CLASSES AND ONE ATTRIBUTE ────────
@@ -526,7 +530,7 @@ class MenuRenderer
             }
         }
 
-        return 'Menu';
+        return \Cms\Site\Words::of('menu_toggle');
     }
 
     /**
@@ -633,11 +637,11 @@ class MenuRenderer
             case 'search':
                 // WHERE IT GOES: `/search`, the site's own.
                 return '<form class="menu__bar-search menu__bar-search--' . str_replace('_', '-', (string) $b['style']) . '"'
-                     . ' role="search" method="get" action="' . $h(Url::page('search')) . '"'
+                     . ' role="search" method="get" action="' . $h(Url::search()) . '"'
                      . $vars(['--tb-w' => (int) $b['width'] . 'px']) . '>'
                      . '<input class="menu__bar-search-input" type="search" name="q"'
-                     . ' placeholder="' . $h($b['placeholder']) . '" aria-label="Search this site">'
-                     . '<button class="menu__bar-search-button" type="submit" aria-label="Search">'
+                     . ' placeholder="' . $h($b['placeholder']) . '" aria-label="' . $h(\Cms\Site\Words::of('search_label')) . '">'
+                     . '<button class="menu__bar-search-button" type="submit" aria-label="' . $h(\Cms\Site\Words::of('search')) . '">'
                      . Icons::render('magnifying-glass', 'icon') . '</button>'
                      . '</form>';
 
@@ -730,7 +734,7 @@ class MenuRenderer
                     $alt = \Cms\SEO\Head::globalTokens()['site_name'];
                 }
                 // AN ITEM GOING NOWHERE LINKS HOME.
-                $href = $url === '' || $url === '#' ? BASE_URL . '/' : $url;
+                $href = $url === '' || $url === '#' ? Url::home() : $url;
 
                 return '<a class="menu__link menu__link--logo" href="' . $h($href) . '"' . $linkAttrs . '>'
                      . '<img class="menu__logo" src="' . $h($src) . '" alt="' . $h($alt) . '"'
@@ -760,10 +764,10 @@ class MenuRenderer
                 }
 
                 return '<form class="menu__search menu__search--' . str_replace('_', '-', (string) $set['replace_search_style']) . '"'
-                     . ' role="search" method="get" action="' . $h(Url::page('search')) . '" style="' . $h($css) . '">'
+                     . ' role="search" method="get" action="' . $h(Url::search()) . '" style="' . $h($css) . '">'
                      . '<input class="menu__search-input" type="search" name="q"'
-                     . ' placeholder="' . $h($set['replace_search_placeholder']) . '" aria-label="Search this site">'
-                     . '<button class="menu__search-button" type="submit" aria-label="' . $h($set['replace_search_label'] ?: 'Search') . '">'
+                     . ' placeholder="' . $h($set['replace_search_placeholder']) . '" aria-label="' . $h(\Cms\Site\Words::of('search_label')) . '">'
+                     . '<button class="menu__search-button" type="submit" aria-label="' . $h($set['replace_search_label'] ?: \Cms\Site\Words::of('search')) . '">'
                      . $glyph . '</button>'
                      . '</form>';
 

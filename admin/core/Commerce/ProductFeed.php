@@ -113,7 +113,7 @@ final class ProductFeed
         $id    = (int) $product['id'];
         $post  = \Cms\Models\Post::find($id);
         $meta  = Meta::getAll($id);
-        $link  = Url::page(trim($publicSlug, '/') . '/' . (string) $product['slug']);
+        $link  = Url::entry($product, $publicSlug);
         $image = (int) ($post['featured_image_id'] ?? 0) > 0 ? Media::getUrl((int) $post['featured_image_id']) : '';
         $more  = array_values(array_filter(array_map(static fn (int $m): string => Media::getUrl($m), $product['gallery'] ?? [])));
         $text  = trim(preg_replace('/\s+/', ' ', strip_tags((string) ($post['excerpt'] ?? '') !== '' ? (string) $post['excerpt'] : (string) ($post['content'] ?? ''))) ?? '');

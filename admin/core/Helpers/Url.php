@@ -84,6 +84,117 @@ final class Url
         return '/' . $path . (self::trailingSlash() && !str_contains($last, '.') ? '/' : '');
     }
 
+    // ── ONE BUILDER FOR EACH KIND OF ADDRESS ────────────────────────────────
+    // An entry, a Page, a term, a type's archive, its feed and its calendars,
+    // and the search page each have one function that makes their address
+    // from the thing itself, so the site's second language (`Site\Language`)
+    // is put into an address in one place, `inLanguage()`, and nowhere else.
+    // Each returns the full address (`page()`); the `…Path()` twins return it
+    // without the host, for what is compared or stored as a path.
+
+    /**
+     * An entry's address: its type's public prefix, then its slug, in the
+     * entry's own language. `$publicSlug` when the caller has its type's
+     * prefix to hand; else read from the type (`ContentType\Registry`).
+     *
+     * @param array<string, mixed> $post a row of `posts`
+     */
+    public static function entry(array $post, ?string $publicSlug = null): string
+    {
+        return self::base() . self::entryPath($post, $publicSlug);
+    }
+
+    /** @param array<string, mixed> $post */
+    public static function entryPath(array $post, ?string $publicSlug = null): string
+    {
+        $prefix = $publicSlug ?? (string) ((\Cms\ContentType\Registry::get((string) ($post['post_type'] ?? '')) ?? [])['public_slug'] ?? '');
+        return self::inLanguage(trim($prefix, '/') . '/' . (string) ($post['slug'] ?? ''), (string) ($post['lang'] ?? ''));
+    }
+
+    /**
+     * A Page's address: its slug, or `/` for the front page's own Page, in
+     * the Page's own language.
+     *
+     * @param array<string, mixed> $page a row of `pages`
+     */
+    public static function pageOf(array $page): string
+    {
+        return self::base() . self::pageOfPath($page);
+    }
+
+    /** @param array<string, mixed> $page */
+    public static function pageOfPath(array $page): string
+    {
+        return self::inLanguage((string) ($page['slug'] ?? ''), (string) ($page['lang'] ?? ''));
+    }
+
+    /**
+     * A term's address: its taxonomy's public prefix, then its slug, in the
+     * language of the page being drawn (`Site\Language::drawn()`), or the
+     * one given: a term is shared by both languages.
+     *
+     * @param array<string, mixed> $term a row of `terms`
+     */
+    public static function term(array $term, string $taxonomyPublicSlug, ?string $lang = null): string
+    {
+        return self::base() . self::inLanguage(trim($taxonomyPublicSlug, '/') . '/' . (string) ($term['slug'] ?? ''), $lang ?? self::drawnIn());
+    }
+
+    /** A type's archive, in the page's language or the one given. */
+    public static function archive(string $publicSlug, ?string $lang = null): string
+    {
+        return self::base() . self::inLanguage(trim($publicSlug, '/'), $lang ?? self::drawnIn());
+    }
+
+    /** A type's feed (`/news/feed.xml`), in the page's language or the one given. */
+    public static function feed(string $publicSlug, ?string $lang = null): string
+    {
+        return self::base() . self::inLanguage(trim($publicSlug, '/') . '/feed.xml', $lang ?? self::drawnIn());
+    }
+
+    /** An events type's calendar (`/events/calendar.ics`), or one event's (`/events/{slug}.ics`). */
+    public static function calendar(string $publicSlug, ?string $eventSlug = null, ?string $lang = null): string
+    {
+        $file = $eventSlug === null ? 'calendar.ics' : $eventSlug . '.ics';
+        return self::base() . self::inLanguage(trim($publicSlug, '/') . '/' . $file, $lang ?? self::drawnIn());
+    }
+
+    /** The front page, in the page's language or the one given (`/`, `/fr`). */
+    public static function home(?string $lang = null): string
+    {
+        return self::base() . self::inLanguage('', $lang ?? self::drawnIn());
+    }
+
+    /** The search page, in the page's language or the one given. */
+    public static function search(?string $lang = null): string
+    {
+        return self::base() . self::inLanguage('search', $lang ?? self::drawnIn());
+    }
+
+    /**
+     * A path in a language: as `pagePath()` writes it for the first ('' ), and
+     * under the second's prefix for it (`/fr/a-propos`; the front page `/fr`).
+     */
+    public static function inLanguage(string $path, string $lang): string
+    {
+        $own = self::pagePath($path);
+        if ($lang === '') {
+            return $own;
+        }
+        return $own === '/' ? self::pagePath($lang) : '/' . $lang . $own;
+    }
+
+    /** The language of the page being drawn: '' for the first. */
+    private static function drawnIn(): string
+    {
+        return \Cms\Site\Language::drawn();
+    }
+
+    private static function base(): string
+    {
+        return defined('BASE_URL') ? (string) BASE_URL : '';
+    }
+
     /**
      * Does the CMS serve `/` here? Its front controller says (`www/index.php`
      * defines SERVES_FRONT_PAGE). A tool run without one is taken to, as on a

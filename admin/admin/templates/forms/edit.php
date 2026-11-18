@@ -506,6 +506,30 @@ ob_start();
                                 <input class="input" type="text" id="opt-default"
                                        data-opt="default" autocomplete="off">
                             </div>
+                            <?php // WHAT A BROWSER MAY FILL IT WITH: the word HTML
+                                  // gives each kind of answer, or off. ?>
+                            <div class="field" data-opt-wrap="autocomplete">
+                                <label class="label" for="opt-autocomplete">Autofill as</label>
+                                <input class="input input--mono" type="text" id="opt-autocomplete"
+                                       data-opt="autocomplete" list="opt-autocomplete-words" spellcheck="false" autocomplete="off">
+                                <datalist id="opt-autocomplete-words">
+                                    <?php foreach (['name', 'given-name', 'family-name', 'email', 'tel', 'organization', 'street-address',
+                                                    'address-level2', 'address-level1', 'postal-code', 'country-name', 'url', 'off'] as $word): ?>
+                                        <option value="<?= h($word) ?>">
+                                    <?php endforeach; ?>
+                                </datalist>
+                                <p class="form-help">What a browser may fill it with: name, email, tel, street-address, or off. Blank: the browser decides.</p>
+                            </div>
+                            <div class="field" data-opt-wrap="blank_label">
+                                <label class="label" for="opt-blank-label">Empty choice reads</label>
+                                <input class="input" type="text" id="opt-blank-label" data-opt="blank_label"
+                                       autocomplete="off" placeholder="— Select —">
+                            </div>
+                            <div class="field" data-opt-wrap="rows">
+                                <label class="label" for="opt-rows">Lines shown</label>
+                                <input class="input" type="number" id="opt-rows" min="1" max="50"
+                                       data-opt="rows" placeholder="5">
+                            </div>
                             <div class="field" data-opt-wrap="maxlength">
                                 <label class="label" for="opt-maxlength">Maximum characters</label>
                                 <input class="input" type="number" id="opt-maxlength" min="0"
@@ -532,6 +556,15 @@ ob_start();
                                 <label class="label" for="opt-msg-format">When the format is wrong</label>
                                 <input class="input" type="text" id="opt-msg-format"
                                        data-opt="msg_format" autocomplete="off">
+                            </div>
+                            <?php // THE FIELD IS THE SWITCH: with words here, a longer
+                                  // answer is refused in them, and the box takes any
+                                  // length; blank, the box stops at the limit. ?>
+                            <div class="field" data-opt-wrap="msg_long">
+                                <label class="label" for="opt-msg-long">When it is too long</label>
+                                <input class="input" type="text" id="opt-msg-long"
+                                       data-opt="msg_long" autocomplete="off">
+                                <p class="form-help">With words here, an answer over Maximum characters is turned back in them; blank, the box stops at the limit.</p>
                             </div>
                         </div>
                     </details>
@@ -763,9 +796,7 @@ ob_start();
                               rows="3"><?= h($setting('success_message', 'Thank you! Your submission has been received.')) ?></textarea>
                 </div>
 
-                <?php // WITHOUT JAVASCRIPT, and
-                      // THE LINK LIMIT: `Forms\Guard` reads a form's
-                      // max_links, and this is where it is set. ?>
+                <?php // WITHOUT JAVASCRIPT. ?>
                 <div class="field">
                     <label class="label" for="f-redirect">After sending without JavaScript, go to</label>
                     <input class="input" type="text" id="f-redirect" name="redirect"
@@ -797,12 +828,102 @@ ob_start();
                     <?php endif; ?>
                 </div>
 
-                <div class="field">
-                    <label class="label" for="f-max-links">Most links in a message</label>
-                    <input class="input" type="text" inputmode="numeric" id="f-max-links" name="max_links"
-                           value="<?= h($setting('max_links')) ?>" placeholder="4">
-                    <p class="form-help">A message with more is turned away as spam. Blank: 4.</p>
+              </div>
+
+              <?php // HOW THE FORM IS DRAWN ON A PAGE (`Helpers\Shortcode`, form.js):
+                    // its element's id and classes and its button's, for a site
+                    // whose own stylesheet styles them; its fields' ids; where its
+                    // messages show; whether it checks its own answers in each
+                    // field's words; and what it says while sending and when it
+                    // cannot. ?>
+              <div class="form-card__section">
+                <?= panel_title('On the page', 'on-the-page') ?>
+
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="label" for="f-html-id">Form's id</label>
+                        <input class="input input--mono" type="text" id="f-html-id" name="html_id" spellcheck="false" autocomplete="off"
+                               value="<?= h($setting('html_id')) ?>" placeholder="cms-form-<?= (int) ($id ?? 0) ?>">
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-html-class">Form's classes</label>
+                        <input class="input input--mono" type="text" id="f-html-class" name="html_class" spellcheck="false" autocomplete="off"
+                               value="<?= h($setting('html_class')) ?>">
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-button-class">Button's classes</label>
+                        <input class="input input--mono" type="text" id="f-button-class" name="button_class" spellcheck="false" autocomplete="off"
+                               value="<?= h($setting('button_class')) ?>">
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-status-place">Messages show</label>
+                        <select class="select" id="f-status-place" name="status_place">
+                            <option value="">Below the form</option>
+                            <option value="above" <?= $setting('status_place') === 'above' ? 'selected' : '' ?>>Above the form</option>
+                        </select>
+                    </div>
                 </div>
+                <p class="form-help">The classes are added to the CMS's own, for a site whose stylesheet styles its forms by its own names. Blank: the CMS's alone.</p>
+
+                <label class="check-list__row" for="f-bare-ids">
+                    <input type="checkbox" id="f-bare-ids" name="bare_ids" value="1" <?= $setting('bare_ids') === '1' ? 'checked' : '' ?>>
+                    <span>Give each field its name as its id</span>
+                </label>
+                <p class="form-help">For a page whose own stylesheet or script finds a field as #email. Two forms on one page must not both do this.</p>
+
+                <label class="check-list__row" for="f-own-checks">
+                    <input type="checkbox" id="f-own-checks" name="own_checks" value="1" <?= $setting('own_checks') === '1' ? 'checked' : '' ?>>
+                    <span>Check each answer on the page, in its field's own words</span>
+                </label>
+                <p class="form-help">Each answer is checked as it is left and as the form is sent, and its Validation messages show under it, instead of the browser's own. Without a script the server checks them, and the page comes back with each message under its field.</p>
+
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="label" for="f-sending-label">While sending, the button reads</label>
+                        <input class="input" type="text" id="f-sending-label" name="sending_label" maxlength="200"
+                               value="<?= h($setting('sending_label')) ?>" placeholder="Sending…">
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-msg-fix">When answers need fixing</label>
+                        <input class="input" type="text" id="f-msg-fix" name="msg_fix" maxlength="200"
+                               value="<?= h($setting('msg_fix')) ?>" placeholder="Please check the highlighted fields and try again.">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label" for="f-msg-offline">When it cannot be sent</label>
+                    <input class="input" type="text" id="f-msg-offline" name="msg_offline" maxlength="200"
+                           value="<?= h($setting('msg_offline')) ?>" placeholder="We couldn’t send your message just now. Please try again.">
+                </div>
+              </div>
+
+              <?php // THE FORM'S OWN SPAM RULES (`Forms\Guard`): its link limit,
+                    // how long its page must be open before it sends, and how a
+                    // post they turn away is answered. ?>
+              <div class="form-card__section">
+                <?= panel_title('Spam', 'spam') ?>
+
+                <div class="form-grid form-grid--2">
+                    <div class="field">
+                        <label class="label" for="f-max-links">Most links in a message</label>
+                        <input class="input" type="text" inputmode="numeric" id="f-max-links" name="max_links"
+                               value="<?= h($setting('max_links')) ?>" placeholder="4">
+                        <p class="form-help">A message with more is turned away as spam. Blank: 4.</p>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="f-min-seconds">Fewest seconds on the page</label>
+                        <input class="input" type="text" inputmode="numeric" id="f-min-seconds" name="min_seconds"
+                               value="<?= h($setting('min_seconds')) ?>" placeholder="<?= \Cms\Forms\Guard::MIN_SECONDS ?>">
+                        <p class="form-help">A post sent sooner after its page opened is a script's. Blank: <?= \Cms\Forms\Guard::MIN_SECONDS ?>.</p>
+                    </div>
+                </div>
+
+                <?php // HOW A TURNED-AWAY POST IS ANSWERED (`Guard::answersSent()`). ?>
+                <label class="check-list__row" for="f-spam-answer">
+                    <input type="checkbox" id="f-spam-answer" name="spam_answer" value="thanks"
+                           <?= $setting('spam_answer') === 'thanks' ? 'checked' : '' ?>>
+                    <span>Answer spam as though it was sent</span>
+                </label>
+                <p class="form-help">A post turned away for its speed or its content is kept in Spam with the reason, and its sender sees the thank-you message or the after-sending page: no email, no conversion. Unticked, the sender is told what to do.</p>
               </div>
             </div>
 

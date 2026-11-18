@@ -30,6 +30,11 @@ use PHPMailer\PHPMailer\PHPMailer;
  * through Brevo's API instead (`Mail\Brevo`), and the SMTP settings do not
  * apply. The sender is still Settings → Email's.
  *
+ * ── OR KEEPS IT IN A LOG ────────────────────────────────────────────────────
+ * `'mail_transport' => 'log'` sends nothing: every message, composed raw ones
+ * included, is written to admin/logs/mail.log (`Mail\MailLog`), for a staging
+ * copy or a development install. The SMTP settings do not apply there either.
+ *
  * ── AND IT NEVER THROWS ─────────────────────────────────────────────────────
  * `send()` returns false and logs. A mail server that is down must not take the
  * order with it: the money and the customer's address are already committed by
@@ -46,6 +51,11 @@ final class Mailer
     /** Why the last message was not sent; '' after one that was. */
     private static string $lastError = '';
 
+    /** How the last message went, whether it did, and its own id: `lastResult()`. */
+    private static string $lastVia = '';
+    private static bool $lastSent = false;
+    private static string $lastId = '';
+
     /**
      * WHY THE LAST MESSAGE WAS NOT SENT, in words a screen can show (Settings
      * → Email's test, a submission sent again): the transport's own reason —
@@ -55,6 +65,42 @@ final class Mailer
     public static function lastError(): string
     {
         return self::$lastError;
+    }
+
+    /**
+     * WHAT HAPPENED TO THE LAST MESSAGE, for a record a screen can show (a
+     * form submission's emails): the way it went (brevo, smtp, server or log,
+     * as `transport()` names them; '' when it went nowhere), whether it was
+     * sent (or kept, in the log), the id its transport gave it (Brevo's
+     * messageId, the Message-ID the mail program sent it under; '' where
+     * there is none) and why it was not (`lastError()`).
+     *
+     * @return array{transport: string, sent: bool, id: string, error: string}
+     */
+    public static function lastResult(): array
+    {
+        return ['transport' => self::$lastVia, 'sent' => self::$lastSent, 'id' => self::$lastId, 'error' => self::$lastError];
+    }
+
+    /**
+     * No message yet, as far as `lastResult()` says: for a caller about to ask
+     * something else to send, which may send nothing at all (a form with no
+     * address to send to), so that what it reads after is that one's result.
+     */
+    public static function clearResult(): void
+    {
+        self::$lastError = '';
+        self::went('', false);
+    }
+
+    /** The last message went (or not) this way, under this id: `lastResult()`'s. */
+    private static function went(string $via, bool $sent, string $id = ''): bool
+    {
+        self::$lastVia  = $via;
+        self::$lastSent = $sent;
+        self::$lastId   = $sent ? mb_substr(trim($id), 0, 255) : '';
+
+        return $sent;
     }
 
     /**
@@ -68,6 +114,7 @@ final class Mailer
     public static function send(array $to, string $subject, string $body, array $opts = []): bool
     {
         self::$lastError = '';
+        self::went('', false);
         $recipients = [];
         foreach ($to as $address) {
             $address = trim((string) $address);
@@ -86,6 +133,10 @@ final class Mailer
         }
         $toNames = is_array($opts['to_names'] ?? null) ? $opts['to_names'] : [];
 
+        $log = self::log();
+        if ($log !== null) {
+            return self::sendLog($log, $recipients, $toNames, $subject, $body, $opts);
+        }
         $brevo = Brevo::fromConfig(self::config());
         if ($brevo !== null) {
             return self::sendBrevo($brevo, $recipients, $toNames, $subject, $body, $opts);
@@ -149,12 +200,12 @@ final class Mailer
 
             $mail->send();
 
-            return true;
+            return self::went($smtpHost !== '' ? 'smtp' : 'server', true, $mail->getLastMessageID());
         } catch (PHPMailerException $e) {
             error_log('CMS mail error: ' . $e->getMessage());
             self::$lastError = trim($e->getMessage()) !== '' ? trim($e->getMessage()) : 'the mail program gave no reason';
 
-            return false;
+            return self::went((string) Option::get('smtp_host', '') !== '' ? 'smtp' : 'server', false);
         }
     }
 
@@ -174,7 +225,7 @@ final class Mailer
         if ($fromEmail === '' || filter_var($fromEmail, FILTER_VALIDATE_EMAIL) === false) {
             self::$lastError = 'mail goes through Brevo and there is no From address to send it from (Settings → Email)';
             error_log('CMS mail error: ' . self::$lastError);
-            return false;
+            return self::went('brevo', false);
         }
         $fromName = trim((string) ($opts['from_name'] ?? (Option::get('smtp_from_name', '') ?: \Cms\SEO\Head::globalTokens()['site_name'])));
 
@@ -190,26 +241,73 @@ final class Mailer
         $sent = $brevo->send(['email' => $fromEmail, 'name' => $fromName], $to, $reply, $subject, $body);
         self::$lastError = $sent ? '' : $brevo->error();
 
-        return $sent;
+        return self::went('brevo', $sent, $brevo->messageId());
     }
 
     /**
-     * Where mail goes, for Settings → Email to say: 'brevo' when config.php
-     * sends it through Brevo, 'smtp' when Settings → Email names a host, and
-     * 'server' for the server's own mail program.
+     * The same message kept in the mail log (`send()`'s, already checked),
+     * with the sender, recipients and Reply-To the server's own mail would
+     * have given it.
+     *
+     * @param list<string>          $recipients
+     * @param array<string, string> $toNames
+     * @param array<string, mixed>  $opts
+     */
+    private static function sendLog(MailLog $log, array $recipients, array $toNames, string $subject, string $body, array $opts): bool
+    {
+        $fromEmail = trim((string) ($opts['from_email'] ?? Option::get('smtp_from_email', '')));
+        $fromEmail = $fromEmail !== '' ? $fromEmail : self::defaultFrom();
+        $fromName  = trim((string) ($opts['from_name'] ?? (Option::get('smtp_from_name', '') ?: \Cms\SEO\Head::globalTokens()['site_name'])));
+
+        $headers = $fromEmail !== '' ? ['From: ' . MailLog::address($fromEmail, $fromName)] : [];
+        $headers[] = 'To: ' . implode(', ', array_map(
+            static fn (string $address): string => MailLog::address($address, trim((string) ($toNames[$address] ?? ''))), $recipients));
+        $replyTo = trim((string) ($opts['reply_to'] ?? ''));
+        if ($replyTo !== '' && filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+            $headers[] = 'Reply-To: ' . MailLog::address($replyTo, trim((string) ($opts['reply_to_name'] ?? '')));
+        }
+        $headers[] = 'Subject: ' . trim((string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $subject));
+        $headers[] = 'MIME-Version: 1.0';
+        $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+
+        $kept = $log->write($fromEmail, $headers, $body);
+        self::$lastError = $kept ? '' : $log->error();
+
+        return self::went('log', $kept);
+    }
+
+    /** The mail log, when config.php keeps mail in one instead of sending it. */
+    private static function log(): ?MailLog
+    {
+        return MailLog::fromConfig(self::config(), defined('ROOT_PATH') ? ROOT_PATH . '/logs' : '');
+    }
+
+    /**
+     * Where mail goes, for Settings → Email to say: 'log' when config.php
+     * keeps it in the mail log, 'brevo' when it sends it through Brevo, 'smtp'
+     * when Settings → Email names a host, and 'server' for the server's own
+     * mail program.
      */
     public static function transport(): string
     {
+        if (self::log() !== null) {
+            return 'log';
+        }
         if (Brevo::fromConfig(self::config()) !== null) {
             return 'brevo';
         }
         return (string) Option::get('smtp_host', '') !== '' ? 'smtp' : 'server';
     }
 
-    /** Where mail goes, in words: "Brevo", "the SMTP server mail.example.com", "the server's own mail program". */
+    /**
+     * Where mail goes, in words: "the mail log (admin/logs/mail.log)",
+     * "Brevo", "the SMTP server mail.example.com", "the server's own mail
+     * program".
+     */
     public static function transportName(): string
     {
         return match (self::transport()) {
+            'log'   => 'the mail log (admin/logs/' . MailLog::FILE . ')',
             'brevo' => 'Brevo',
             'smtp'  => 'the SMTP server ' . trim((string) Option::get('smtp_host', '')),
             default => "the server's own mail program",
@@ -227,9 +325,7 @@ final class Mailer
     {
         static $config = null;
         if ($config === null) {
-            $read   = defined('ROOT_PATH') && is_file(ROOT_PATH . '/config/config.php')
-                ? (static fn (string $__f): mixed => require $__f)(ROOT_PATH . '/config/config.php')
-                : null;
+            $read   = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             $config = is_array($read) ? $read : [];
         }
         return $config;
@@ -240,6 +336,7 @@ final class Mailer
      * (`Forms\Notify`): its own headers and
      * MIME body, through the server's own mail program, which is how a
      * site's own lead handler may already send. The SMTP settings do not apply.
+     * With mail kept in the log, it is written there as composed instead.
      *
      * The composer is the site's own trusted code, but the subject is still
      * refused if it holds a line break that is not header folding (CRLF and a
@@ -250,6 +347,7 @@ final class Mailer
     public static function sendRaw(array $to, string $subject, string $headers, string $body, string $envelopeFrom = ''): bool
     {
         self::$lastError = '';
+        self::went('', false);
         $recipients = array_values(array_filter(array_map('trim', $to),
             static fn (string $a): bool => $a !== '' && filter_var($a, FILTER_VALIDATE_EMAIL) !== false));
         if ($recipients === []) {
@@ -260,6 +358,22 @@ final class Mailer
             self::$lastError = 'the site\'s composed subject has a line break in it';
             return false;
         }
+        $log = self::log();
+        if ($log !== null) {
+            // AS mail() WOULD HAND IT ON: the recipients and subject, then the
+            // composer's own headers, a folded one kept with the line it
+            // continues.
+            $lines = ['To: ' . implode(', ', $recipients), 'Subject: ' . (string) preg_replace('/\r\n[ \t]+/', ' ', $subject)];
+            foreach (preg_split('/\r\n(?![ \t])|\r(?!\n)|(?<!\r)\n(?![ \t])/', trim($headers, "\r\n")) ?: [] as $line) {
+                if (trim($line) !== '') {
+                    $lines[] = $line;
+                }
+            }
+            $kept = $log->write(filter_var($envelopeFrom, FILTER_VALIDATE_EMAIL) !== false ? $envelopeFrom : '', $lines, $body);
+            self::$lastError = $kept ? '' : $log->error();
+
+            return self::went('log', $kept);
+        }
         $params = $envelopeFrom !== '' && filter_var($envelopeFrom, FILTER_VALIDATE_EMAIL) ? '-f' . $envelopeFrom : '';
         $sent   = @mail(implode(', ', $recipients), $subject, $body, $headers, $params);
         if (!$sent) {
@@ -267,7 +381,8 @@ final class Mailer
             error_log('Mail error: the server\'s mail program refused a composed message');
         }
 
-        return $sent;
+        // ITS ID IS THE ONE ITS COMPOSER WROTE, when it wrote one.
+        return self::went('server', $sent, preg_match('/^Message-ID:[ \t]*(\S[^\r\n]*)/mi', $headers, $m) === 1 ? $m[1] : '');
     }
 
     /**

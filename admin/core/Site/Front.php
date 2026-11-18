@@ -131,15 +131,27 @@ final class Front
             if (self::isSiteAddress($path)) {
                 return false;
             }
-            foreach (Registry::all() as $type) {
+            // THE SECOND LANGUAGE'S (`Site\Language`): a type's or a
+            // taxonomy's address under its prefix is the CMS's, as the same
+            // address without it is, for a type that is translated.
+            $second = \Cms\Site\Language::prefix();
+            $own    = $second !== '' && str_starts_with($path, '/' . $second . '/')
+                ? substr($path, strlen('/' . $second)) : $path;
+            foreach (Registry::all() as $key => $type) {
+                if ($own !== $path && !\Cms\Content\Translation::translates((string) $key)) {
+                    continue;
+                }
                 $at = trim((string) ($type['public_slug'] ?? ''), '/');
-                if ($at !== '' && ($path === '/' . $at || str_starts_with($path, '/' . $at . '/'))) {
+                if ($at !== '' && ($own === '/' . $at || str_starts_with($own, '/' . $at . '/'))) {
                     return true;
                 }
             }
-            foreach (TaxonomyRegistry::all() as $taxonomy) {
+            foreach (TaxonomyRegistry::all() as $taxKey => $taxonomy) {
+                if ($own !== $path && !\Cms\Content\Translation::taxonomyTranslates((string) $taxKey)) {
+                    continue;
+                }
                 $at = trim((string) ($taxonomy['public_slug'] ?? ''), '/');
-                if ($at !== '' && str_starts_with($path, '/' . $at . '/')) {
+                if ($at !== '' && str_starts_with($own, '/' . $at . '/')) {
                     return true;
                 }
             }
@@ -165,15 +177,11 @@ final class Front
         }
         $file = defined('ROOT_PATH') ? ROOT_PATH . '/config/site-addresses.php' : '';
         $list = [];
-        if ($file !== '' && is_file($file)) {
-            // READ QUIETLY: it is read on every request of the site, and a blank
-            // line before its `<?php` would be printed before every page.
-            ob_start();
-            try {
-                $list = (static fn (string $__f): mixed => require $__f)($file);
-            } finally {
-                ob_end_clean();
-            }
+        if ($file !== '') {
+            // READ QUIETLY (`ConfigFile::read()`): it is read on every request
+            // of the site, and a blank line before its `<?php` would be printed
+            // before every page.
+            $list = \Cms\Site\ConfigFile::read($file) ?? [];
         }
 
         $first = [];
@@ -264,7 +272,7 @@ final class Front
             if (!is_file($file)) {
                 throw new \RuntimeException($file . ' is missing');
             }
-            $config       = require $file;
+            $config       = ConfigFile::read($file);
             self::$config = is_array($config) ? $config : [];
         }
 

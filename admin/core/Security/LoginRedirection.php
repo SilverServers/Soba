@@ -165,7 +165,7 @@ final class LoginRedirection
 
             // Its address as the menus write it (`MenuItem::resolveUrl()`).
             return $row !== null && ($row['status'] ?? '') === 'published' && !\Cms\Models\Post::hasEnded($row)
-                ? Url::pagePath((string) $row['slug']) : null;
+                ? Url::pageOfPath($row) : null;
         }
         if (($target['type'] ?? '') !== 'url') {
             return null;

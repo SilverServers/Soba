@@ -320,7 +320,12 @@ ob_start();
                     'alt'        => (string) ($file['alt_text'] ?? ''),
                     'folder_id'  => isset($file['folder_id']) ? (int) $file['folder_id'] : null,
                     'visibility' => (string) ($file['visibility'] ?? 'public'),
+                    'file'       => (string) $file['filename'],
                     'is_image'   => $isImage,
+                    // A FILE THE SITE ALREADY HAD, named where it is
+                    // (`Media::register()`): no Replace, no Private, and
+                    // removing it forgets it.
+                    'site'       => Media::isSiteFile($file),
                     // THE TWO DATES, as the boxes take them (the site's time)
                     // and as a person reads them. Taken is empty where the
                     // file said nothing.
@@ -507,7 +512,7 @@ ob_start();
                       // (403), so drawn for one they made Save fail on a
                       // change to the title. A control that is drawn works. ?>
                 <?php if ($isEditorPlus): ?>
-                <div class="form-card__section">
+                <div class="form-card__section" data-md-filing>
                 <?= panel_title('Filing', 'placement') ?>
                 <?php if ($folders !== []): ?>
                     <div class="field">
@@ -523,7 +528,17 @@ ob_start();
                     </div>
                 <?php endif; ?>
 
-                <div class="field">
+                <div class="field" data-md-file-field>
+                    <label class="label" for="md-file">File name</label>
+                    <input class="input" type="text" id="md-file" data-md-file spellcheck="false" autocomplete="off">
+                    <p class="form-help">
+                        The file's own name in its address; its kind stays. Renamed,
+                        every page that shows it follows, and the old address
+                        sends visitors on.
+                    </p>
+                </div>
+
+                <div class="field" data-md-visibility-field>
                     <label class="label" for="md-visibility">Visibility</label>
                     <select class="select" id="md-visibility" data-md-visibility>
                         <option value="public">Public</option>
@@ -570,6 +585,10 @@ ob_start();
                                aria-label="File address">
                         <button type="button" class="btn btn--sm" data-md-copy>Copy</button>
                     </div>
+                    <p class="form-help" data-md-site hidden>
+                        The site's own file, kept where the site keeps it. The
+                        library names it there and never moves or replaces it.
+                    </p>
                 </div>
                 </div>
             </div>
@@ -592,10 +611,16 @@ ob_start();
 
             <?php // DESTRUCTIVE ACTION IS A PLAIN TEXT LINK, not a panel with a
                   // button in it — as everywhere else in this admin. ?>
-            <button type="button" class="link link--xs" data-md-delete
+            <button type="button" class="link link--xs" data-md-delete="file"
                     data-confirm="Delete this file permanently?"
                     data-confirm-detail="It is removed from disk. Anything embedding it will break. This cannot be undone."
                     data-confirm-verb="Delete">Delete file</button>
+            <?php // A FILE THE SITE ALREADY HAD is only forgotten
+                  // (`Media::register()`): the same action, its own words. ?>
+            <button type="button" class="link link--xs" data-md-delete="site" hidden
+                    data-confirm="Remove this file from the library?"
+                    data-confirm-detail="The file stays where the site keeps it, at the same address, and pages showing it keep working. The library stops listing it."
+                    data-confirm-verb="Remove">Remove from library</button>
             </div><?php // .media-detail__foot ?>
             </div><?php // .media-detail__side ?>
             </div><?php // .media-detail__body ?>

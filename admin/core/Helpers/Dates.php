@@ -104,7 +104,9 @@ final class Dates
             return '';
         }
         try {
-            return (new \DateTimeImmutable($value, new \DateTimeZone('UTC')))->format($format);
+            $at = new \DateTimeImmutable($value, new \DateTimeZone('UTC'));
+
+            return $at->format(\Cms\Site\Words::dateFormat($format, $at));
         } catch (\Exception) {
             return '';
         }
@@ -214,7 +216,11 @@ final class Dates
         }
         // THE OWNER'S ZONE. `$ts` is an absolute moment; '@' builds it in UTC
         // and setTimezone() says it the way a clock in Kamloops would.
-        return (new \DateTimeImmutable('@' . $ts))->setTimezone(self::zone())->format($format);
+        // A VISITOR'S PAGE writes the month and the day in its language
+        // (`Site\Words::dateFormat()`); the admin, as PHP does.
+        $at = (new \DateTimeImmutable('@' . $ts))->setTimezone(self::zone());
+
+        return $at->format(\Cms\Site\Words::dateFormat($format, $at));
     }
 
     /** @return array{date: string, time: string, zone: string} */

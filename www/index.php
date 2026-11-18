@@ -99,7 +99,9 @@ if (!file_exists($configPath)) {
     http_response_code(500);
     exit('Not configured.');
 }
-$config = require $configPath;
+// READ QUIETLY (`Site\ConfigFile::read()`): a blank line or a byte-order
+// mark before its `<?php` is dropped, not printed ahead of the page's headers.
+$config = \Cms\Site\ConfigFile::read($configPath);
 
 // MODULE SWITCHES: which optional parts of the CMS this install runs, from
 // config.php's `modules` — every one on unless switched off. A switched-off
@@ -110,8 +112,8 @@ $config = require $configPath;
 // PRODUCTION REALLY MEANS PRODUCTION: outside development, an error is logged
 // and never shown, and an uncaught exception is a bare 500 that names no file,
 // query or product (`Helpers\ErrorPage`). Development is left as the server
-// sets it.
-if (strtolower((string) ($config['app_env'] ?? 'production')) !== 'development') {
+// sets it. `app_env` is read as everything reads it (`Site\Environment`).
+if (\Cms\Site\Environment::read($config['app_env'] ?? null) !== \Cms\Site\Environment::DEVELOPMENT) {
     ini_set('display_errors', '0');
     ini_set('log_errors', '1');
     set_exception_handler([\Cms\Helpers\ErrorPage::class, 'handle']);
@@ -205,7 +207,7 @@ require_once ROOT_PATH . '/core/Ui/globals.php';
 // Menu Location Registry — load registered menu locations
 // ----------------------------------------------------------------
 
-require ROOT_PATH . '/config/menus.php';
+\Cms\Site\ConfigFile::read(ROOT_PATH . '/config/menus.php');
 
 // ----------------------------------------------------------------
 // Page custom fields — structured content for static Pages
@@ -245,6 +247,8 @@ $router->addRoute('GET', '/search', [PublicSearchController::class, 'index']);
 // Public — form submissions
 // -----------------------------------------------------------------------
 $router->addRoute('POST', '/forms/{id:\d+}/submit', [PublicFormController::class, 'handleSubmit']);
+// A page left open long renews its form's token here (form.js).
+$router->addRoute('POST', '/forms/{id:\d+}/token', [PublicFormController::class, 'handleToken']);
 
 // -----------------------------------------------------------------------
 // Public — private file serving
@@ -338,6 +342,8 @@ $router->addRoute('GET',  '/admin/pages/trash',            [PageController::clas
 $router->addRoute('GET',  '/admin/pages/{id:\d+}/edit',    [PageController::class, 'showEdit']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/edit',    [PageController::class, 'handleUpdate']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/copy',    [PageController::class, 'handleCopy']);
+// Its version in the second language (`Content\Translation`).
+$router->addRoute('POST', '/admin/pages/{id:\d+}/translate', [PageController::class, 'handleTranslate']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/share',   [PageController::class, 'handleShare']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/share/stop', [PageController::class, 'handleStopShare']);
 $router->addRoute('POST', '/admin/pages/{id:\d+}/trash',   [PageController::class, 'handleTrash']);
@@ -622,6 +628,9 @@ $router->addRoute('GET',  '/admin/settings/permalinks', [SettingsController::cla
 // `SettingsController::showPermalinks()` — because the router does not read
 // one. The slash has readers: `Url::page()`, and the 301 in `Url::settle()`.
 $router->addRoute('POST', '/admin/settings/permalinks', [SettingsController::class, 'handlePermalinks']);
+// THE THEME'S OWN WORDS, in each language the site has (`Site\Words`).
+$router->addRoute('GET',  '/admin/settings/words',      [SettingsController::class, 'showWords']);
+$router->addRoute('POST', '/admin/settings/words',      [SettingsController::class, 'handleWords']);
 $router->addRoute('GET',  '/admin/settings/email',      [SettingsController::class, 'showEmail']);
 $router->addRoute('POST', '/admin/settings/email',      [SettingsController::class, 'handleEmail']);
 $router->addRoute('POST', '/admin/settings/email/test', [SettingsController::class, 'handleEmailTest']);
@@ -802,6 +811,8 @@ foreach (Registry::all() as $contentTypeKey => $contentType) {
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/edit",   [ContentTypeController::class, 'handleUpdate',  $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/trash",  [ContentTypeController::class, 'handleTrash',   $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/copy",   [ContentTypeController::class, 'handleCopy',    $contentTypeKey]);
+    // Its version in the second language (`Content\Translation`).
+    $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/translate", [ContentTypeController::class, 'handleTranslate', $contentTypeKey]);
     // A link that shows an entry not yet on the site (`Content\\Share`).
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/share",  [ContentTypeController::class, 'handleShare',   $contentTypeKey]);
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/share/stop", [ContentTypeController::class, 'handleStopShare', $contentTypeKey]);
@@ -827,6 +838,48 @@ foreach (TaxonomyRegistry::all() as $taxKey => $taxonomy) {
     }
 
     $router->addRoute('GET', "/{$tp}/{term}", [PublicTermController::class, 'archive', $taxKey]);
+}
+
+// -----------------------------------------------------------------------
+// Public — the second language (Settings → General, `Site\Language`).
+//
+// Its front page, its pages, the archives, entries, feeds and calendars of
+// the types that do not sell (`Content\Translation::translates()`), the term
+// pages and search, each under its prefix (/fr, /fr/a-propos, /fr/news/…) and
+// drawn in it: the handler's 4th element, given to `Language::draw()` before
+// the controller is made. Nothing else: the shop, forms, the account pages,
+// the sitemaps and the admin have one address each. Before the pages'
+// catch-all, which would otherwise answer /fr.
+// -----------------------------------------------------------------------
+$second = \Cms\Site\Language::prefix();
+if ($second !== '') {
+    $l = '/' . $second;
+    $router->addRoute('GET', "{$l}",        [HomeController::class,         'index', null, $second]);
+    $router->addRoute('GET', "{$l}/search", [PublicSearchController::class, 'index', null, $second]);
+    foreach (Registry::all() as $contentTypeKey => $contentType) {
+        $p = (string) ($contentType['public_slug'] ?? '');
+        if ($p === '' || !\Cms\Content\Translation::translates((string) $contentTypeKey)) {
+            continue;
+        }
+        $router->addRoute('GET', "{$l}/{$p}", [PublicContentTypeController::class, 'archive', $contentTypeKey, $second]);
+        if (\Cms\Content\Feed::has($contentTypeKey)) {
+            $router->addRoute('GET', "{$l}/{$p}/feed.xml", [\Cms\Controllers\Public\EntryFeedController::class, 'show', $contentTypeKey, $second]);
+        }
+        if (\Cms\Content\Calendar::has($contentTypeKey)) {
+            $router->addRoute('GET', "{$l}/{$p}/calendar.ics", [\Cms\Controllers\Public\CalendarController::class, 'type', $contentTypeKey, $second]);
+            $router->addRoute('GET', "{$l}/{$p}/{slug:[a-z0-9-]+}.ics", [\Cms\Controllers\Public\CalendarController::class, 'event', $contentTypeKey, $second]);
+        }
+        $router->addRoute('GET',  "{$l}/{$p}/{slug}", [PublicPostController::class, 'show', $contentTypeKey, $second]);
+        $router->addRoute('POST', "{$l}/{$p}/{slug}", [PublicPostController::class, 'show', $contentTypeKey, $second]);
+    }
+    foreach (TaxonomyRegistry::all() as $taxKey => $taxonomy) {
+        $tp = (string) ($taxonomy['public_slug'] ?? '');
+        if ($tp !== '' && \Cms\Content\Translation::taxonomyTranslates((string) $taxKey)) {
+            $router->addRoute('GET', "{$l}/{$tp}/{term}", [PublicTermController::class, 'archive', $taxKey, $second]);
+        }
+    }
+    $router->addRoute('GET',  "{$l}/{slug}", [PublicPageController::class, 'show', null, $second]);
+    $router->addRoute('POST', "{$l}/{slug}", [PublicPageController::class, 'show', null, $second]);
 }
 
 // -----------------------------------------------------------------------
@@ -1008,11 +1061,17 @@ switch ($result[0]) {
     case Dispatcher::FOUND:
         [$status, $handler, $vars] = $result;
 
-        // Handler is [class, method] or [class, method, contentTypeKey].
-        // ContentTypeController and TermController receive the 3rd element via constructor.
+        // Handler is [class, method] or [class, method, contentTypeKey], and a
+        // second language's route adds its language: [class, method, key or
+        // null, language]. ContentTypeController and TermController receive
+        // the 3rd element via constructor.
         $controllerClass  = $handler[0];
         $method           = $handler[1];
         $contentTypeKey   = $handler[2] ?? null;
+        // THE LANGUAGE THE PAGE IS DRAWN IN (`Site\Language`): the site's own,
+        // unless the route is the second language's.
+        \Cms\Site\Language::draw((string) ($handler[3] ?? ''),
+            str_starts_with(\Cms\Compat\OldNames::className((string) $controllerClass), 'Cms\\Controllers\\Public\\'));
 
         $controller = $contentTypeKey !== null
             ? new $controllerClass($contentTypeKey)
@@ -1042,11 +1101,18 @@ switch ($result[0]) {
             }
         }
 
+        // AN ADDRESS UNDER THE SECOND LANGUAGE'S PREFIX is not found in that
+        // language: its not-found page is drawn in it.
+        $secondPrefix = \Cms\Site\Language::prefix();
+        if ($secondPrefix !== '' && ($requestPath === '/' . $secondPrefix || str_starts_with($requestPath, '/' . $secondPrefix . '/'))) {
+            \Cms\Site\Language::draw($secondPrefix, true);
+        }
+
         // Set basic SEO for 404 page. The page itself is the whole-page
         // theme's, if it has one — `Template::notFound()`, which the hidden
         // sign-in page's 404 calls too, so the two stay identical.
         \Cms\SEO\Head::set([
-            'title'  => 'Page Not Found | ' . \Cms\SEO\Head::globalTokens()['site_name'],
+            'title'  => \Cms\Site\Words::of('not_found_title') . ' | ' . \Cms\SEO\Head::globalTokens()['site_name'],
             'robots' => 'noindex, follow',
         ]);
         \Cms\Helpers\Template::notFound();

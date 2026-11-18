@@ -312,6 +312,7 @@ final class Sidebar
             'entry-form'     => 'pen-to-square',
             'seo'            => 'magnifying-glass',
             'permalinks'     => 'link',
+            'words'          => 'quote-left',
             'email'          => 'mail',
 
             // ── Content Type menu_icon values ───────────────────────────────

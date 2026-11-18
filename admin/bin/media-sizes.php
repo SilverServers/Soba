@@ -32,7 +32,7 @@ if (!is_file($config)) {
     fwrite(STDERR, "No config at {$config}.\n");
     exit(1);
 }
-$settings = require $config;
+$settings = \Cms\Site\ConfigFile::read($config);
 define('BASE_URL', rtrim((string) ($settings['base_url'] ?? ''), '/'));
 Database::init($settings);
 Database::runMigrations(ROOT_PATH . '/core/Database/migrations', ROOT_PATH . '/site/migrations');
@@ -43,9 +43,10 @@ if (!extension_loaded('imagick') || \Imagick::queryFormats('WEBP') === []) {
 }
 
 $all  = in_array('--all', $argv, true);
+// A file the site already had keeps its own copies (`Media::register()`): never made here.
 $rows = Database::getInstance()->query(
     "SELECT id FROM attachments
-      WHERE visibility = 'public' AND mime_type IN ('image/webp', 'image/jpeg', 'image/png')
+      WHERE visibility = 'public' AND mime_type IN ('image/webp', 'image/jpeg', 'image/png') AND site_path IS NULL
         AND width > " . Sizes::WIDTHS[0] . ($all ? '' : ' AND sizes IS NULL') . ' ORDER BY id'
 )->fetchAll(\PDO::FETCH_COLUMN);
 

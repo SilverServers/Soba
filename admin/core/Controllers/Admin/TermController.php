@@ -211,9 +211,13 @@ class TermController
         // A PUBLIC TERM, RENAMED, LEAVES A 301 BEHIND IT — the same rule as an
         // entry (Redirects::moved()). Its archive's address is the one thing a
         // visitor bookmarks; `$term` is still the row as it was before.
+        // A term is both languages' (`Site\Language`), so its page in the
+        // second language, under its prefix, leaves one too.
         $taxPublic = (string) ($taxonomy['public_slug'] ?? '');
         if ($taxPublic !== '' && (string) $data['slug'] !== (string) $term['slug']) {
-            \Cms\SEO\Redirects::moved('/' . $taxPublic . '/' . $term['slug'], '/' . $taxPublic . '/' . $data['slug']);
+            foreach ($this->languagePrefixes() as $in) {
+                \Cms\SEO\Redirects::moved($in . '/' . $taxPublic . '/' . $term['slug'], $in . '/' . $taxPublic . '/' . $data['slug']);
+            }
         }
 
         $term     = Term::find((int) $vars['id']);
@@ -330,7 +334,9 @@ class TermController
                         continue;
                     }
                     if ($public !== '') {
-                        \Cms\SEO\Redirects::moved('/' . $public . '/' . $term['slug'], '/' . $public . '/' . $into['slug']);
+                        foreach ($this->languagePrefixes() as $in) {
+                            \Cms\SEO\Redirects::moved($in . '/' . $public . '/' . $term['slug'], $in . '/' . $public . '/' . $into['slug']);
+                        }
                     }
                     $report['done']++;
                 }
@@ -411,5 +417,19 @@ class TermController
         ];
 
         return [$errors, $data];
+    }
+
+    /**
+     * The prefixes this taxonomy's term pages are at: '' for the site's own
+     * language, and the second language's (`/fr`) when the site has one and
+     * a type the taxonomy files is translated.
+     *
+     * @return list<string>
+     */
+    private function languagePrefixes(): array
+    {
+        $second = \Cms\Site\Language::prefix();
+
+        return $second !== '' && \Cms\Content\Translation::taxonomyTranslates((string) $this->taxonomy['key']) ? ['', '/' . $second] : [''];
     }
 }

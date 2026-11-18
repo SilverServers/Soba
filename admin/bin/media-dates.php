@@ -75,7 +75,7 @@ if (!is_file($config)) {
     fwrite(STDERR, "No config at {$config}.\n");
     exit(1);
 }
-$settings = require $config;
+$settings = \Cms\Site\ConfigFile::read($config);
 Database::init($settings);
 $pdo = Database::getInstance();
 
@@ -181,10 +181,11 @@ if (!is_dir($dir) || !is_readable($dir)) {
 $write = isset($opts['write']);
 
 /**
- * THE NAME A FILE IS MATCHED BY, the way the library writes it into a stored
- * name (`Media::storedName()`): lower case, nothing but letters, digits, dots,
+ * THE NAME A FILE IS MATCHED BY: lower case, nothing but letters, digits, dots,
  * dashes and underscores, and no extension (a JPEG kept as a WebP changes it).
- * A stored name loses the unique prefix it was given first.
+ * A name stored before 0.7.9 loses the unique prefix it was given first; one
+ * stored since is the file's own name made fit for an address, so a row is
+ * matched by its original's name as well, which every row keeps.
  */
 $key = static function (string $file, bool $stored = false): string {
     $safe = ltrim((string) preg_replace('/[^a-z0-9._-]/', '', strtolower($file)), '.');

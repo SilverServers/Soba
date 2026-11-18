@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
+use Cms\Helpers\Dates;
+use Cms\Helpers\Words;
 use Cms\Models\Page;
 use Cms\Models\Revision;
 use Cms\SEO\Head;
@@ -33,6 +35,8 @@ class PageController
     {
         Auth::requireRole('editor');
         $user = Auth::user();
+        // Every line break posted is a LF, as stored (`Words::lineFeeds()`).
+        $_POST = Words::lineFeeds($_POST);
 
         [$errors, $slug, $status, $passwordHash] = $this->validateAndExtract($_POST, null);
 
@@ -76,7 +80,7 @@ class PageController
             return;
         }
 
-        $parentOptions = Page::parentOptions((int) $vars['id']);
+        $parentOptions = Page::parentOptions((int) $vars['id'], (string) $page['lang']);
         $errors        = [];
         $revisions     = Revision::listFor(Revision::TYPE_PAGE, (int) $vars['id']);
         require ROOT_PATH . '/admin/templates/pages/edit.php';
@@ -94,10 +98,16 @@ class PageController
             return;
         }
 
+        // ── A SAVE THAT CHANGES NOTHING CHANGES NOTHING ─────────────────────
+        // As an entry's (`ContentTypeController::handleUpdate()`): every line
+        // break posted is a LF, the unpublish box keeps the stored second, and
+        // a page found exactly as it was keeps its date and leaves no revision.
+        $_POST = Words::lineFeeds($_POST);
+
         [$errors, $slug, $status, $passwordHash] = $this->validateAndExtract($_POST, (int) $vars['id'], $page);
 
         if (!empty($errors)) {
-            $parentOptions = Page::parentOptions((int) $vars['id']);
+            $parentOptions = Page::parentOptions((int) $vars['id'], (string) $page['lang']);
             $revisions     = Revision::listFor(Revision::TYPE_PAGE, (int) $vars['id']);
             require ROOT_PATH . '/admin/templates/pages/edit.php';
             return;
@@ -105,8 +115,8 @@ class PageController
 
         // WHAT IS ABOUT TO BE OVERWRITTEN, kept, so a save can be undone from
         // the History card, as an entry's can (`Revision`).
-        Revision::snapshot(Revision::TYPE_PAGE, (int) $vars['id'], $user['id']);
-        Revision::prune(Revision::TYPE_PAGE, (int) $vars['id']);
+        $before   = self::state((int) $vars['id']);
+        $revision = Revision::snapshot(Revision::TYPE_PAGE, (int) $vars['id'], $user['id']);
 
         Page::update((int) $vars['id'], [
             'parent_id'         => !empty($_POST['parent_id']) ? (int) $_POST['parent_id'] : null,
@@ -119,17 +129,27 @@ class PageController
             'featured_image_id' => !empty($_POST['featured_image_id']) ? (int) $_POST['featured_image_id'] : null,
             'seo_title'         => Head::ownTitle((string) ($_POST['seo_title'] ?? ''), 'page'),
             'meta_description'  => trim($_POST['meta_description'] ?? ''),
-        ] + (array_key_exists('unpublish_local', $_POST) ? ['unpublish_at' => self::unpublishAt()] : []));
+        ] + (array_key_exists('unpublish_local', $_POST) ? ['unpublish_at' => self::unpublishAt($page)] : []));
+
+        if (self::state((int) $vars['id']) === $before) {
+            if ($revision !== null) {
+                Revision::forget($revision);
+            }
+        } else {
+            Revision::prune(Revision::TYPE_PAGE, (int) $vars['id']);
+        }
 
         // A LIVE PAGE, RENAMED, LEAVES A 301 BEHIND IT — the rule entries and
         // terms follow (Redirects::moved(), which refuses an address a route
-        // owns). `$page` is still the row as it was before the save.
+        // owns). `$page` is still the row as it was before the save. Under its
+        // language's prefix, for a translation (/fr/about → /fr/a-propos).
         if ($slug !== (string) $page['slug'] && in_array((string) $page['status'], ['published', 'password'], true)) {
-            \Cms\SEO\Redirects::moved('/' . $page['slug'], '/' . $slug);
+            $in = (string) $page['lang'] !== '' ? '/' . $page['lang'] : '';
+            \Cms\SEO\Redirects::moved($in . '/' . $page['slug'], $in . '/' . $slug);
         }
 
         $page          = Page::find((int) $vars['id']);
-        $parentOptions = Page::parentOptions((int) $vars['id']);
+        $parentOptions = Page::parentOptions((int) $vars['id'], (string) $page['lang']);
         $errors        = [];
         $saved         = true;
         $revisions     = Revision::listFor(Revision::TYPE_PAGE, (int) $vars['id']);
@@ -158,7 +178,9 @@ class PageController
         $id   = Page::create([
             'parent_id'         => !empty($page['parent_id']) ? (int) $page['parent_id'] : null,
             'title'             => Page::copyTitle((string) $page['title']),
-            'slug'              => Page::copySlug((string) $page['slug']),
+            // In the page's own language, as a copy of a translation is one.
+            'slug'              => Page::copySlug((string) $page['slug'], (string) $page['lang']),
+            'lang'              => (string) $page['lang'],
             'content'           => (string) ($page['content'] ?? ''),
             'menu_order'        => (int) ($page['menu_order'] ?? 0),
             'status'            => 'private',
@@ -168,6 +190,32 @@ class PageController
             'author_id'         => (int) $user['id'],
         ]);
 
+        header('Location: ' . ADMIN_URL . '/pages/' . $id . '/edit', true, 303);
+        exit;
+    }
+
+    /**
+     * ITS VERSION IN THE SECOND LANGUAGE (`Content\Translation`): the one it
+     * has, or a Private copy made now, opened for translating. Refused with
+     * no second language, for a translation and in the trash: back to its own
+     * screen, whose Translation panel says why.
+     */
+    public function handleTranslate(array $vars = []): void
+    {
+        Auth::requireRole('editor');
+        $page = Page::find((int) $vars['id']);
+
+        if ($page === null) {
+            http_response_code(404);
+            require ROOT_PATH . '/admin/templates/404.php';
+            return;
+        }
+        if (\Cms\Content\Translation::problem('pages', $page) !== null) {
+            header('Location: ' . ADMIN_URL . '/pages/' . (int) $page['id'] . '/edit#translation', true, 303);
+            exit;
+        }
+
+        $id = \Cms\Content\Translation::page($page, (int) Auth::user()['id']);
         header('Location: ' . ADMIN_URL . '/pages/' . $id . '/edit', true, 303);
         exit;
     }
@@ -250,10 +298,12 @@ class PageController
             $errors[] = 'Title is required.';
         }
 
-        // Slug: user-supplied or auto-generated from title.
+        // Slug: user-supplied or auto-generated from title, unique within the
+        // page's own language.
+        $lang    = (string) ($existing['lang'] ?? '');
         $rawSlug = self::sanitizeSlugInput($postData['slug'] ?? '');
         if ($rawSlug !== '') {
-            if (Page::slugExists($rawSlug, $editId)) {
+            if (Page::slugExists($rawSlug, $editId, $lang)) {
                 $errors[] = 'That URL slug is already in use. Please choose a different one.';
             } elseif (in_array($rawSlug, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
                 // A FIXED ROUTE WINS over `/{slug}`, so a page here would save
@@ -264,7 +314,7 @@ class PageController
             }
             $slug = $rawSlug;
         } else {
-            $slug = Page::generateSlug(trim((string) ($postData['title'] ?? '')), $editId);
+            $slug = Page::generateSlug(trim((string) ($postData['title'] ?? '')), $editId, $lang);
         }
 
         // The unpublish date: a date and time, after the publish date when
@@ -299,10 +349,29 @@ class PageController
     }
 
     /** The Unpublish date box, in UTC, or null for an empty one. */
-    private static function unpublishAt(): ?string
+    private static function unpublishAt(?array $page = null): ?string
     {
-        $utc = \Cms\Helpers\Dates::fromInput(is_array($_POST['unpublish_local'] ?? null) ? '' : (string) ($_POST['unpublish_local'] ?? ''));
+        $box = is_array($_POST['unpublish_local'] ?? null) ? '' : trim((string) ($_POST['unpublish_local'] ?? ''));
+        // THE BOX SHOWS THE MINUTE: posted back as shown, the stored second stays.
+        if ($page !== null && ($page['unpublish_at'] ?? null) !== null && $box === Dates::toInput((string) $page['unpublish_at'])) {
+            return (string) $page['unpublish_at'];
+        }
+        $utc = Dates::fromInput($box);
         return is_string($utc) ? $utc : null;
+    }
+
+    /**
+     * What a save can change on a page, to tell whether one did: its row but
+     * for the date that moves with it.
+     *
+     * @return array<string, mixed>
+     */
+    private static function state(int $id): array
+    {
+        $row = Page::find($id) ?? [];
+        unset($row['updated_at']);
+
+        return $row;
     }
 
     /**

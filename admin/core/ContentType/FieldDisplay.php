@@ -158,7 +158,7 @@ final class FieldDisplay
             $tp   = (string) ($type['public_slug'] ?? '');
             $t    = htmlspecialchars((string) $post['title'], ENT_QUOTES, 'UTF-8');
             $links[] = $tp !== ''
-                ? '<a href="' . htmlspecialchars(Url::page($tp . '/' . $post['slug']), ENT_QUOTES, 'UTF-8') . '">' . $t . '</a>'
+                ? '<a href="' . htmlspecialchars(Url::entry($post, $tp), ENT_QUOTES, 'UTF-8') . '">' . $t . '</a>'
                 : $t;
         }
 
@@ -178,7 +178,7 @@ final class FieldDisplay
             $tp  = (string) ($tax['public_slug'] ?? '');
             $n   = htmlspecialchars((string) $term['name'], ENT_QUOTES, 'UTF-8');
             $names[] = $tp !== ''
-                ? '<a href="' . htmlspecialchars(Url::page($tp . '/' . $term['slug']), ENT_QUOTES, 'UTF-8') . '">' . $n . '</a>'
+                ? '<a href="' . htmlspecialchars(Url::term($term, $tp), ENT_QUOTES, 'UTF-8') . '">' . $n . '</a>'
                 : $n;
         }
 

@@ -22,25 +22,25 @@ declare(strict_types=1);
     <h1 class="gate__title"><?= htmlspecialchars($pageTitle) ?></h1>
     <?php /* The gate stands between the visitor and the content, so by definition
              none of its words can be stored in that content. audit-ok */ ?>
-    <p class="gate__intro">This content is password protected. Enter the password to view it.</p>
+    <p class="gate__intro"><?= htmlspecialchars(\Cms\Site\Words::of('password_lead')) ?></p>
 
     <?php if (!empty($passwordError)): ?>
         <?php // audit-ok: an error message on the gate. ?>
-        <p class="cms-alert cms-alert--error imprint-alert imprint-alert--error">Incorrect password. Please try again.</p>
+        <p class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-alert cms-alert--error')) ?>"><?= htmlspecialchars(\Cms\Site\Words::of('password_wrong')) ?></p>
     <?php endif; ?>
 
     <form method="POST">
         <div class="gate__field">
             <?php // audit-ok: the label on the gate's own input. ?>
-            <label class="cms-form__label imprint-form__label" for="content_password">Password</label>
+            <label class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__label')) ?>" for="content_password"><?= htmlspecialchars(\Cms\Site\Words::of('password_label')) ?></label>
             <input type="password"
                    id="content_password"
                    name="content_password"
-                   class="cms-form__input imprint-form__input"
                    required
-                   autocomplete="off">
+                   autocomplete="off"
+                   class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__input')) ?>">
         </div>
         <?php // audit-ok: the verb on the gate's own button. ?>
-        <button type="submit" class="cms-form__submit imprint-form__submit">Submit</button>
+        <button type="submit" class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__submit')) ?>"><?= htmlspecialchars(\Cms\Site\Words::of('password_submit')) ?></button>
     </form>
 </article>

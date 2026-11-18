@@ -139,6 +139,21 @@ class ToolsController
             'hint'   => '',
         ];
 
+        // ── MODULE SWITCHES, as config.php's `modules` has them ─────────────
+        // Which are off, and any switch that is neither yes nor no, which
+        // leaves its module on (`Helpers\Modules::notes()`).
+        $config   = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
+        $switches = is_array($config) && is_array($config['modules'] ?? null) ? $config['modules'] : [];
+        $off      = array_values(array_filter(array_keys(\Cms\Helpers\Modules::ALL),
+            static fn (string $m): bool => !\Cms\Helpers\Modules::enabled($m)));
+        $notes    = \Cms\Helpers\Modules::notes($switches);
+        $checks['modules'] = [
+            'label'  => 'Modules',
+            'value'  => $off === [] ? 'All on' : 'Switched off: ' . implode(', ', $off),
+            'status' => $notes !== [] ? 'warning' : 'info',
+            'hint'   => implode(' ', $notes),
+        ];
+
         // ── MIGRATIONS, BY NAME — the CMS's and the site's own ──────────────
         // Asked of the Migrator that runs them, which knows both directories
         // (`admin/site/migrations/`). Counting the files in the CMS's

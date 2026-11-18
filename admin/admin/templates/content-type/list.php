@@ -299,6 +299,20 @@ ob_start();
                     </select>
                 </label>
 
+                <?php // ONE LANGUAGE AT A TIME, on a site with a second one
+                      // (`Site\Language`): its own, or the second's. ?>
+                <?php $listSecond = \Cms\Site\Language::prefix(); ?>
+                <?php if ($listSecond !== '' && \Cms\Content\Translation::translates((string) $contentType['key'])): ?>
+                    <label class="filterbar__field">
+                        <span class="filterbar__label">Language</span>
+                        <select class="select" name="lang">
+                            <option value="">All languages</option>
+                            <option value="own"<?= $filters['lang'] === 'own' ? ' selected' : '' ?>><?= h(\Cms\Site\Language::nameOf('')) ?></option>
+                            <option value="<?= h($listSecond) ?>"<?= $filters['lang'] === $listSecond ? ' selected' : '' ?>><?= h(\Cms\Site\Language::nameOf($listSecond)) ?></option>
+                        </select>
+                    </label>
+                <?php endif; ?>
+
                 <?php // WHAT IS SOLD OUT OR RUNNING LOW, on a list of things for
                       // sale: a product, or any of its options. ?>
                 <?php if ($isProductType): ?>
@@ -555,7 +569,7 @@ ob_start();
                 // reachable BY THE SIGNED-IN ADMIN READING THIS, which is every
                 // status but `trash`. See the note in content-type/edit.php.
                 $viewUrl = ($publicSlug !== '' && (string) $post['status'] !== 'trash')
-                    ? Url::page($publicSlug . '/' . (string) $post['slug'])
+                    ? Url::entry($post, $publicSlug)
                     : null;
 
                 // THE ROW'S DATE IS THE ONE THE LIST SORTS ON — `list_date`,
@@ -606,6 +620,13 @@ ob_start();
                               // space. ?>
                         <a class="list__row-link list__row-title" href="<?= h($editUrl) ?>"><?= h((string) $post['title']) ?></a>
                         <div class="list__row-sub">/<?= h((string) $post['slug']) ?></div>
+                        <?php // A TRANSLATION SAYS ITS LANGUAGE (`Content\Translation`). ?>
+                        <?php if ((string) ($post['lang'] ?? '') !== ''): ?>
+                            <div class="list__row-sub entry-list__lang" data-row-lang="<?= h((string) $post['lang']) ?>">
+                                <?= icon('language', 'icon icon--sm') ?>
+                                <?= h(\Cms\Site\Language::nameOf((string) $post['lang'])) ?>
+                            </div>
+                        <?php endif; ?>
                         <?php // WHAT IT SELLS FOR, ITS CODE, AND ITS STOCK, for a
                               // product: the line an owner reads the shop by. ?>
                         <?php if (isset($productLines[$id])): ?>

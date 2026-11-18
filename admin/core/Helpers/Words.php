@@ -19,9 +19,25 @@ namespace Cms\Helpers;
  * and accents: lower case, and each letter with an accent as the letter
  * without it, "Café" as "cafe". A static copy's search does the same in the
  * visitor's browser (`search-copy.js`), so the copy finds what the site finds.
+ *
+ * `lineFeeds()` is how a line ends where words are stored: in a LF.
  */
 final class Words
 {
+    /**
+     * A post with every CRLF and lone CR in it as LF, lists included. A
+     * browser posts a textarea's line breaks as CRLF whatever the box held,
+     * so text saved without a change came back different from what was
+     * stored; read through here first, it comes back as it was.
+     */
+    public static function lineFeeds(mixed $posted): mixed
+    {
+        if (is_array($posted)) {
+            return array_map([self::class, 'lineFeeds'], $posted);
+        }
+        return is_string($posted) ? str_replace(["\r\n", "\r"], "\n", $posted) : $posted;
+    }
+
     /**
      * Each letter of the Latin, Greek and Cyrillic alphabets that is a letter
      * and its accents, and beside it in `PLAIN`, the letter alone: Unicode's

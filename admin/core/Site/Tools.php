@@ -96,7 +96,7 @@ final class Tools
             return self::$all;
         }
         $file = defined('ROOT_PATH') ? ROOT_PATH . '/config/admin-tools.php' : '';
-        $list = ($file !== '' && is_file($file)) ? (static fn (string $__f): mixed => require $__f)($file) : [];
+        $list = $file !== '' ? (\Cms\Site\ConfigFile::read($file) ?? []) : [];
 
         $tools = [];
         foreach (self::rows(is_array($list) ? $list : []) as $path => $tool) {

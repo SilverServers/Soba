@@ -67,6 +67,13 @@ use Cms\Ui\VariableEditor;
 $opt = static fn (string $k, string $fallback = ''): string
     => (string) ($options[$k] ?? $fallback);
 
+// A SITE-WIDE IMAGE: the library's picture by its id, or an address kept
+// from before there was a picker, shown in a box of its own while it is set.
+$siteImage = static function (string $key) use ($opt): array {
+    $stored = trim($opt($key));
+    return ctype_digit($stored) ? ['id' => (int) $stored, 'url' => ''] : ['id' => 0, 'url' => $stored];
+};
+
 $tabs = [
     'general'   => 'General',
     'titles'    => 'Title patterns',
@@ -161,15 +168,23 @@ $tabUrl = static fn (string $key): string
 
                     <div class="form-card__section">
                         <?= panel_title('Sharing image', 'sharing-image') ?>
+                        <?php $ogImage = $siteImage('seo_og_image'); ?>
                         <div class="field">
-                            <label class="label" for="f-og-image">Default image URL</label>
-                            <input class="input" type="text" id="f-og-image" name="seo_og_image"
-                                   value="<?= h($opt('seo_og_image')) ?>" spellcheck="false">
+                            <span class="label">Default image</span>
+                            <?= \Cms\ContentType\FieldRenderer::renderImage('seo_og_image', $ogImage['id']) ?>
                             <p class="form-help">
                                 Used when a page or entry has no featured image of its
                                 own. An item's own image always wins.
                             </p>
                         </div>
+                        <?php if ($ogImage['url'] !== ''): ?>
+                        <div class="field">
+                            <label class="label" for="f-og-image-url">Or an image elsewhere, by its address</label>
+                            <input class="input" type="text" id="f-og-image-url" name="seo_og_image_url"
+                                   value="<?= h($ogImage['url']) ?>" spellcheck="false">
+                            <p class="form-help">Set before the image came from the library. Pages use it while no image is chosen above; empty the box to stop.</p>
+                        </div>
+                        <?php endif; ?>
                     </div>
 
                     <div class="form-card__section form-actions">
@@ -282,11 +297,19 @@ $tabUrl = static fn (string $key): string
                                    value="<?= h($opt('seo_org_url')) ?>" spellcheck="false">
                         </div>
 
+                        <?php $orgLogo = $siteImage('seo_org_logo'); ?>
                         <div class="field">
-                            <label class="label" for="f-org-logo">Logo URL</label>
-                            <input class="input" type="text" id="f-org-logo" name="seo_org_logo"
-                                   value="<?= h($opt('seo_org_logo')) ?>" spellcheck="false">
+                            <span class="label">Logo</span>
+                            <?= \Cms\ContentType\FieldRenderer::renderImage('seo_org_logo', $orgLogo['id']) ?>
                         </div>
+                        <?php if ($orgLogo['url'] !== ''): ?>
+                        <div class="field">
+                            <label class="label" for="f-org-logo-url">Or a logo elsewhere, by its address</label>
+                            <input class="input" type="text" id="f-org-logo-url" name="seo_org_logo_url"
+                                   value="<?= h($orgLogo['url']) ?>" spellcheck="false">
+                            <p class="form-help">Set before the logo came from the library. It is used while no logo is chosen above; empty the box to stop.</p>
+                        </div>
+                        <?php endif; ?>
                     </div>
 
                     <div class="form-card__section form-actions">
@@ -429,6 +452,9 @@ $tabUrl = static fn (string $key): string
         <?php endif; ?>
 
     </div>
+
+    <?php // The media picker's dialog and behaviour, as on any entry form. ?>
+    <script src="<?= h(Asset::admin('js/entry-form.js')) ?>"></script>
 
 </div>
 

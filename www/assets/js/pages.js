@@ -20,22 +20,20 @@
  */
 (function (window, document) {
     'use strict';
-    // `imprint-*` beside `cms-*`: the CMS's old class names, kept through 0.7.x (Cms\Compat\OldNames).
-
-    Array.prototype.forEach.call(document.querySelectorAll('.cms-form, .imprint-form'), function (wrap) {
-        var form  = wrap.querySelector('[data-cms-form], [data-imprint-form]');
-        var list  = wrap.querySelector('.cms-form__fields, .imprint-form__fields');
+    Array.prototype.forEach.call(document.querySelectorAll('.cms-form'), function (wrap) {
+        var form  = wrap.querySelector('[data-cms-form]');
+        var list  = wrap.querySelector('.cms-form__fields');
         if (!form || !list || !list.querySelector('[data-pagebreak]')) { return; }
 
         // ── GROUP THE FLAT LIST INTO STEPS ──────────────────────────────
         var steps = [];
         var step  = document.createElement('div');
-        step.className = 'cms-form__step imprint-form__step';
+        step.className = 'cms-form__step';
         Array.prototype.forEach.call(Array.prototype.slice.call(list.children), function (node) {
             if (node.hasAttribute && node.hasAttribute('data-pagebreak')) {
                 steps.push(step);
                 step = document.createElement('div');
-                step.className = 'cms-form__step imprint-form__step';
+                step.className = 'cms-form__step';
                 node.remove();
                 return;
             }
@@ -49,29 +47,29 @@
 
         // ── THE CONTROLS ────────────────────────────────────────────────
         var nav  = document.createElement('div');
-        nav.className = 'cms-form__pages imprint-form__pages';
+        nav.className = 'cms-form__pages';
 
         var back = document.createElement('button');
         back.type = 'button';
-        back.className = 'cms-form__page-back imprint-form__page-back';
+        back.className = 'cms-form__page-back';
         back.textContent = 'Back';
 
         var next = document.createElement('button');
         next.type = 'button';
-        next.className = 'cms-form__page-next imprint-form__page-next';
+        next.className = 'cms-form__page-next';
         next.textContent = 'Next';
 
         // WHERE YOU ARE, IN WORDS. A bar with no numbers is decoration: the
         // question a step indicator answers is "how much is left".
         var where = document.createElement('span');
-        where.className = 'cms-form__page-count imprint-form__page-count';
+        where.className = 'cms-form__page-count';
 
         nav.appendChild(back);
         nav.appendChild(where);
         nav.appendChild(next);
         list.parentNode.insertBefore(nav, list.nextSibling);
 
-        var actions = wrap.querySelector('.cms-form__actions, .imprint-form__actions');
+        var actions = wrap.querySelector('.cms-form__actions');
 
         function show() {
             steps.forEach(function (s, i) { s.hidden = i !== at; });

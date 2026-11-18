@@ -43,7 +43,7 @@ $linkText = static function (string $url): string {
 ?>
 <article>
     <header class="post-header">
-        <a href="<?= htmlspecialchars(BASE_URL . '/') ?>" class="post-header__back">&larr; Home</a>
+        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::home()) ?>" class="post-header__back">&larr; <?= htmlspecialchars(\Cms\Site\Words::of('home')) ?></a>
         <h1><?= htmlspecialchars($post['title']) ?></h1>
         <?php
         /* A BYLINE BELONGS ON A STORY. Printed above everything, a membership
@@ -56,7 +56,7 @@ $linkText = static function (string $url): string {
         ?>
         <?php if ($isStory && !empty($post['published_at'])): ?>
             <p class="post-header__meta">
-                By <?= htmlspecialchars($post['author_name']) ?>
+                <?= htmlspecialchars(\Cms\Site\Words::of('by')) ?> <?= htmlspecialchars($post['author_name']) ?>
                 &mdash;
                 <?php // The owner's format (Settings → General), the SITE's day
                       // (`Dates::short()`): a late-evening post in Kamloops is
@@ -153,7 +153,7 @@ $linkText = static function (string $url): string {
                 <?php // THE EVENT IN A VISITOR'S OWN CALENDAR (`Content\Calendar`),
                       // once it has a time to put there. ?>
                 <?php if ($when !== '' && \Cms\Content\Calendar::has((string) ($post['post_type'] ?? ''))): ?>
-                    <p class="entry-meta__calendar"><a href="<?= htmlspecialchars(\Cms\Content\Calendar::eventUrl((string) $post['post_type'], (string) $post['slug'])) ?>" download>Add to calendar</a></p><?php /* audit-ok: the link's own verb, which the system draws */ ?>
+                    <p class="entry-meta__calendar"><a href="<?= htmlspecialchars(\Cms\Content\Calendar::eventUrl((string) $post['post_type'], (string) $post['slug'])) ?>" download><?= htmlspecialchars(\Cms\Site\Words::of('calendar_add')) ?></a></p><?php /* audit-ok: the link's own verb, which the system draws */ ?>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
@@ -495,7 +495,7 @@ $linkText = static function (string $url): string {
         </section>
     <?php endforeach; ?>
 
-    <div class="post-content"><?= \Cms\Helpers\Shortcode::process($post['content']) ?></div>
+    <div class="post-content"><?= \Cms\Models\Post::renderedContent($post) ?></div>
 
     <?php
     /* ── ITS NEIGHBOURS, AND ENTRIES LIKE IT ──────────────────────────────────
@@ -512,21 +512,21 @@ $linkText = static function (string $url): string {
         $newer    = \Cms\Models\Post::adjacent($post, false);
         $related  = \Cms\Models\Post::related($post, 3);
         $typeSlug = (string) ($contentType['public_slug'] ?? '');
-        $entryUrl = static fn (array $e): string => \Cms\Helpers\Url::page($typeSlug . '/' . $e['slug']);
+        $entryUrl = static fn (array $e): string => \Cms\Helpers\Url::entry($e, $typeSlug);
     ?>
         <?php if ($older !== null || $newer !== null): ?>
-            <nav class="post-nav" aria-label="More <?= htmlspecialchars(strtolower((string) ($contentType['label'] ?? ''))) ?>">
+            <nav class="post-nav" aria-label="<?= htmlspecialchars(\Cms\Site\Words::of('more_of', ['type' => mb_strtolower(\Cms\Site\Words::typeLabel($contentType ?? []))])) ?>">
                 <?php if ($older !== null): ?>
                     <a class="post-nav__link post-nav__link--prev" href="<?= htmlspecialchars($entryUrl($older)) ?>" rel="prev">
                         <?php // audit-ok: the theme's own navigation word, as the pager's "Previous" is — a site renames it in its own template, not per entry. ?>
-                        <span class="post-nav__label">&larr; Previous</span>
+                        <span class="post-nav__label">&larr; <?= htmlspecialchars(\Cms\Site\Words::of('previous')) ?></span>
                         <span class="post-nav__title"><?= htmlspecialchars((string) $older['title']) ?></span>
                     </a>
                 <?php endif; ?>
                 <?php if ($newer !== null): ?>
                     <a class="post-nav__link post-nav__link--next" href="<?= htmlspecialchars($entryUrl($newer)) ?>" rel="next">
                         <?php // audit-ok: as "Previous" above. ?>
-                        <span class="post-nav__label">Next &rarr;</span>
+                        <span class="post-nav__label"><?= htmlspecialchars(\Cms\Site\Words::of('next')) ?> &rarr;</span>
                         <span class="post-nav__title"><?= htmlspecialchars((string) $newer['title']) ?></span>
                     </a>
                 <?php endif; ?>
@@ -536,7 +536,7 @@ $linkText = static function (string $url): string {
         <?php if ($related !== []): ?>
             <section class="post-related" aria-labelledby="post-related-title">
                 <?php // audit-ok: the theme's name for this list, like "Previous" — renamed in a site's own template. ?>
-                <h2 class="post-related__title" id="post-related-title">Related</h2>
+                <h2 class="post-related__title" id="post-related-title"><?= htmlspecialchars(\Cms\Site\Words::of('related')) ?></h2>
                 <ul class="post-list">
                     <?php
                     // The archive's own card, meta attached in one query.

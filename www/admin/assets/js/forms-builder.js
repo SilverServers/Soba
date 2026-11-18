@@ -141,7 +141,11 @@
             appt_to: type === 'appointment' ? '17:00' : '',
             appt_minutes: type === 'appointment' ? '30' : '',
             appt_ahead: type === 'appointment' ? '14' : '',
-            msg_required: '', msg_format: '', logic: null
+            msg_required: '', msg_format: '', logic: null,
+            // How it is drawn and what it says: a browser's autofill word, a
+            // select's empty choice, a textarea's lines, and the words for an
+            // answer over its length.
+            autocomplete: '', blank_label: '', rows: '', msg_long: ''
         };
     }
 
@@ -787,7 +791,7 @@
          'default', 'width', 'msg_required', 'msg_format',
          'min', 'max', 'step', 'columns', 'scale_low', 'scale_high',
          'source', 'embed_form', 'accept', 'appt_days', 'appt_from', 'appt_to',
-         'appt_minutes', 'appt_ahead'].forEach(function (k) {
+         'appt_minutes', 'appt_ahead', 'autocomplete', 'blank_label', 'rows', 'msg_long'].forEach(function (k) {
             var el = optEl(k);
             if (el) { el.value = f[k] == null ? '' : String(f[k]); }
         });
@@ -808,6 +812,10 @@
         show('maxlength',   ['text', 'textarea', 'email', 'tel', 'url'].indexOf(f.type) !== -1);
         show('validation',  t.input !== false);
         show('msg_format',  ['email', 'url', 'number', 'date', 'time'].indexOf(f.type) !== -1);
+        show('msg_long',    ['text', 'textarea', 'email', 'tel', 'url'].indexOf(f.type) !== -1);
+        show('autocomplete', ['text', 'email', 'tel', 'url', 'number', 'date', 'textarea', 'select', 'dynamic'].indexOf(f.type) !== -1);
+        show('blank_label', ['select', 'dynamic'].indexOf(f.type) !== -1);
+        show('rows',        f.type === 'textarea');
 
         // THE GRADED FAMILY'S CONTROLS. Bounds are shared with Number and
         // Slider — one set of boxes, four types — and a rating's low end is
@@ -1561,7 +1569,7 @@
          'default', 'width', 'msg_required', 'msg_format',
          'min', 'max', 'step', 'columns', 'scale_low', 'scale_high',
          'source', 'embed_form', 'accept', 'appt_days', 'appt_from', 'appt_to',
-         'appt_minutes', 'appt_ahead'].forEach(function (k) {
+         'appt_minutes', 'appt_ahead', 'autocomplete', 'blank_label', 'rows', 'msg_long'].forEach(function (k) {
             var el = optEl(k);
             if (el) { f[k] = el.value; }
         });

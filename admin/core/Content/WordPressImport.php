@@ -827,7 +827,7 @@ final class WordPressImport
                 $job['log'][] = 'overwrote page /' . $row['slug'];
             }
             $job['made'][] = ['kind' => 'page', 'id' => $id, 'wp' => (int) $item['id'], 'parent' => (int) $item['parent'], 'thumb' => $thumb, 'title' => $title];
-            $job['links'][self::linkKey((string) $item['link'])] = Url::page((string) $row['slug']);
+            $job['links'][self::linkKey((string) $item['link'])] = Url::pageOf($row);
             return $job;
         }
 
@@ -874,7 +874,7 @@ final class WordPressImport
         $publicSlug = (string) (Registry::get((string) $row['to'])['public_slug'] ?? '');
         $job['made'][] = ['kind' => 'entry', 'id' => $id, 'wp' => (int) $item['id'], 'parent' => 0, 'thumb' => $thumb, 'title' => $title];
         if ($publicSlug !== '') {
-            $job['links'][self::linkKey((string) $item['link'])] = Url::page($publicSlug . '/' . $row['slug']);
+            $job['links'][self::linkKey((string) $item['link'])] = Url::entry($row, $publicSlug);
         }
         return $job;
     }
@@ -1272,9 +1272,7 @@ final class WordPressImport
     {
         static $config = null;
         if ($config === null) {
-            $read   = defined('ROOT_PATH') && is_file(ROOT_PATH . '/config/config.php')
-                ? (static fn (string $__f): mixed => require $__f)(ROOT_PATH . '/config/config.php')
-                : null;
+            $read   = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             $config = is_array($read) ? $read : [];
         }
         return $config;

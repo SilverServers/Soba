@@ -19,13 +19,12 @@
  */
 (function (window, document) {
     'use strict';
-    // `imprint-*` beside `cms-*`: the CMS's old class names, kept through 0.7.x (Cms\Compat\OldNames).
-
     Array.prototype.forEach.call(document.querySelectorAll('[data-tags]'), function (box) {
         var list  = box.querySelector('[data-tag-list]');
         var entry = box.querySelector('[data-tag-entry]');
         var name  = box.getAttribute('data-tags-name') || '';
         if (!list || !entry || !name) { return; }
+        var form  = box.closest('form');
 
         function reindex() {
             Array.prototype.forEach.call(list.querySelectorAll('input[type="hidden"]'),
@@ -44,17 +43,17 @@
             if (already) { return; }
 
             var li = document.createElement('li');
-            li.className = 'cms-form__tag imprint-form__tag';
+            li.className = 'cms-form__tag';
 
             var text_ = document.createElement('span');
-            text_.className = 'cms-form__tag-text imprint-form__tag-text';
+            text_.className = 'cms-form__tag-text';
             text_.textContent = value;
 
             // A REAL BUTTON. It is a control, it takes focus, and it says what
             // it removes — "×" alone is a glyph with no accessible name.
             var kill = document.createElement('button');
             kill.type = 'button';
-            kill.className = 'cms-form__tag-kill imprint-form__tag-kill';
+            kill.className = 'cms-form__tag-kill';
             kill.setAttribute('aria-label', 'Remove ' + value);
             kill.textContent = '×';
             kill.addEventListener('click', function () {
@@ -87,7 +86,7 @@
             // Backspace on an empty box removes the last tag — the behaviour
             // every chip control has, and the only way to undo without aiming.
             if (e.key === 'Backspace' && entry.value === '') {
-                var last = list.querySelector('.cms-form__tag:last-child, .imprint-form__tag:last-child');
+                var last = list.querySelector('.cms-form__tag:last-child');
                 if (last) { last.remove(); reindex(); }
             }
         });
@@ -99,7 +98,6 @@
 
         // AND ON SUBMIT, because blur does not always fire first — a click
         // straight onto Submit from inside the box is the ordinary case.
-        var form = box.closest('form');
         if (form) {
             form.addEventListener('submit', function () {
                 add(entry.value);

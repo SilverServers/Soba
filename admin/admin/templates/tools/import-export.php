@@ -527,6 +527,35 @@ ob_start();
                                 </p>
                             </div>
                         <?php endif; ?>
+                        <?php $keeps = $importPlan['kept'] ?? ['status' => 0, 'images' => 0, 'found' => 0]; ?>
+                        <?php if ($keeps['status'] > 0 || $keeps['images'] > 0): ?>
+                            <?php // WHAT A MOVE NEEDS, KEPT WHEN ASKED (`Content\Import`):
+                                  // each row's status and date as the file has
+                                  // them, and its featured image found in this
+                                  // library by its file. Unticked, everything
+                                  // comes in Private with neither, as before. ?>
+                            <div class="field" data-import-keep>
+                                <div class="check-list">
+                                    <?php if ($keeps['status'] > 0): ?>
+                                        <label class="check-list__row">
+                                            <input type="checkbox" name="keep_status" value="1">
+                                            <span>Publish what was published there</span>
+                                        </label>
+                                    <?php endif; ?>
+                                    <?php if ($keeps['images'] > 0): ?>
+                                        <label class="check-list__row">
+                                            <input type="checkbox" name="find_images" value="1">
+                                            <span>Give each its featured image from the library: <?= (int) $keeps['found'] ?> of <?= (int) $keeps['images'] ?> found</span>
+                                        </label>
+                                    <?php endif; ?>
+                                </div>
+                                <p class="form-help">
+                                    Left unticked, everything comes in <strong>Private</strong>, with no date and no featured image,
+                                    for you to look over and publish. A featured image is found by its contents, or else by a name
+                                    only one picture in the library has.
+                                </p>
+                            </div>
+                        <?php endif; ?>
                         <?php if ($importPlan['settings'] !== []): ?>
                             <?php // SETTINGS ARE THEIR OWN DECISION. An export's
                                   // settings block is the whole options table —

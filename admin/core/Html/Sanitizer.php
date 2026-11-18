@@ -60,8 +60,8 @@ final class Sanitizer
      * `button`, `svg`, `math`, `link`, `meta`, `base` — every one of these is
      * either executable, a way to load something executable, or a way to change
      * where a form posts. None of them belongs in an entry's body, except as
-     * part of an embed from one of five providers, kept only as the provider's
-     * code writes it (`Html\Embed`).
+     * part of an embed from one of the providers `Html\Embed` lists, kept only
+     * as the provider's code writes it.
      *
      * `class` is allowed on almost nothing, and where it IS allowed only the
      * VALUES in `CLASSES` and `TEXT_CLASSES` survive. An author cannot reach
@@ -186,6 +186,34 @@ final class Sanitizer
     public const TEXT_CLASSES = ['text-left', 'text-center', 'text-right'];
 
     /**
+     * A SITE'S OWN ICONS, NAMED IN config.php. A theme that loads an icon font
+     * writes each icon the font's way: an empty `<i>` or `<span>` whose
+     * classes name the icon, with `aria-hidden="true"` so that a screen reader
+     * passes over it.
+     *
+     *     <i class="fa-solid fa-phone" aria-hidden="true"></i>
+     *
+     * config.php names the classes the site's icons use, a `*` standing for
+     * one or more letters, digits, `-` or `_`:
+     *
+     *     'icon_classes' => ['fa-solid', 'fa-regular', 'fa-brands', 'fa-*'],
+     *
+     * On `<i>` and `<span>`, and nowhere else, a class those names match is
+     * kept and every other goes, as `CLASSES` keeps alignment on a picture.
+     * `aria-hidden="true"` is kept beside it, and the element is kept although
+     * it is empty, since its class is what draws it. Nothing else changes: no
+     * other attribute on them, no other class and no other tag. Without the key
+     * `<i>` and `<span>` keep no attribute at all.
+     *
+     * A name is a class's letters, digits, `-`, `_` and the `*`, beginning
+     * with a letter; anything else in the list is logged and left out.
+     */
+    private const ICON_CLASS = '/^[A-Za-z][A-Za-z0-9_*-]*$/D';
+
+    /** What config.php's `icon_classes` names, as one pattern; '' for none. Read once. */
+    private static ?string $icons = null;
+
+    /**
      * Deprecated spellings that MEAN one of the allowed tags.
      *
      * Renamed rather than unwrapped, because unwrapping loses the formatting
@@ -239,12 +267,17 @@ final class Sanitizer
      * Tags whose CONTENT goes with them, rather than being unwrapped.
      *
      * `iframe` and `script` STAY HERE, with one exception: an embed from one of
-     * five providers is kept as pasted — the provider's frame with only the
-     * attributes its code writes, and its script with nothing inside it
-     * (`Html\Embed`). Every other iframe and script still goes with its
-     * contents.
+     * the providers `Html\Embed` lists is kept as pasted — the provider's frame
+     * with only the attributes its code writes, and its script with nothing
+     * inside it. Every other iframe and script still goes with its contents.
      */
     private const DROP_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'template', 'noscript'];
+
+    /** A provider's frame's `referrerpolicy`: one of the policies a browser knows, and nothing else. */
+    private const REFERRER_POLICIES = [
+        'no-referrer', 'no-referrer-when-downgrade', 'origin', 'origin-when-cross-origin', 'same-origin',
+        'strict-origin', 'strict-origin-when-cross-origin', 'unsafe-url',
+    ];
 
     /**
      * Tags that may contain INLINE CONTENT ONLY.
@@ -297,12 +330,22 @@ final class Sanitizer
      * `&amp;`, which is what HTML has always taken it to mean. A page reads
      * and links the same, but its source is not byte for byte what was typed,
      * pasted or imported, and a second clean changes nothing more.
+     *
+     * Every name HTML5 gives a character counts, not only HTML 4's: see
+     * `numberNames()`.
+     *
+     * A LINE ENDS IN A LINE FEED. A browser reads a CRLF or a lone CR in
+     * HTML as one, and posts a textarea's line breaks as CRLF whatever the box
+     * held, so a body saved without a change came back different from what
+     * was stored. Every CRLF and CR becomes `\n` first.
      */
     public static function clean(string $html): string
     {
         if (trim($html) === '') {
             return '';
         }
+
+        $html = self::numberNames(str_replace(["\r\n", "\r"], "\n", $html));
 
         $doc = new DOMDocument();
 
@@ -358,6 +401,84 @@ final class Sanitizer
     }
 
     /**
+     * HTML5'S NAMES FOR CHARACTERS, WRITTEN AS NUMBERS BEFORE THE PARSE.
+     * libxml reads HTML with the 253 names HTML 4 gave characters. HTML5 gives
+     * over two thousand, and one libxml does not know (`&frac18;`, `&apos;`,
+     * `&check;`) it keeps as text, the `&` and the name, which was then stored
+     * as `&amp;frac18;` and printed as the name. So every name HTML5 defines,
+     * written with its semicolon, becomes the number of its character (of its
+     * two, for the few that are two), which libxml reads alike in text and in
+     * an attribute. `&frac18;` is then ⅛. A number is always a character and
+     * never markup, so `&lt;b&gt;` is still the text "<b>" and is written out
+     * as `&lt;b&gt;` again, and `&amp;frac18;` is still an `&` followed by the
+     * text "frac18;". A name HTML5 does not define is left as it is, and so is
+     * one written without its semicolon: libxml decides those as before.
+     */
+    private static function numberNames(string $html): string
+    {
+        if (!str_contains($html, '&')) {
+            return $html;
+        }
+
+        return preg_replace_callback('/&[A-Za-z][A-Za-z0-9]{1,31};/', static function (array $m): string {
+            $char = html_entity_decode($m[0], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($char === $m[0]) {
+                return $m[0];
+            }
+            $out = '';
+            foreach (mb_str_split($char, 1, 'UTF-8') as $one) {
+                $out .= '&#x' . strtoupper(dechex((int) mb_ord($one, 'UTF-8'))) . ';';
+            }
+            return $out;
+        }, $html) ?? $html;
+    }
+
+    /**
+     * The classes of an `<i>` or `<span>` that are the site's icons
+     * (`ICON_CLASS`), in the order written; [] when none are, or when
+     * config.php names none.
+     *
+     * @return list<string>
+     */
+    private static function iconClasses(DOMElement $el): array
+    {
+        $pattern = self::iconPattern();
+        if ($pattern === '' || !$el->hasAttribute('class')) {
+            return [];
+        }
+        $keep = [];
+        foreach (preg_split('/\s+/', trim($el->getAttribute('class'))) ?: [] as $class) {
+            if ($class !== '' && preg_match($pattern, $class) === 1) {
+                $keep[$class] = $class;
+            }
+        }
+
+        return array_values($keep);
+    }
+
+    /** config.php's `icon_classes` as one pattern, or '' for none (`ICON_CLASS`). */
+    private static function iconPattern(): string
+    {
+        if (self::$icons !== null) {
+            return self::$icons;
+        }
+        $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
+        $names  = is_array($config) ? ($config['icon_classes'] ?? []) : [];
+        $names  = is_array($names) ? $names : (is_string($names) && trim($names) !== '' ? [$names] : []);
+        $parts  = [];
+        foreach ($names as $raw) {
+            $name = is_string($raw) ? trim($raw) : '';
+            if (preg_match(self::ICON_CLASS, $name) !== 1) {
+                error_log('config.php icon_classes: ' . json_encode($raw) . ' is not a class name, so it is left out');
+                continue;
+            }
+            $parts[] = str_replace('\*', '[A-Za-z0-9_-]+', preg_quote($name, '/'));
+        }
+
+        return self::$icons = $parts === [] ? '' : '/^(?:' . implode('|', $parts) . ')$/D';
+    }
+
+    /**
      * Walk depth-first, removing or unwrapping as we go.
      *
      * ── THE CHILD LIST IS COPIED BEFORE ITERATING ──────────────────────────
@@ -407,6 +528,8 @@ final class Sanitizer
             if (!in_array($name, $provider::attributes(), true)
                 || (in_array($name, ['width', 'height', 'frameborder'], true) && preg_match('/^\d{1,4}%?$/', $value) !== 1)
                 || ($name === 'scrolling' && !in_array(strtolower($value), ['no', 'yes', 'auto'], true))
+                || ($name === 'loading' && !in_array(strtolower($value), ['lazy', 'eager'], true))
+                || ($name === 'referrerpolicy' && !in_array(strtolower($value), self::REFERRER_POLICIES, true))
                 || ($name === 'style' && !$provider::frameStyle($value, $wrapped))) {
                 $el->removeAttribute($attr->nodeName);
             }
@@ -429,9 +552,10 @@ final class Sanitizer
         foreach (iterator_to_array($el->attributes ?? []) as $attr) {
             $name = strtolower($attr->nodeName);
             $value = trim((string) $attr->nodeValue);
-            if (!in_array($name, ['src', 'async', 'defer', 'charset'], true)
+            if (!in_array($name, ['src', 'async', 'defer', 'charset', 'type'], true)
                 || (in_array($name, ['async', 'defer'], true) && !in_array(strtolower($value), ['', $name], true))
-                || ($name === 'charset' && strtolower($value) !== 'utf-8')) {
+                || ($name === 'charset' && strtolower($value) !== 'utf-8')
+                || ($name === 'type' && strtolower($value) !== 'text/javascript')) {
                 $el->removeAttribute($attr->nodeName);
             }
         }
@@ -440,6 +564,28 @@ final class Sanitizer
         }
         self::bare($el);
         self::$scripts[] = [$el, $provider];
+    }
+
+    /**
+     * A provider's widget (`EmbedWidget`): the element its code writes, with
+     * only the attributes the provider writes on it and nothing inside it — its
+     * script fills it on the page. A widget that is a script tag is the embed
+     * itself.
+     *
+     * @param class-string<EmbedWidget> $provider
+     */
+    private static function keepWidget(DOMElement $el, string $provider): void
+    {
+        foreach (iterator_to_array($el->attributes ?? []) as $attr) {
+            if (!$provider::keepsOnWidget(strtolower($attr->nodeName), trim((string) $attr->nodeValue))) {
+                $el->removeAttribute($attr->nodeName);
+            }
+        }
+        foreach (iterator_to_array($el->childNodes) as $child) {
+            $el->removeChild($child);
+        }
+        self::bare($el);
+        self::$embedded[$provider] = true;
     }
 
     /**
@@ -527,7 +673,12 @@ final class Sanitizer
         // visible text on the page — not dangerous, but nonsense the author
         // never typed. `<style>` unwrapped is worse: a wall of CSS as prose.
         if (in_array($tag, self::DROP_CONTENT, true)) {
-            // A PROVIDER'S FRAME OR SCRIPT IS KEPT — see `DROP_CONTENT`.
+            // A PROVIDER'S FRAME OR SCRIPT IS KEPT — see `DROP_CONTENT` — and a
+            // script that is the provider's embed itself (`EmbedWidget`).
+            if ($tag === 'script' && ($widget = Embed::widget($el)) !== null) {
+                self::keepWidget($el, $widget);
+                return;
+            }
             $provider = match ($tag) {
                 'iframe' => Embed::frame($el->getAttribute('src')),
                 'script' => Embed::script($el->getAttribute('src')),
@@ -545,6 +696,10 @@ final class Sanitizer
         // the provider's code writes on them, which `TAGS` would not.
         if ($tag === 'blockquote' && ($provider = Embed::quote($el)) !== null) {
             self::keepQuote($el, $provider);
+            return;
+        }
+        if ($tag === 'div' && ($widget = Embed::widget($el)) !== null) {
+            self::keepWidget($el, $widget);
             return;
         }
         if ($tag === 'div' && Embed::box($el) !== null) {
@@ -571,8 +726,23 @@ final class Sanitizer
         // Attributes first, then descend — so an element that is about to lose
         // its `href` is still walked for its children.
         $allowed = self::TAGS[$tag];
+        // A SITE'S ICON (`ICON_CLASS`): its classes and aria-hidden="true".
+        $icons = $tag === 'i' || $tag === 'span' ? self::iconClasses($el) : [];
         foreach (iterator_to_array($el->attributes ?? []) as $attr) {
             $name = strtolower($attr->nodeName);
+
+            if ($icons !== [] && $name === 'class') {
+                if ($attr->nodeValue !== implode(' ', $icons)) {
+                    $el->setAttribute($attr->nodeName, implode(' ', $icons));
+                }
+                continue;
+            }
+            if ($icons !== [] && $name === 'aria-hidden' && strtolower(trim((string) $attr->nodeValue)) === 'true') {
+                if ($attr->nodeValue !== 'true') {
+                    $el->setAttribute($attr->nodeName, 'true');
+                }
+                continue;
+            }
 
             if (!in_array($name, $allowed, true)) {
                 // This is where `onclick`, `onerror`, `style`, `class`, `id`,
@@ -795,9 +965,10 @@ final class Sanitizer
     private static function safeUrl(string $url): bool
     {
         // Strip every control character and all whitespace before deciding.
-        // `javascript&#09;:` and `java\0script:` are both real bypasses.
+        // `javascript&#09;:` and `java\0script:` are both real bypasses, and
+        // so is a name only HTML5 gives a character (`javascript&colon;`).
         $clean = preg_replace('/[\x00-\x20\x7F]+/u', '', $url) ?? '';
-        $clean = html_entity_decode($clean, ENT_QUOTES, 'UTF-8');
+        $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $clean = preg_replace('/[\x00-\x20\x7F]+/u', '', $clean) ?? '';
 
         if ($clean === '') {

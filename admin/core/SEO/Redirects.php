@@ -293,13 +293,27 @@ class Redirects
             return;
         }
 
+        // THE SECOND LANGUAGE'S ADDRESSES (`Site\Language`) follow the same
+        // rules under its prefix: /fr is its front page, as / is the site's,
+        // and what follows the prefix is checked as an address of the site's
+        // own language is. Its prefix is a reserved first segment, so without
+        // this every rename of a page in it would leave no rule behind.
+        $second = \Cms\Site\Language::prefix();
+        $own    = $from;
+        if ($second !== '' && ($from === '/' . $second || str_starts_with($from, '/' . $second . '/'))) {
+            if ($from === '/' . $second || $to === '/' . $second) {
+                return;
+            }
+            $own = substr($from, strlen('/' . $second));
+        }
+
         // THE ROUTER'S OWN FIRST SEGMENTS, from the one list of them — a
         // second list is one that falls behind the first.
-        $first = explode('/', ltrim($from, '/'))[0];
+        $first = explode('/', ltrim($own, '/'))[0];
         if (in_array($first, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
             return;
         }
-        if (!str_contains(ltrim($from, '/'), '/')) {
+        if (!str_contains(ltrim($own, '/'), '/')) {
             foreach (\Cms\ContentType\Registry::all() as $type) {
                 if ((string) ($type['public_slug'] ?? '') === $first) {
                     return;

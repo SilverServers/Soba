@@ -26,8 +26,9 @@ final class Registries
         }
         self::$loaded = true;
 
-        // 1. Code-registered Content Types (developer-defined in config/content-types.php)
-        require ROOT_PATH . '/config/content-types.php';
+        // 1. Code-registered Content Types (developer-defined in config/content-types.php),
+        // read quietly (`Site\ConfigFile::read()`)
+        \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/content-types.php');
 
         // 2. DB-created Content Types (created via the admin UI Structure section)
         foreach (ContentTypeDefinitionModel::allActive() as $dbPt) {
@@ -58,7 +59,7 @@ final class Registries
         }
 
         // 1. Code-registered taxonomies (developer-defined in config/taxonomies.php)
-        require ROOT_PATH . '/config/taxonomies.php';
+        \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/taxonomies.php');
 
         // 2. DB-created taxonomies (created via the admin UI Structure section)
         foreach (TaxonomyModel::allActive() as $dbTax) {

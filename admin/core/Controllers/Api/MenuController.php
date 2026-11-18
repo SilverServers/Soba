@@ -86,7 +86,7 @@ class MenuController
                 'id'    => (int) $p['id'],
                 'title' => $p['title'],
                 'slug'  => $p['slug'],
-                'url'   => \Cms\Helpers\Url::page((string) $p['slug']),
+                'url'   => \Cms\Helpers\Url::pageOf($p),
             ];
         }
 
@@ -124,7 +124,7 @@ class MenuController
                     'id'       => (int) $term['id'],
                     'title'    => (string) $term['name'],
                     'taxonomy' => (string) ($tax['label_single'] ?? $taxKey),
-                    'url'      => \Cms\Helpers\Url::page($slug . '/' . $term['slug']),
+                    'url'      => \Cms\Helpers\Url::term($term, $slug),
                 ];
             }
         }
@@ -147,7 +147,7 @@ class MenuController
             $data[] = [
                 'key'   => $key,
                 'label' => $ct['label'],
-                'url'   => \Cms\Helpers\Url::page((string) $publicSlug),
+                'url'   => \Cms\Helpers\Url::archive((string) $publicSlug),
             ];
         }
 

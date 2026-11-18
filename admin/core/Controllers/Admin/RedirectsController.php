@@ -310,11 +310,20 @@ class RedirectsController
         // among them, rather than saving them.
         $first = explode('/', ltrim($from, '/'))[0];
         $wild  = str_ends_with($from, '/*');
+        // AN ADDRESS IN THE SECOND LANGUAGE (`Site\Language`), /fr/…, is
+        // checked as the site's own addresses are, after its prefix: /fr is
+        // that language's front page, as / is the site's.
+        $second = \Cms\Site\Language::prefix();
+        $rest   = $from;
+        if ($second !== '' && strcasecmp($first, $second) === 0) {
+            $rest  = '/' . ltrim(substr($from, strlen('/' . $first)), '/');
+            $first = explode('/', ltrim($rest, '/'))[0];
+        }
 
         if (trim($rawFrom) === '') {
             $errors[] = 'Enter the old address to redirect from.';
-        } elseif ($from === '/' || $from === '/*') {
-            $errors[] = $from === '/'
+        } elseif ($rest === '/' || $rest === '/*') {
+            $errors[] = $rest === '/'
                 ? 'The homepage cannot redirect. This rule is checked before anything else is served, so every visitor to the site would be sent away.'
                 : 'A rule for /* would send every page on the site away. Name the section: /old-section/*.';
         } elseif (strcasecmp($first, 'admin') === 0) {

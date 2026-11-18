@@ -18,27 +18,27 @@ declare(strict_types=1);
 
 <div class="archive-header">
     <?php // audit-ok: the name of a page that has no content to name it. ?>
-    <h1>Search</h1>
+    <h1><?= htmlspecialchars(\Cms\Site\Words::of('search')) ?></h1>
 </div>
 
-<form class="search-form" role="search" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::page('search')) ?>">
-    <input class="cms-form__input imprint-form__input" type="search" name="q"
+<form class="search-form" role="search" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::search()) ?>">
+    <input class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__input')) ?>" type="search" name="q"
            value="<?= htmlspecialchars($q) ?>"
-           placeholder="Search this site" aria-label="Search this site">
+           placeholder="<?= htmlspecialchars(\Cms\Site\Words::of('search_label')) ?>" aria-label="<?= htmlspecialchars(\Cms\Site\Words::of('search_label')) ?>">
     <?php // audit-ok: the verb on the search form's own button. ?>
-    <button class="cms-form__submit imprint-form__submit" type="submit">Search</button>
+    <button class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__submit')) ?>" type="submit"><?= htmlspecialchars(\Cms\Site\Words::of('search')) ?></button>
 </form>
 
 <?php if ($q !== ''): ?>
     <?php if ($results === []): ?>
 
         <?php // audit-ok: what an EMPTY result says. There is no entry to carry it. ?>
-        <p class="post-list-empty">Nothing on this site matches &ldquo;<?= htmlspecialchars($q) ?>&rdquo;.</p>
+        <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('search_none', ['q' => $q])) ?></p>
 
     <?php else: ?>
 
         <?php // audit-ok: the count of what was found and the words searched for — interface, not content. ?>
-        <p class="search-summary"><?= htmlspecialchars(($capped ? 'The first ' : '') . count($results) . (count($results) === 1 ? ' result' : ' results') . ' for “' . $q . '”') ?></p>
+        <p class="search-summary"><?= htmlspecialchars(\Cms\Site\Words::of($capped ? 'search_first' : (count($results) === 1 ? 'search_one' : 'search_many'), ['n' => count($results), 'q' => $q])) ?></p>
 
         <ul class="post-list">
             <?php foreach ($results as $result): ?>

@@ -242,7 +242,7 @@ class Post
         // THE COLUMNS THE ROW DRAWS, not `p.*`: that carries every body on the
         // page along with it, and the list prints none of them.
         $stmt = $pdo->prepare(
-            "SELECT p.id, p.post_type, p.title, p.slug, p.status, p.published_at, p.unpublish_at,
+            "SELECT p.id, p.post_type, p.title, p.slug, p.lang, p.status, p.published_at, p.unpublish_at,
                     p.updated_at, p.created_at, p.author_id, p.parent_id, p.menu_order,
                     $date AS list_date, " . User::nameSql('u') . " AS author_name
                FROM posts p
@@ -306,6 +306,12 @@ class Post
         // The title, the excerpt and the body are searched — plus the slug,
         // which is how an owner holding a URL finds the entry behind it.
         // LIKE's own wildcards in what was typed are searched for, not obeyed.
+        // ONE LANGUAGE: `own`, the site's, or the second language's prefix.
+        $lang = (string) ($q['lang'] ?? '');
+        if ($lang !== '') {
+            $where[] = self::inLanguage('p', $lang === 'own' ? '' : $lang);
+        }
+
         $search = trim((string) ($q['search'] ?? ''));
         if ($search !== '') {
             $like    = '%' . addcslashes($search, '%_\\') . '%';
@@ -490,11 +496,13 @@ class Post
 
     /**
      * Find a live post by slug for the public frontend.
-     * Returns posts with status published, password, or private.
+     * Returns posts with status published, password, or private. A slug is
+     * unique within its language: the one in `$lang`, or, when it is null, in
+     * the page being drawn's (`inLanguage()`).
      *
      * @return array<string, mixed>|null
      */
-    public static function findBySlug(string $slug): ?array
+    public static function findBySlug(string $slug, ?string $lang = null): ?array
     {
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
@@ -502,6 +510,7 @@ class Post
              FROM posts p
              JOIN users u ON u.id = p.author_id
              WHERE p.slug = :slug AND p.status IN ('published', 'password', 'private')
+               AND " . self::inLanguage('p', $lang) . "
              LIMIT 1"
         );
         $stmt->execute([':slug' => $slug]);
@@ -525,16 +534,20 @@ class Post
         // than a new store being invented.
         $stmt = $pdo->prepare(
             'INSERT INTO posts
-                 (post_type, title, slug, content, excerpt, status, password_hash,
+                 (post_type, title, slug, lang, translation_of, content, excerpt, status, password_hash,
                   featured_image_id, published_at, unpublish_at, menu_order, author_id)
              VALUES
-                 (:post_type, :title, :slug, :content, :excerpt, :status, :password_hash,
+                 (:post_type, :title, :slug, :lang, :translation_of, :content, :excerpt, :status, :password_hash,
                   :featured_image_id, :published_at, :unpublish_at, :menu_order, :author_id)'
         );
         $stmt->execute([
             ':post_type'         => $data['post_type']     ?? 'post',
             ':title'             => $data['title'],
             ':slug'              => $data['slug'],
+            // '' the site's own language; a translation names its own and the
+            // entry it translates.
+            ':lang'              => \Cms\Site\Language::checked((string) ($data['lang'] ?? '')),
+            ':translation_of'    => !empty($data['translation_of']) ? (int) $data['translation_of'] : null,
             ':content'           => Sanitizer::clean((string) ($data['content'] ?? '')),
             ':excerpt'           => self::cleanExcerpt($data['excerpt'] ?? null),
             ':status'            => $data['status']        ?? 'private',
@@ -593,11 +606,13 @@ class Post
             $params[':self'] = (int) $post['id'];
         }
 
+        // In the entry's own language: a translation's neighbours are its
+        // language's entries.
         $stmt = Database::getInstance()->prepare(
             'SELECT p.*, ' . User::bylineSql('u') . ' AS author_name
              FROM posts p
              JOIN users u ON u.id = p.author_id
-             WHERE p.post_type = :type AND ' . self::live('p') . "
+             WHERE p.post_type = :type AND ' . self::live('p', (string) ($post['lang'] ?? '')) . "
                AND p.published_at {$cmp} :at"
                . $sameTerm . "
              ORDER BY p.published_at {$dir}, p.id {$dir}
@@ -649,7 +664,7 @@ class Post
                    GROUP BY theirs.post_id) s
              JOIN posts p ON p.id = s.post_id
              JOIN users u ON u.id = p.author_id
-             WHERE p.post_type = :type AND " . self::live('p') . "
+             WHERE p.post_type = :type AND " . self::live('p', (string) ($post['lang'] ?? '')) . "
              ORDER BY s.shared DESC, p.published_at DESC, p.id DESC
              LIMIT {$limit}"
         );
@@ -658,7 +673,7 @@ class Post
 
         if ($fill && count($rows) < $limit) {
             $taken = array_merge([(int) $post['id']], array_map(static fn (array $r): int => (int) $r['id'], $rows));
-            foreach (self::recent((string) $post['post_type'], $limit - count($rows), $taken) as $row) {
+            foreach (self::recent((string) $post['post_type'], $limit - count($rows), $taken, (string) ($post['lang'] ?? '')) as $row) {
                 $row['shared'] = 0;
                 $rows[] = $row;
             }
@@ -686,12 +701,13 @@ class Post
      * THE NEWEST LIVE ENTRIES OF ONE TYPE, the archive's own order (newest
      * first, the higher id first on a tie) — for "latest" panels and
      * related()'s fill. `$excludeIds` are never returned: the entry on the
-     * page, or what is already shown beside it.
+     * page, or what is already shown beside it. In `$lang`, or the page being
+     * drawn's when it is null (`live()`).
      *
      * @param  list<int> $excludeIds
      * @return list<array<string, mixed>>  each with `author_name`
      */
-    public static function recent(string $type, int $limit = 3, array $excludeIds = []): array
+    public static function recent(string $type, int $limit = 3, array $excludeIds = [], ?string $lang = null): array
     {
         $limit   = max(1, min(50, $limit));   // an integer this method made
         $exclude = array_values(array_filter(array_map('intval', $excludeIds), static fn (int $id): bool => $id > 0));
@@ -709,7 +725,7 @@ class Post
             'SELECT p.*, ' . User::bylineSql('u') . ' AS author_name
              FROM posts p
              JOIN users u ON u.id = p.author_id
-             WHERE p.post_type = :type AND ' . self::live('p') . $notIn . "
+             WHERE p.post_type = :type AND ' . self::live('p', $lang) . $notIn . "
              ORDER BY p.published_at DESC, p.id DESC
              LIMIT {$limit}"
         );
@@ -718,9 +734,10 @@ class Post
     }
 
     /**
-     * THE ONE RULE for "a visitor can see this entry in a list": published, and
-     * its date has come. As SQL, for a WHERE clause — `$alias` is a literal the
-     * caller writes (`'p'`), never request data.
+     * THE ONE RULE for "a visitor can see this entry in a list": published,
+     * its date has come, and in the language of the list (`inLanguage()`):
+     * the page being drawn's, or `$lang`. As SQL, for a WHERE clause — `$alias`
+     * is a literal the caller writes (`'p'`), never request data.
      *
      * ── WHY IT IS A FUNCTION AND NOT A HABIT ────────────────────────────────
      * "Published" is asked by ten queries across the archive, the term
@@ -728,12 +745,31 @@ class Post
      * published MEANS — a date still to come keeps an entry off the site — and
      * ten copies of `status = 'published'` would have changed nine times. `UTC_TIMESTAMP()` and not `NOW()`: storage is UTC (see
      * Database::init()), and this is the one comparison that must not depend
-     * on a session setting.
+     * on a session setting. The language is part of the rule for the same
+     * reason: a list on a page in one language shows that language's entries,
+     * and a list written later asks this and gets it.
      */
-    public static function live(string $alias = ''): string
+    public static function live(string $alias = '', ?string $lang = null): string
     {
         $a = $alias !== '' ? $alias . '.' : '';
-        return "{$a}status = 'published' AND {$a}published_at <= UTC_TIMESTAMP() AND " . self::notEnded($alias);
+        return "{$a}status = 'published' AND {$a}published_at <= UTC_TIMESTAMP() AND " . self::notEnded($alias)
+            . ' AND ' . self::inLanguage($alias, $lang);
+    }
+
+    /**
+     * IN ONE LANGUAGE, as SQL for a WHERE clause: rows in `$lang`, or, when it
+     * is null, in the language of the page being drawn
+     * (`Site\Language::drawn()`); '' is the site's own. Pages have the same
+     * column (`Page::live()` asks this too). `$alias` is a literal the caller
+     * writes; the language is checked to be one an address can hold before it
+     * is written into the SQL.
+     */
+    public static function inLanguage(string $alias = '', ?string $lang = null): string
+    {
+        $lang = \Cms\Site\Language::checked($lang ?? \Cms\Site\Language::drawn());
+        $a    = $alias !== '' ? $alias . '.' : '';
+
+        return "{$a}lang = '{$lang}'";
     }
 
     /**
@@ -877,6 +913,20 @@ class Post
     }
 
     /**
+     * WHAT AN ENTRY'S PAGE PRINTS AS ITS TEXT: its content with the
+     * shortcodes the site expands run (`Helpers\Shortcode::process()`:
+     * galleries, forms, the business's details, a [video] an earlier release
+     * stored). For a theme that prints an entry it reads through the models;
+     * the CMS's own entry template prints this.
+     *
+     * @param array<string, mixed> $post a row of `posts`, or anything with `content`
+     */
+    public static function renderedContent(array $post): string
+    {
+        return \Cms\Helpers\Shortcode::process((string) ($post['content'] ?? ''));
+    }
+
+    /**
      * What stands for an entry in a list: its excerpt if it has one, otherwise
      * the start of its text. `cut` says whether anything was cut, so a caller
      * prints an ellipsis only when there is something missing.
@@ -941,6 +991,18 @@ class Post
      * Naming the column keeps it — an explicitly assigned column is never
      * auto-updated.
      */
+    /**
+     * "Updated now", for an entry whose fields, terms or options changed in a
+     * save that left its row as it was: `updated_at` moves with the row alone
+     * (ON UPDATE CURRENT_TIMESTAMP), and those live beside it.
+     */
+    public static function touch(int $id): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE posts SET updated_at = CURRENT_TIMESTAMP WHERE id = :id')
+            ->execute([':id' => $id]);
+    }
+
     public static function setAuthor(int $id, int $userId): void
     {
         Database::getInstance()
@@ -1080,18 +1142,18 @@ class Post
     }
 
     /**
-     * The entry that holds this slug — any type, the trash included, because
-     * `posts.slug` is UNIQUE across all of them — or null. For the message that
-     * names what is in the way, where a bare "taken" would leave the author
-     * hunting for it.
+     * The entry that holds this slug in `$lang` ('' the site's own language)
+     * — any type, the trash included, because a slug is UNIQUE across all of
+     * them within a language — or null. For the message that names what is in
+     * the way, where a bare "taken" would leave the author hunting for it.
      *
      * @return array<string, mixed>|null
      */
-    public static function slugOwner(string $slug, ?int $excludeId = null): ?array
+    public static function slugOwner(string $slug, ?int $excludeId = null, string $lang = ''): ?array
     {
         $stmt = Database::getInstance()->prepare(
             'SELECT id, post_type, title, status FROM posts
-              WHERE slug = :slug AND id <> :id LIMIT 1'
+              WHERE slug = :slug AND id <> :id AND ' . self::inLanguage('', $lang) . ' LIMIT 1'
         );
         $stmt->execute([':slug' => $slug, ':id' => $excludeId ?? 0]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1099,19 +1161,16 @@ class Post
     }
 
     /**
-     * Check whether a slug is already taken in the posts table.
+     * Check whether a slug is already taken in the posts table, within
+     * `$lang` ('' the site's own language).
      * Pass $excludeId when editing an existing post (exclude self).
      */
-    public static function slugExists(string $slug, ?int $excludeId = null): bool
+    public static function slugExists(string $slug, ?int $excludeId = null, string $lang = ''): bool
     {
-        $pdo = Database::getInstance();
-        if ($excludeId !== null) {
-            $stmt = $pdo->prepare('SELECT id FROM posts WHERE slug = :slug AND id != :id LIMIT 1');
-            $stmt->execute([':slug' => $slug, ':id' => $excludeId]);
-        } else {
-            $stmt = $pdo->prepare('SELECT id FROM posts WHERE slug = :slug LIMIT 1');
-            $stmt->execute([':slug' => $slug]);
-        }
+        $pdo  = Database::getInstance();
+        $stmt = $pdo->prepare('SELECT id FROM posts WHERE slug = :slug AND id != :id AND ' . self::inLanguage('', $lang) . ' LIMIT 1');
+        $stmt->execute([':slug' => $slug, ':id' => $excludeId ?? 0]);
+
         return $stmt->fetch() !== false;
     }
 
@@ -1128,10 +1187,11 @@ class Post
     }
 
     /**
-     * Generate a URL-safe slug from a title, guaranteed unique in the posts table.
+     * Generate a URL-safe slug from a title, guaranteed unique in the posts
+     * table within `$lang` ('' the site's own language).
      * Optionally exclude a post ID (for edits — don't conflict with self).
      */
-    public static function generateSlug(string $title, ?int $excludeId = null): string
+    public static function generateSlug(string $title, ?int $excludeId = null, string $lang = ''): string
     {
         // Build base slug: lowercase, alphanumeric + hyphens only.
         $base = strtolower($title);
@@ -1143,30 +1203,14 @@ class Post
             $base = 'post';
         }
 
-        $pdo = Database::getInstance();
-
         $candidate = $base;
         $suffix    = 2;
 
-        while (true) {
-            if ($excludeId !== null) {
-                $stmt = $pdo->prepare(
-                    'SELECT id FROM posts WHERE slug = :slug AND id != :id LIMIT 1'
-                );
-                $stmt->execute([':slug' => $candidate, ':id' => $excludeId]);
-            } else {
-                $stmt = $pdo->prepare(
-                    'SELECT id FROM posts WHERE slug = :slug LIMIT 1'
-                );
-                $stmt->execute([':slug' => $candidate]);
-            }
-
-            if ($stmt->fetch() === false) {
-                return $candidate; // Unique — done.
-            }
-
+        while (self::slugExists($candidate, $excludeId, $lang)) {
             $candidate = $base . '-' . $suffix;
             $suffix++;
         }
+
+        return $candidate; // Unique — done.
     }
 }

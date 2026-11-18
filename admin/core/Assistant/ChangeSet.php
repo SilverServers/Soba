@@ -273,7 +273,7 @@ final class ChangeSet
             $slug = (string) $op['to'];
             if (!preg_match('/^[a-z0-9-]+$/', $slug)) {
                 $this->errors[] = "{$label}: slug may only contain lowercase letters, numbers and hyphens.";
-            } elseif (Post::slugExists($slug, (int) $entry['id'])) {
+            } elseif (Post::slugExists($slug, (int) $entry['id'], (string) $entry['lang'])) {
                 $this->errors[] = "{$label}: the slug '{$slug}' is already used by another entry.";
             }
         }
@@ -388,7 +388,7 @@ final class ChangeSet
             $slug = (string) $op['to'];
             if (!preg_match('/^[a-z0-9-]+$/', $slug)) {
                 $this->errors[] = "{$label}: slug may only contain lowercase letters, numbers and hyphens.";
-            } elseif (Page::slugExists($slug, $pageId)) {
+            } elseif (Page::slugExists($slug, $pageId, (string) $page['lang'])) {
                 $this->errors[] = "{$label}: the slug '{$slug}' is already used by another page.";
             }
         }

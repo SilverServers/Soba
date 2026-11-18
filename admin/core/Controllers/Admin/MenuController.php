@@ -449,6 +449,7 @@ class MenuController
                 $rows[] = [
                     'id'    => (int) $entry['id'],
                     'title' => (string) ($entry['title'] ?? 'Untitled'),
+                    'lang'  => (string) ($entry['lang'] ?? ''),
                 ];
             }
 
@@ -458,6 +459,8 @@ class MenuController
                 // THE TYPE'S OWN GLYPH, the one the sidebar draws for it.
                 'icon'        => (string) ($type['menu_icon'] ?? 'file-text'),
                 'archive_url' => '/' . $slug,
+                // Its archive has an address in the second language too.
+                'translates'  => \Cms\Content\Translation::translates((string) $key),
                 'entries'     => $rows,
                 'total'       => $total,
                 'shown'       => count($rows),

@@ -173,7 +173,7 @@ class Auth
         static $seconds = null;
 
         if ($seconds === null) {
-            $config  = @include ROOT_PATH . '/config/config.php';
+            $config  = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
             $seconds = (int) (is_array($config) ? ($config['session_lifetime'] ?? 0) : 0);
             $seconds = $seconds > 0 ? $seconds : self::DEFAULT_IDLE;
         }
@@ -472,10 +472,10 @@ class Auth
      * NULL ON A DEVELOPMENT TREE, whatever the row says. A development tree
      * signs in by script with the password its install was seeded with, on
      * purpose, many times over, and a "choose a new password" screen would
-     * stop every one of them. A live site runs as production (`README.md`,
-     * "Installing"), which is where the seeded password is a hole rather than
-     * a fixture — and where this applies.
-     * Read the way `layout.php` reads it: production unless config says not.
+     * stop every one of them. A live site runs as production (config.php's
+     * `app_env`), which is where the seeded password is a hole rather than a
+     * fixture — and where this applies.
+     * Read as everything reads it (`Site\Environment`).
      */
     public static function mustChange(): ?string
     {
@@ -489,20 +489,15 @@ class Auth
     }
 
     /**
-     * Does this install stop an account that owes a new password? Production
-     * does; a development tree does not (see mustChange()). Asked by the forms
-     * that promise "they choose their own at their first sign-in", so the
-     * promise is only made where it is kept.
+     * Does this install stop an account that owes a new password? Every copy
+     * but a development one does (`Site\Environment`; see mustChange()), a
+     * staging copy included. Asked by the forms that promise "they choose
+     * their own at their first sign-in", so the promise is only made where it
+     * is kept.
      */
     public static function enforcesPasswordChanges(): bool
     {
-        static $production = null;
-        if ($production === null) {
-            $config     = @include ROOT_PATH . '/config/config.php';
-            $production = !is_array($config) || ($config['app_env'] ?? 'production') === 'production';
-        }
-
-        return $production;
+        return !\Cms\Site\Environment::isDevelopment();
     }
 
     /**

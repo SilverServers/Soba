@@ -181,16 +181,16 @@ class ContentTypeController
         }
 
         $navPages  = [];
-        $pageTitle = $contentType['label'];
+        $pageTitle = \Cms\Site\Words::typeLabel($contentType);
 
         // SEO
-        $ctLabel    = $contentType['label'];
+        $ctLabel    = \Cms\Site\Words::typeLabel($contentType);
         $publicSlug = $contentType['public_slug'] ?? $this->contentTypeKey;
 
         $tokens = Head::globalTokens();
         $tokens['content_type_label'] = $ctLabel;
         if ($page > 1) {
-            $tokens['page_num'] = 'Page ' . $page;
+            $tokens['page_num'] = \Cms\Site\Words::of('page_n', ['n' => $page]);
         }
         $title = Head::buildTitle(Head::titlePattern('archive'), $tokens);
 
@@ -199,7 +199,7 @@ class ContentTypeController
         // to page 1 would tell a search engine the later pages are duplicates
         // of the first. The template's pager reads the same `$pageBase`, so its
         // links and these cannot disagree.
-        $pageBase = \Cms\Helpers\Url::page($publicSlug);
+        $pageBase = \Cms\Helpers\Url::archive($publicSlug);
         $paged    = Paging::head($pageBase, $page, $totalPages);
 
         // A SORTED OR FILTERED VIEW IS THE SAME LIST, to a search engine: its
@@ -212,7 +212,7 @@ class ContentTypeController
         }
 
         $breadcrumbItems = [
-            ['label' => 'Home',    'url' => BASE_URL . '/'],
+            ['label' => \Cms\Site\Words::of('home'), 'url' => \Cms\Helpers\Url::home()],
             ['label' => $ctLabel,  'url' => $pageBase],
         ];
         Breadcrumbs::set($breadcrumbItems);
@@ -223,6 +223,9 @@ class ContentTypeController
         Head::set([
             'title'       => $title,
             'canonical'   => $paged['canonical'],
+            // A translated type's archive is in both languages; a later page, in its own.
+            'alternates'  => $page === 1 && \Cms\Content\Translation::translates((string) $this->contentTypeKey)
+                ? \Cms\Site\Language::versions(static fn (string $lang): string => \Cms\Helpers\Url::archive((string) $publicSlug, $lang)) : [],
             'prev'        => $paged['prev'],
             'next'        => $paged['next'],
             'og_type'     => 'website',

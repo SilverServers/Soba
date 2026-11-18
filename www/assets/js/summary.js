@@ -18,8 +18,6 @@
  */
 (function (window, document) {
     'use strict';
-    // `imprint-*` beside `cms-*`: the CMS's old class names, kept through 0.7.x (Cms\Compat\OldNames).
-
     Array.prototype.forEach.call(document.querySelectorAll('[data-summary]'), function (box) {
         var list = box.querySelector('[data-summary-list]');
         var form = box.closest('form');
@@ -27,7 +25,7 @@
 
         /** The words shown above a field, or its name as a last resort. */
         function labelFor(field) {
-            var el = field.querySelector('.cms-form__label, .cms-form__section-title, .imprint-form__label, .imprint-form__section-title');
+            var el = field.querySelector('.cms-form__label, .cms-form__section-title');
             if (el) { return el.textContent.replace('*', '').trim(); }
             var one = field.querySelector('[name]');
             return one ? (one.getAttribute('name') || '').replace(/\[.*$/, '') : '';
@@ -66,7 +64,7 @@
         function paint() {
             list.textContent = '';
             Array.prototype.forEach.call(
-                form.querySelectorAll('.cms-form__field, .imprint-form__field'),
+                form.querySelectorAll('.cms-form__field'),
                 function (field) {
                     if (field.contains(box) || box.contains(field)) { return; }
                     // A field conditional logic has hidden was not asked, so it
@@ -77,11 +75,11 @@
                     if (answer === '') { return; }
 
                     var dt = document.createElement('dt');
-                    dt.className = 'cms-form__summary-term imprint-form__summary-term';
+                    dt.className = 'cms-form__summary-term';
                     dt.textContent = labelFor(field);
 
                     var dd = document.createElement('dd');
-                    dd.className = 'cms-form__summary-value imprint-form__summary-value';
+                    dd.className = 'cms-form__summary-value';
                     dd.textContent = answer;
 
                     list.appendChild(dt);

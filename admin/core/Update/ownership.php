@@ -72,7 +72,9 @@ return [
         // cannot start PHP to make one. media-sizes.php makes the smaller
         // widths of images added before they were made.
         // media-dates.php corrects the library's dates, an imported archive's
-        // above all.
+        // above all. form-numbers.php sets the number the next form
+        // submission takes. media-site-files.php puts files the site already
+        // has under its web root into the library where they are.
         'admin/bin/migrate.php',
         'admin/bin/update.php',
         'admin/bin/security.php',
@@ -81,6 +83,9 @@ return [
         'admin/bin/export-static.php',
         'admin/bin/media-sizes.php',
         'admin/bin/media-dates.php',
+        'admin/bin/config.php',
+        'admin/bin/form-numbers.php',
+        'admin/bin/media-site-files.php',
         '@admin',
         'www/assets/',
         'www/uploads/.htaccess',

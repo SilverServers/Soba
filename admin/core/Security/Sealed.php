@@ -17,9 +17,10 @@ use RuntimeException;
  * then carries no second factor: the key is in config.php, not beside the data.
  *
  * ── THE KEY IS THE SITE'S OWN ───────────────────────────────────────────────
- * The README's install step writes a fresh `app_secret`. An install still on
- * config.example.php's placeholder, or with none, would be sealing with a key
- * printed in the source, so `seal()` refuses (`ready()` says whether it can).
+ * Installing a site means writing a long random `app_secret` of its own into
+ * config.php. An install still on config.example.php's placeholder, or with
+ * none, would be sealing with a key printed in the source, so `seal()` refuses
+ * (`ready()` says whether it can).
  * Changing `app_secret` afterwards unseals nothing: every authenticator app is
  * set up again, and until then its owner signs in with a backup code, an email
  * code, or `php admin/bin/security.php two-step off <user>`.
@@ -122,7 +123,7 @@ final class Sealed
     {
         static $secret = false;
         if ($secret === false) {
-            $config = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             $value  = is_array($config) ? trim((string) ($config['app_secret'] ?? '')) : '';
             $secret = ($value === '' || $value === self::PLACEHOLDER) ? null : $value;
         }

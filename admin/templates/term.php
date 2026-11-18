@@ -43,7 +43,7 @@ $description = trim((string) ($term['description'] ?? ''));
           // term exists and has not been used yet, and a visitor who reads
           // "no results" assumes they mistyped something. ?>
     <?php // audit-ok ?>
-    <p class="post-list-empty">Nothing has been filed under this yet.</p>
+    <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('empty_term')) ?></p>
 
 <?php else: ?>
 
@@ -74,10 +74,10 @@ $description = trim((string) ($term['description'] ?? ''));
     <?php if ($totalPages > 1): ?>
         <div class="pagination">
             <?php if ($page > 1): ?>
-                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page - 1)) ?>" rel="prev">&laquo; Previous</a>
+                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page - 1)) ?>" rel="prev">&laquo; <?= htmlspecialchars(\Cms\Site\Words::of('previous')) ?></a>
             <?php endif; ?>
             <?php if ($page < $totalPages): ?>
-                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page + 1)) ?>" rel="next">Next &raquo;</a>
+                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page + 1)) ?>" rel="next"><?= htmlspecialchars(\Cms\Site\Words::of('next')) ?> &raquo;</a>
             <?php endif; ?>
         </div>
     <?php endif; ?>

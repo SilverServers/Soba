@@ -273,7 +273,7 @@ $addPanel = static function (
                                data-value="<?= h((string) $row['value']) ?>"
                                data-label="<?= h($row['title']) ?>"
                                data-glyph="<?= h((string) ($row['glyph'] ?? $row['kind'])) ?>">
-                        <span data-add-text><?= h($row['title']) ?></span>
+                        <span data-add-text><?= h($row['title']) ?><?= ($row['lang'] ?? '') !== '' ? ' — ' . h(\Cms\Site\Language::nameOf((string) $row['lang'])) : '' ?></span>
                     </label>
                 <?php endforeach; ?>
             </div>
@@ -428,6 +428,8 @@ ob_start();
                                 'title' => (string) $p['title'],
                                 'kind'  => 'page',
                                 'value' => (string) (int) $p['id'],
+                                // A TRANSLATION SAYS ITS LANGUAGE beside its title.
+                                'lang'  => (string) $p['lang'],
                             ];
                         }
                         $addPanel('pages', 'Pages', $pageRows, true, '', 'pages');
@@ -441,6 +443,17 @@ ob_start();
                                 'kind'  => 'custom',
                                 'value' => (string) $group['archive_url'],
                             ]];
+                            // …AND IN THE SECOND LANGUAGE, for its menus
+                            // (`Site\Language`): the archive under its prefix.
+                            $menuSecond = \Cms\Site\Language::prefix();
+                            if ($menuSecond !== '' && !empty($group['translates'])) {
+                                $rows[] = [
+                                    'title' => 'All ' . $group['label'],
+                                    'kind'  => 'custom',
+                                    'value' => '/' . $menuSecond . (string) $group['archive_url'],
+                                    'lang'  => $menuSecond,
+                                ];
+                            }
 
                             foreach ($group['entries'] as $entry) {
                                 $rows[] = [
@@ -448,6 +461,7 @@ ob_start();
                                     'kind'  => 'entry',
                                     'value' => (string) $entry['id'],
                                     'glyph' => 'type:' . $group['key'],
+                                    'lang'  => (string) ($entry['lang'] ?? ''),
                                 ];
                             }
 

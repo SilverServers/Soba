@@ -294,7 +294,9 @@ class ImportController
             : Import::apply(
                 (string) $pending['json'],
                 (int) $user['id'],
-                !empty($_POST['import_settings'])
+                !empty($_POST['import_settings']),
+                !empty($_POST['keep_status']),
+                !empty($_POST['find_images'])
             );
 
         // THE FILE GOES THE MOMENT IT IS APPLIED. Left in the session, a second

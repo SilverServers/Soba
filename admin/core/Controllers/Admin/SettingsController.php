@@ -88,6 +88,12 @@ class SettingsController
         'admin_email'  => '',
         // `<html lang>` on every public page (`Site\Language`).
         \Cms\Site\Language::OPTION => \Cms\Site\Language::DEFAULT,
+        // A second language for pages and entries, at its own addresses ('' none).
+        \Cms\Site\Language::SECOND => '',
+        // The title, tagline and footer text in it ('' the site's own).
+        'site_name_second'        => '',
+        'site_tagline_second'     => '',
+        'site_footer_text_second' => '',
         'timezone'     => 'America/Vancouver',
         'date_format'  => 'M j, Y',
         'time_format'  => 'g:i A',
@@ -157,14 +163,35 @@ class SettingsController
             $errors[] = 'Assistant monthly limit cannot be negative.';
         }
 
+        // THE SECOND LANGUAGE: none, or one the select offers that nothing in
+        // the way refuses (`Site\Language::problem()`).
+        $secondLanguage = trim((string) ($_POST[\Cms\Site\Language::SECOND] ?? ''));
+        $ownLanguage    = isset(\Cms\Site\Language::ALL[(string) ($_POST[\Cms\Site\Language::OPTION] ?? '')])
+            ? (string) $_POST[\Cms\Site\Language::OPTION] : \Cms\Site\Language::DEFAULT;
+        if ($secondLanguage !== '' && $secondLanguage === $ownLanguage) {
+            $errors[] = 'The second language must be another language than the site\'s own.';
+        } elseif (($why = \Cms\Site\Language::problem($secondLanguage)) !== null) {
+            $errors[] = $why;
+        }
+
+        // THE SITE'S OWN WORDS IN THE SECOND LANGUAGE, when the screen drew
+        // them (a second language is chosen); untouched otherwise.
+        $secondWords = [];
+        foreach (\Cms\Site\Language::SECOND_WORDS as $secondKey) {
+            if (array_key_exists($secondKey, $_POST)) {
+                $secondWords[$secondKey] = trim((string) $_POST[$secondKey]);
+            }
+        }
+
         if (!empty($errors)) {
             // Re-render with submitted values
-            $options = [
+            $options = $secondWords + [
                 'site_name'    => $siteName,
                 'site_tagline' => trim($_POST['site_tagline'] ?? ''),
                 'site_footer_text' => trim((string) ($_POST['site_footer_text'] ?? '')),
                 'admin_email'  => $adminEmail,
                 \Cms\Site\Language::OPTION => (string) ($_POST[\Cms\Site\Language::OPTION] ?? \Cms\Site\Language::DEFAULT),
+                \Cms\Site\Language::SECOND => $secondLanguage,
                 'timezone'     => $timezone,
                 'date_format'  => trim($_POST['date_format'] ?? 'M j, Y'),
                 'time_format'  => trim($_POST['time_format'] ?? 'g:i A'),
@@ -196,8 +223,9 @@ class SettingsController
             'admin_email'  => $adminEmail,
             // ONLY A LANGUAGE THE SELECT OFFERS. A hand-made POST's anything
             // else is English, never a `lang` the page could not stand behind.
-            \Cms\Site\Language::OPTION => isset(\Cms\Site\Language::ALL[(string) ($_POST[\Cms\Site\Language::OPTION] ?? '')])
-                ? (string) $_POST[\Cms\Site\Language::OPTION] : \Cms\Site\Language::DEFAULT,
+            \Cms\Site\Language::OPTION => $ownLanguage,
+            \Cms\Site\Language::SECOND => $secondLanguage,
+        ] + $secondWords + [
             'timezone'     => $timezone,
             'date_format'  => trim($_POST['date_format'] ?? 'M j, Y'),
             'time_format'  => trim($_POST['time_format'] ?? 'g:i A'),
@@ -263,6 +291,41 @@ class SettingsController
      * saves this key and nothing else; a structure posted to it is ignored, not
      * saved.
      */
+    /**
+     * SETTINGS → WORDS: the theme's own words (`Site\Words`), the owner's for
+     * the site's language and for its second.
+     */
+    public function showWords(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        $this->renderWords(false);
+    }
+
+    /** Keep the owner's words for each language the screen drew. */
+    public function handleWords(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        \Cms\Site\Words::save(false, is_array($_POST['own'] ?? null) ? $_POST['own'] : []);
+        if (\Cms\Site\Language::second() !== '') {
+            \Cms\Site\Words::save(true, is_array($_POST['second'] ?? null) ? $_POST['second'] : []);
+        }
+        $this->renderWords(true);
+    }
+
+    private function renderWords(bool $saved): void
+    {
+        $user        = Auth::user();
+        $ownWords    = \Cms\Site\Words::owner(false);
+        $secondWords = \Cms\Site\Words::owner(true);
+        $pageTitle   = 'Words';
+        $currentPage = 'settings-words';
+
+        ob_start();
+        require ROOT_PATH . '/admin/templates/settings/words.php';
+        $pageContent = ob_get_clean();
+        require ROOT_PATH . '/admin/templates/layout.php';
+    }
+
     public function showPermalinks(array $vars = []): void
     {
         Auth::requireRole('admin');
@@ -890,9 +953,10 @@ class SettingsController
                 $errors[] = $name . ' must be an email address.';
             }
         }
-        // MAIL THROUGH BREVO (config.php): the sending server's fields are not
-        // drawn, so what is stored for them stays as it is.
-        $brevo = \Cms\Mail\Mailer::transport() === 'brevo';
+        // MAIL THROUGH BREVO, OR KEPT IN THE MAIL LOG (config.php): the
+        // sending server's fields are not drawn, so what is stored for them
+        // stays as it is.
+        $noServer = in_array(\Cms\Mail\Mailer::transport(), ['brevo', 'log'], true);
 
         if (!empty($errors)) {
             $options = [
@@ -919,7 +983,7 @@ class SettingsController
         // Only update smtp_password if a new value was submitted (non-empty).
         // An empty field means "keep existing password".
         $passwordValue = $_POST['smtp_password'] ?? '';
-        $saveOptions = ($brevo ? [] : [
+        $saveOptions = ($noServer ? [] : [
             'smtp_host'       => trim($_POST['smtp_host'] ?? ''),
             'smtp_port'       => trim($_POST['smtp_port'] ?? '587'),
             'smtp_username'   => trim($_POST['smtp_username'] ?? ''),
@@ -929,7 +993,7 @@ class SettingsController
             'smtp_from_name'  => trim($_POST['smtp_from_name'] ?? ''),
         ] + $test;
 
-        if ($passwordValue !== '' && !$brevo) {
+        if ($passwordValue !== '' && !$noServer) {
             $saveOptions['smtp_password'] = $passwordValue;
         }
 
@@ -1042,13 +1106,13 @@ class SettingsController
         // Route to the correct save handler based on which tab was submitted
         switch ($tab) {
             case 'general':
-                $this->saveSeoGeneral();
+                $errors = $this->saveSeoGeneral();
                 break;
             case 'titles':
                 $this->saveSeoTitles();
                 break;
             case 'schema':
-                $this->saveSeoSchema();
+                $errors = $this->saveSeoSchema();
                 break;
             case 'robots':
                 $this->saveSeoRobots();
@@ -1077,20 +1141,47 @@ class SettingsController
         require ROOT_PATH . '/admin/templates/layout.php';
     }
 
-    private function saveSeoGeneral(): void
+    /** @return list<string> what was refused */
+    private function saveSeoGeneral(): array
     {
         // NO `seo_separator` HERE. It was written from a field this tab never
         // rendered, so every save put " | " back — harmless while nothing read
         // it, and a setting that could not stick once {sep} did. It is the
         // Title patterns tab's now, beside the patterns it prints into.
-        Option::setMany([
-            'seo_og_image'             => trim($_POST['seo_og_image'] ?? ''),
+        $image = self::siteImage('seo_og_image');
+        Option::setMany(array_filter([
+            'seo_og_image'             => $image,
             // Starts from the Home pattern, and is stored as none while it
             // still says the same (`Head::ownTitle()`).
             'seo_homepage_title'       => \Cms\SEO\Head::ownTitle((string) ($_POST['seo_homepage_title'] ?? ''), 'home'),
             'seo_homepage_description' => trim($_POST['seo_homepage_description'] ?? ''),
             'seo_ping_on_publish'      => !empty($_POST['seo_ping_on_publish']) ? '1' : '0',
-        ]);
+        ], static fn (?string $v): bool => $v !== null));
+
+        return $image === null ? ['The default image must be a picture from the media library.'] : [];
+    }
+
+    /**
+     * A SITE-WIDE IMAGE AS SETTINGS → SEO STORES IT: the media library's id of
+     * the picture chosen, which a page resolves to its address when it is
+     * drawn (`Head::siteImage()`); else what the box beside the picker holds,
+     * an address kept from before there was a picker, the address of a
+     * library picture becoming that picture's id; else none. Null when what
+     * was chosen is not a public picture of the library.
+     */
+    private static function siteImage(string $key): ?string
+    {
+        $id = max(0, (int) ($_POST[$key] ?? 0));
+        if ($id > 0) {
+            return \Cms\SEO\Head::siteImage((string) $id) !== '' ? (string) $id : null;
+        }
+        $url = trim((string) ($_POST[$key . '_url'] ?? ''));
+        if ($url === '') {
+            return '';
+        }
+        $found = \Cms\Models\Media::idAt($url);
+
+        return $found !== null && \Cms\SEO\Head::siteImage((string) $found) !== '' ? (string) $found : $url;
     }
 
     /**
@@ -1133,18 +1224,22 @@ class SettingsController
         Option::setMany($save);
     }
 
-    private function saveSeoSchema(): void
+    /** @return list<string> what was refused */
+    private function saveSeoSchema(): array
     {
         $orgType = in_array($_POST['seo_org_type'] ?? '', ['Organization', 'LocalBusiness'], true)
             ? $_POST['seo_org_type']
             : 'Organization';
+        $logo = self::siteImage('seo_org_logo');
 
-        Option::setMany([
+        Option::setMany(array_filter([
             'seo_org_type' => $orgType,
             'seo_org_name' => trim($_POST['seo_org_name'] ?? ''),
             'seo_org_url'  => trim($_POST['seo_org_url'] ?? ''),
-            'seo_org_logo' => trim($_POST['seo_org_logo'] ?? ''),
-        ]);
+            'seo_org_logo' => $logo,
+        ], static fn (?string $v): bool => $v !== null));
+
+        return $logo === null ? ['The logo must be a picture from the media library.'] : [];
     }
 
     private function saveSeoRobots(): void

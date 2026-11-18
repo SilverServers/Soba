@@ -153,7 +153,7 @@ $pageTitle = $isNew ? 'Add ' . $labelSingle : (string) $post['title'];
 // is excluded by `findBySlug()` and genuinely 404s, and a new entry has no
 // address yet because it has no saved slug.
 $viewUrl = (!$isNew && $publicSlug !== '' && (string) $post['status'] !== 'trash')
-    ? Url::page($publicSlug . '/' . (string) $post['slug'])
+    ? Url::entry($post, $publicSlug)
     : null;
 
 ob_start();
@@ -224,9 +224,9 @@ ob_start();
                     // not a field; see partials/title-card.php.
                     $titleLabel = $labelSingle . ' title';
                     $titleValue = $val('title');
-                    $slugPrefix = $publicSlug !== ''
-                        ? rtrim(Url::public($publicSlug), '/') . '/'
-                        : rtrim(Url::public(''), '/') . '/';
+                    // Under its language's prefix, for a translation (/fr/news/).
+                    $slugLang   = (string) ($post['lang'] ?? '');
+                    $slugPrefix = rtrim(Url::public(trim(($slugLang !== '' ? $slugLang . '/' : '') . $publicSlug, '/')), '/') . '/';
                     $slugValue  = $val('slug');
                     // The address's own end: the preview is the address, so it
                     // ends the way the site's addresses do.
@@ -712,6 +712,11 @@ ob_start();
                         <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>
                     <?php endif; ?>
 
+                    <?php if (!$isNew): ?>
+                        <?php [$trPart, $trTable, $trRow, $trAdmin] = ['panel', 'posts', $post, $adminSlug]; ?>
+                        <?php require ROOT_PATH . '/admin/templates/partials/translation.php'; ?>
+                    <?php endif; ?>
+
                     <?php // ── WHO WROTE IT ──────────────────────────────────
                           // An Author box, for an editor or admin; an author
                           // writes as themselves and is not offered it.
@@ -1013,6 +1018,8 @@ ob_start();
               action="<?= h(Url::admin($adminSlug . '/' . $id . '/trash')) ?>" hidden>
             <?= Csrf::field() ?>
         </form>
+        <?php $trPart = 'forms'; ?>
+        <?php require ROOT_PATH . '/admin/templates/partials/translation.php'; ?>
         <?php if (!empty($shareable)): ?>
             <?php $sharePart = 'forms'; ?>
             <?php require ROOT_PATH . '/admin/templates/partials/share-draft.php'; ?>

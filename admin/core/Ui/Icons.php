@@ -191,8 +191,8 @@ final class Icons
         // The set is uniform Font Awesome output: one <svg> with a viewBox, an
         // attribution comment, and the path data. Take the viewBox and whatever
         // is between the tags; drop the comment so it is not repeated on every
-        // glyph of every page. The licence attribution stays in the SVG files on
-        // disk and in the README's third-party section, which is how CC BY 4.0 is
+        // glyph of every page. The licence attribution stays in each SVG file on
+        // disk, which ships with the CMS, and that is how CC BY 4.0 is
         // satisfied.
         if (!preg_match('~<svg\b[^>]*\bviewBox="([^"]+)"[^>]*>(.*)</svg>~is', $raw, $m)) {
             return self::miss($slug);

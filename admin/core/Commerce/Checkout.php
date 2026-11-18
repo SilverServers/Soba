@@ -157,7 +157,7 @@ final class Checkout
         return [
             'id'    => (int) $page['id'],
             'title' => (string) $page['title'],
-            'url'   => \Cms\Helpers\Url::page((string) $page['slug']),
+            'url'   => \Cms\Helpers\Url::pageOf($page),
         ];
     }
 

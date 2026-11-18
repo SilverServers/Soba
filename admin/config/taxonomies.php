@@ -8,12 +8,15 @@ use Cms\ContentType\TaxonomyRegistry;
  * CMS — Taxonomy Definitions
  *
  * Register code-defined taxonomies here. These are loaded at bootstrap before
- * any UI-created taxonomies from the database (same pattern as config/content-types.php).
+ * any made on the Taxonomies screen (same pattern as config/content-types.php),
+ * and one registered here wins a key clash with one made there, which is then
+ * not loaded.
  *
  * Configuration options:
  *   'label'         — Plural label shown in the admin UI
  *   'label_single'  — Singular label (breadcrumbs, empty states)
  *   'admin_slug'    — URL segment: /admin/taxonomies/{admin_slug}/terms
+ *   'public_slug'   — the address of a term's page: /{public_slug}/{term}
  *   'content_types' — Content Type keys this taxonomy attaches to (sidebar panels on edit screen)
  *   'hierarchical'  — true: category style (checkbox tree with parent/child nesting)
  *                     false: tag style (chip input with typeahead)
@@ -21,8 +24,8 @@ use Cms\ContentType\TaxonomyRegistry;
 
 // -----------------------------------------------------------------------
 // Add your taxonomies here for code-based registration.
-// Code-registered taxonomies are loaded at bootstrap and merged with
-// UI-created taxonomies (UI-created take precedence on key collision).
+// Code-registered taxonomies are loaded at bootstrap, before those made on
+// the Taxonomies screen, and win a key clash with one.
 // -----------------------------------------------------------------------
 
 

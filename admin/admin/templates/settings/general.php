@@ -163,7 +163,55 @@ $now         = time();
                         </select>
                         <p class="form-help">The language your pages are written in, so a screen reader reads them aloud in it and a browser offers to translate from it.</p>
                     </div>
+                    <?php // A SECOND LANGUAGE (`Site\Language`): choosing one turns it
+                          // on, None turns it off, and its translations wait,
+                          // unreached, until it is chosen again. ?>
+                    <div class="field field--narrow">
+                        <label class="label" for="f-site-language-second">Second language</label>
+                        <select class="select" id="f-site-language-second" name="<?= h(\Cms\Site\Language::SECOND) ?>" aria-describedby="f-site-language-second-help">
+                            <?php $secondLanguage = $opt(\Cms\Site\Language::SECOND, ''); ?>
+                            <option value=""<?= $secondLanguage === '' ? ' selected' : '' ?>>None</option>
+                            <?php foreach (\Cms\Site\Language::ALL as $tag => $name): ?>
+                                <option value="<?= h($tag) ?>"<?= $tag === $secondLanguage ? ' selected' : '' ?>><?= h($name) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="form-help" id="f-site-language-second-help">Gives each page and entry a translation at its own address, such as /<?= h($secondLanguage !== '' ? strtolower($secondLanguage) : 'fr') ?>/about: open one and choose Translate. The shop, forms and the admin stay in the site's language.</p>
+                    </div>
                 </div>
+
+                <?php // THE SITE'S OWN WORDS IN THE SECOND LANGUAGE
+                      // (`Site\Language::words()`), once one is chosen and
+                      // saved: each left empty is the site's own. ?>
+                <?php $secondNow = \Cms\Site\Language::second(); ?>
+                <?php if ($secondNow !== ''): ?>
+                    <?php $secondName = \Cms\Site\Language::ALL[$secondNow]; ?>
+                    <div class="form-card__section">
+                        <?= panel_title('In ' . $secondName, 'translation') ?>
+
+                        <div class="field">
+                            <label class="label" for="f-site-name-second">Site title in <?= h($secondName) ?></label>
+                            <input class="input" type="text" id="f-site-name-second" name="site_name_second"
+                                   value="<?= h($opt('site_name_second')) ?>"
+                                   placeholder="<?= h(\Cms\SEO\Head::globalTokens()['site_name']) ?>">
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="f-site-tagline-second">Tagline in <?= h($secondName) ?></label>
+                            <input class="input" type="text" id="f-site-tagline-second" name="site_tagline_second"
+                                   value="<?= h($opt('site_tagline_second')) ?>"
+                                   placeholder="<?= h($opt('site_tagline')) ?>">
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="f-footer-text-second">Footer text in <?= h($secondName) ?></label>
+                            <input class="input" type="text" id="f-footer-text-second" name="site_footer_text_second"
+                                   value="<?= h($opt('site_footer_text_second')) ?>"
+                                   autocomplete="off"
+                                   placeholder="<?= h($opt('site_footer_text')) ?>">
+                            <p class="form-help">What the site's pages in <?= h($secondName) ?> say instead: the title in their header and page titles, the tagline in title patterns, the line at the bottom of every page. Each left empty is the site's own.</p>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <div class="form-card__section">
                     <?= panel_title('Dates and times', 'dates-and-times') ?>

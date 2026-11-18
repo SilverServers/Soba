@@ -5,48 +5,58 @@ declare(strict_types=1);
 /**
  * CMS — Content Type Definitions
  *
- * Register all Content Types here using Registry::register().
- * This file is part of the codebase and should be committed to version control.
- * Developers add their client-specific Content Types in this file.
+ * Content Types registered in code, with Registry::register(). This is the
+ * site's own file: an update never changes it. A type made on the Content
+ * Types screen needs nothing here.
  *
- * Field types supported:
- *   text, textarea, rich_text, number, date, datetime, select, image, repeater, relationship, taxonomy
+ * A KEY IN BOTH: a type registered here wins over one of the same key made on
+ * the Content Types screen, and that one is not loaded.
  *
- * Archetypes (additive capability frameworks):
- *   'post'     — rich content in a feed (title, body, featured image, categories, publish date)
- *   'event'    — content anchored to time (date, location, recurrence, calendar view)
- *   'listing'  — structured record in a directory (card/grid display, minimal body)
- *   'product'  — content with a transaction (price, variants, inventory, buy action)
+ * Field types:
+ *   text, textarea, rich_text, number, date, datetime, select, checkbox, image,
+ *   repeater, relationship, taxonomy
  *
- * Example Content Type with custom fields:
+ * Archetypes (each adds its own fields to a type):
+ *   'post'     — articles in a feed: a title, text, a featured image and an
+ *                excerpt. It brings no taxonomy: categories and tags are
+ *                taxonomies of their own (config/taxonomies.php, or the
+ *                Taxonomies screen), attached to the type.
+ *   'event'    — content anchored to time: a start, an end, a location and a
+ *                link, and the type's events as a calendar to subscribe to
+ *   'listing'  — a record in a directory: a subtitle, an email, a phone and a
+ *                website, and no body text
+ *   'product'  — something the shop sells: a price, a sale price and its dates,
+ *                a code, delivery, stock and more photos
  *
- *   // Registry::register('event', [
-//  *       'label'        => 'Events',
-//  *       'label_single' => 'Event',
-//  *       'admin_slug'   => 'events',
-//  *       'public_slug'  => 'events',
-//  *       'menu_icon'    => 'calendar',
-//  *       'supports'     => ['title', 'content'],
-//  *       'archetypes'   => ['event'],
-//  *       'fields'       => [
-//  *           ['key' => 'event_date', 'label' => 'Date',     'type' => 'date',     'required' => true],
-//  *           ['key' => 'location',   'label' => 'Location', 'type' => 'text',     'required' => true],
-//  *           ['key' => 'capacity',   'label' => 'Capacity', 'type' => 'number'],
-//  *           ['key' => 'speakers',   'label' => 'Speakers', 'type' => 'repeater',
-//  *            'sub_fields' => [
-//  *                ['key' => 'name',  'label' => 'Name',  'type' => 'text'],
-//  *                ['key' => 'bio',   'label' => 'Bio',   'type' => 'textarea'],
-//  *            ]],
-//  *       ],
-//  *   ]);
-//  */
+ * Example, with fields of its own:
+ *
+ *   Registry::register('event', [
+ *       'label'        => 'Events',
+ *       'label_single' => 'Event',
+ *       'admin_slug'   => 'events',
+ *       'public_slug'  => 'events',
+ *       'menu_icon'    => 'calendar',
+ *       'supports'     => ['title', 'content'],
+ *       'archetypes'   => ['event'],
+ *       'fields'       => [
+ *           ['key' => 'event_date', 'label' => 'Date',     'type' => 'date',     'required' => true],
+ *           ['key' => 'location',   'label' => 'Location', 'type' => 'text',     'required' => true],
+ *           ['key' => 'capacity',   'label' => 'Capacity', 'type' => 'number'],
+ *           ['key' => 'speakers',   'label' => 'Speakers', 'type' => 'repeater',
+ *            'sub_fields' => [
+ *                ['key' => 'name',  'label' => 'Name',  'type' => 'text'],
+ *                ['key' => 'bio',   'label' => 'Bio',   'type' => 'textarea'],
+ *            ]],
+ *       ],
+ *   ]);
+ */
 //
 // use Cms\ContentType\Registry;
 //
 // // -----------------------------------------------------------------------
 // // Add your Content Types here for code-based registration.
-// // Code-registered types are loaded at bootstrap and merged with
-// // UI-created types (UI-created types take precedence on key collision).
+// // Code-registered types are loaded at bootstrap, before those made on
+// // the Content Types screen, and win a key clash with one.
 // // -----------------------------------------------------------------------
 //
 //

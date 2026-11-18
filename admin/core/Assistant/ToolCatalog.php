@@ -355,12 +355,18 @@ final class ToolCatalog
                 return [
                     'total'   => $total,
                     'showing' => count($entries),
+                    // A TRANSLATION SAYS ITS LANGUAGE and the entry it
+                    // translates (`Content\Translation`), so "the French one"
+                    // is one entry and not a guess between two of one title.
                     'entries' => array_map(static fn (array $e): array => [
                         'id'     => (int) $e['id'],
                         'title'  => $e['title'],
                         'slug'   => $e['slug'],
                         'status' => $e['status'],
-                    ], $entries),
+                    ] + ((string) $e['lang'] !== '' ? [
+                        'language'       => \Cms\Site\Language::nameOf((string) $e['lang']),
+                        'translation_of' => $e['translation_of'] !== null ? (int) $e['translation_of'] : null,
+                    ] : []), $entries),
                 ];
             },
         );
@@ -485,12 +491,16 @@ final class ToolCatalog
                 $pages = [];
 
                 foreach (Page::all() as $page) {
+                    // A TRANSLATION SAYS ITS LANGUAGE and the page it
+                    // translates (`Content\Translation`).
                     $pages[] = array_filter([
-                        'id'        => (int) $page['id'],
-                        'title'     => $page['title'],
-                        'slug'      => $page['slug'],
-                        'status'    => $page['status'],
-                        'parent_id' => $page['parent_id'] !== null ? (int) $page['parent_id'] : null,
+                        'id'             => (int) $page['id'],
+                        'title'          => $page['title'],
+                        'slug'           => $page['slug'],
+                        'status'         => $page['status'],
+                        'parent_id'      => $page['parent_id'] !== null ? (int) $page['parent_id'] : null,
+                        'language'       => (string) $page['lang'] !== '' ? \Cms\Site\Language::nameOf((string) $page['lang']) : null,
+                        'translation_of' => $page['translation_of'] !== null ? (int) $page['translation_of'] : null,
                     ], static fn ($v): bool => $v !== null);
                 }
 

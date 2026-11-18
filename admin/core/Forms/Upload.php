@@ -151,7 +151,8 @@ final class Upload
     }
 
     /**
-     * Store one uploaded file, or return null with a reason.
+     * Store one uploaded file, or return null with a reason: `admit()` and
+     * `store()` at once.
      *
      * @param  array<string, mixed> $file   one entry of `$_FILES`
      * @param  array<string, mixed> $field  the field definition, for its limit
@@ -159,6 +160,28 @@ final class Upload
      * @return int|null                     the attachment id
      */
     public static function accept(array $file, array $field, ?string &$error = null): ?int
+    {
+        $admitted = self::admit($file, $field, $error);
+
+        return $admitted === null ? null : self::store($admitted, $error);
+    }
+
+    /**
+     * IS THIS UPLOAD ONE THE FIELD TAKES? Checked, not kept: a real upload,
+     * within the field's limit, of a kind it takes. What `store()` needs to
+     * keep it once the whole post has been accepted, or null with a reason
+     * (and null without one when nothing was sent).
+     *
+     * NOTHING IS WRITTEN UNTIL THEN. A post refused for another answer, or
+     * turned away as spam, leaves no file and no library row: PHP deletes an
+     * upload nobody moved when the request ends.
+     *
+     * @param  array<string, mixed> $file   one entry of `$_FILES`
+     * @param  array<string, mixed> $field  the field definition, for its limit
+     * @param  string|null          $error  set to a visitor-facing message
+     * @return array{tmp: string, name: string, mime: string}|null
+     */
+    public static function admit(array $file, array $field, ?string &$error = null): ?array
     {
         $error = null;
 
@@ -201,13 +224,31 @@ final class Upload
             return null;
         }
 
+        $name = trim((string) ($file['name'] ?? ''));
+
+        return ['tmp' => $tmp, 'name' => $name !== '' ? $name : 'upload.' . self::ALLOWED[$mime], 'mime' => $mime];
+    }
+
+    /**
+     * Keep an upload `admit()` took: moved into the private store, a photo
+     * stripped of what it says about its sender, and a row in the media
+     * library. The attachment id, or null with a reason.
+     *
+     * @param array{tmp: string, name: string, mime: string} $admitted
+     */
+    public static function store(array $admitted, ?string &$error = null): ?int
+    {
+        $error = null;
+        $tmp   = $admitted['tmp'];
+        $mime  = $admitted['mime'];
+
         // THE NAME IS REBUILT, NOT CLEANED. Sanitising the visitor's filename
         // means reasoning about every way a name can be hostile; deriving one
         // means there is nothing to reason about. The extension comes from the
         // DETECTED type, so a PHP file posted as a PNG is stored as a PNG.
         $ext      = self::ALLOWED[$mime];
         $stored   = bin2hex(random_bytes(16)) . '.' . $ext;
-        $original = (string) ($file['name'] ?? $stored);
+        $original = $admitted['name'];
 
         // PRIVATE. `Media::getUrl()` routes a private attachment through
         // `/files/{id}`, which is a controller and can refuse; the public

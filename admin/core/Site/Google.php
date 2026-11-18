@@ -107,7 +107,6 @@ final class Google
 
     /** @var array<string, string>|null */
     private static ?array $ids = null;
-    private static ?bool $production = null;
 
     /** @var array<string, mixed>|null config.php, read once */
     private static ?array $config = null;
@@ -283,7 +282,8 @@ final class Google
         if (!self::asks() || !self::production() || !self::isPublic()) {
             return '';
         }
-        return '<button type="button" class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '" data-cms-consent-open>Cookie settings</button>';
+        return '<button type="button" class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '" data-cms-consent-open>'
+            . htmlspecialchars(Words::of('cookie_settings'), ENT_QUOTES, 'UTF-8') . '</button>';
     }
 
     /** The banner, hidden until `measure.js` finds no answer: the owner's words, their page, and two equal buttons. */
@@ -291,16 +291,20 @@ final class Google
     {
         $at    = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
         $ids   = self::ids();
-        $words = trim($ids['google_consent_words']) !== '' ? $ids['google_consent_words'] : self::CONSENT_WORDS;
+        // THE OWNER'S WORDS, in the site's language; on a page in the second
+        // language, the banner's words in it (`Words`).
+        $words = Language::drawn() !== ''
+            ? Words::of('cookie_words')
+            : (trim($ids['google_consent_words']) !== '' ? $ids['google_consent_words'] : self::CONSENT_WORDS);
         $page  = (int) $ids['google_consent_page'] > 0 ? \Cms\Models\Page::find((int) $ids['google_consent_page']) : null;
         $link  = $page !== null && ($page['status'] ?? '') === 'published'
-            ? ' <a class="cms-consent__more" href="' . $at(\Cms\Helpers\Url::page((string) $page['slug'])) . '">' . $at((string) $page['title']) . '</a>'
+            ? ' <a class="cms-consent__more" href="' . $at(\Cms\Helpers\Url::pageOf($page)) . '">' . $at((string) $page['title']) . '</a>'
             : '';
-        return '<div class="cms-consent" data-cms-consent role="region" aria-label="Cookies" hidden>'
+        return '<div class="cms-consent" data-cms-consent role="region" aria-label="' . $at(Words::of('cookies')) . '" hidden>'
             . '<p class="cms-consent__words">' . $at($words) . $link . '</p>'
             . '<div class="cms-consent__actions">'
-            . '<button type="button" class="cms-consent__button" data-cms-consent-answer="granted">Accept</button>'
-            . '<button type="button" class="cms-consent__button" data-cms-consent-answer="denied">Decline</button>'
+            . '<button type="button" class="cms-consent__button" data-cms-consent-answer="granted">' . $at(Words::of('cookie_accept')) . '</button>'
+            . '<button type="button" class="cms-consent__button" data-cms-consent-answer="denied">' . $at(Words::of('cookie_decline')) . '</button>'
             . '</div></div>';
     }
 
@@ -522,28 +526,20 @@ final class Google
     }
 
     /**
-     * `app_env` is exactly "production", read from config.php once. A page
-     * drawn for a static copy (`Export\StaticCopy`) is the published site's,
-     * wherever the copy is made, so it prints the tags as production does.
+     * This copy is production (`Site\Environment`). A page drawn for a static
+     * copy (`Export\StaticCopy`) is the published site's, wherever the copy is
+     * made, so it prints the tags as production does.
      */
     private static function production(): bool
     {
-        if (defined('CMS_EXPORT')) {
-            return true;
-        }
-        if (self::$production === null) {
-            self::$production = strtolower(trim((string) (self::config()['app_env'] ?? ''))) === 'production';
-        }
-        return self::$production;
+        return defined('CMS_EXPORT') || Environment::isProduction();
     }
 
     /** config.php, read once; empty where there is none. @return array<string, mixed> */
     private static function config(): array
     {
         if (self::$config === null) {
-            $config = defined('ROOT_PATH') && is_file(ROOT_PATH . '/config/config.php')
-                ? (static fn (string $__f): mixed => require $__f)(ROOT_PATH . '/config/config.php')
-                : null;
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             self::$config = is_array($config) ? $config : [];
         }
         return self::$config;

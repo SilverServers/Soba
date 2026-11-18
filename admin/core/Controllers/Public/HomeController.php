@@ -128,7 +128,7 @@ class HomeController
         // SEO
         $tokens = Head::globalTokens();
         if ($page > 1) {
-            $tokens['page_num'] = 'Page ' . $page;
+            $tokens['page_num'] = \Cms\Site\Words::of('page_n', ['n' => $page]);
         }
         $title = Head::buildTitle(Head::titlePattern('home'), $tokens);
 
@@ -150,7 +150,7 @@ class HomeController
 
         // PAGE 2 OF THE FRONT PAGE NAMES ITSELF, and its neighbours, rather than
         // every page canonicalising to `/` as a duplicate of the first.
-        $pageBase = \Cms\Helpers\Url::page('');
+        $pageBase = \Cms\Helpers\Url::home();
         $paged    = Paging::head($pageBase, $page, $totalPages);
 
         $graph = Schema::siteWide();
@@ -160,6 +160,8 @@ class HomeController
             'title'       => $homeTitle !== '' && $page === 1 ? Head::buildTitle($homeTitle, $tokens) : $title,
             'description' => $homeDesc,
             'canonical'   => $paged['canonical'],
+            // The front page is in both languages; a later page of its list, in its own.
+            'alternates'  => $page === 1 ? \Cms\Site\Language::versions(static fn (string $lang): string => \Cms\Helpers\Url::home($lang)) : [],
             'prev'        => $paged['prev'],
             'next'        => $paged['next'],
             'og_type'     => 'website',

@@ -100,7 +100,7 @@ class MenuItem
                 if ($item['target_id']) {
                     $page = Page::find((int) $item['target_id']);
                     if ($page) {
-                        return \Cms\Helpers\Url::page((string) $page['slug']);
+                        return \Cms\Helpers\Url::pageOf($page);
                     }
                 }
                 return '#';
@@ -126,7 +126,7 @@ class MenuItem
                         // public slug gets no public routes at all in
                         // `www/index.php`, so an address built here would 404.
                         if ($tp !== '') {
-                            return \Cms\Helpers\Url::page($tp . '/' . $post['slug']);
+                            return \Cms\Helpers\Url::entry($post, $tp);
                         }
                     }
                 }
@@ -166,7 +166,7 @@ class MenuItem
                         // deliberately. `#` is the honest answer; inventing one
                         // would be a link that 404s.
                         if ($tp !== '') {
-                            return \Cms\Helpers\Url::page($tp . '/' . $term['slug']);
+                            return \Cms\Helpers\Url::term($term, $tp);
                         }
                     }
                 }

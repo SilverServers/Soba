@@ -1125,7 +1125,8 @@ final class SecurityController
             return;
         }
 
-        $page    = Paging::current();
+        // An admin list: `page`, whatever the site calls its own lists'.
+        $page    = Paging::current('page');
         $perPage = 50;
         $result  = match ($tab) {
             'lockouts'    => Throttle::page($page, $perPage),

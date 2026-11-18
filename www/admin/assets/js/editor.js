@@ -615,6 +615,21 @@
   }
 
   /**
+   * Whether stored HTML and what the editor writes out (`htmlOut()`) are the
+   * same document, but for the white space between its top-level blocks: the
+   * stored HTML read by the browser, those runs dropped, and written out
+   * again, is what the editor writes. Then the stored HTML can go back as it
+   * came (`current()` in `build()`); otherwise the editor's is the repair.
+   */
+  function sameDocument(stored, out) {
+    var doc = new DOMParser().parseFromString('<body>' + (stored || '') + '</body>', 'text/html');
+    Array.prototype.slice.call(doc.body.childNodes).forEach(function (n) {
+      if (n.nodeType === 3 && /^[ \t\n\r\f]*$/.test(n.nodeValue)) { n.parentNode.removeChild(n); }
+    });
+    return doc.body.innerHTML === out;
+  }
+
+  /**
    * Remember the SELECTION, not just the caret.
    *
    * `caretOffset()` is enough for a collapsed caret, and a link is usually made
@@ -777,6 +792,26 @@
     // written by a plain textarea, so `Everything your members need.` with no
     // tags at all is a perfectly ordinary stored value.
     ensureBlock(surface);
+
+    // ── WHAT WAS STORED GOES BACK AS IT WAS ────────────────────────────────
+    // The surface is the browser's reading of the stored HTML, and written
+    // out again (`htmlOut()`) it is the same document in the browser's own
+    // spelling: the line breaks between blocks gone, a character written
+    // another way. Saved untouched, that was a change nobody made, and the
+    // entry's "last updated" moved with it. So while the surface writes out
+    // as it did when it was drawn, the textarea keeps the HTML it was drawn
+    // from; the first real change writes the surface's.
+    //
+    // ONLY WHERE THAT IS ALL THE DIFFERENCE (`sameDocument()`). A body the
+    // editor repairs as it draws it (a provider's script stored twice, words
+    // loose between blocks) is written out repaired, edited or not, as it
+    // always was.
+    var drawn = { html: textarea.value, out: htmlOut(surface) };
+    drawn.keep = sameDocument(drawn.html, drawn.out);
+    var current = function () {
+      var out = htmlOut(surface);
+      return drawn.keep && out === drawn.out ? drawn.html : out;
+    };
 
     // ── PUT THE BARS BACK IN STEP WITH THE CARET ───────────────────────────
     // `setSelectedTable` and `setSelectedImage` are driven by `keyup` and
@@ -1420,7 +1455,7 @@
         sourceMode = !!on;
 
         if (sourceMode) {
-            textarea.value = htmlOut(surface);
+            textarea.value = current();
         } else {
             // COMING BACK, THE TEXTAREA IS AUTHORITATIVE. Whatever was typed
             // as HTML becomes the surface — including markup the toolbar has no
@@ -1428,6 +1463,12 @@
             // frame: see `surfaceHtml()`.
             surface.innerHTML = surfaceHtml(textarea.value);
             ensureBlock(surface);
+            // LEFT AS IT WAS, what was drawn still stands. Anything typed
+            // there is the writer's change, written out the surface's way,
+            // line breaks between paragraphs and all, as it always was.
+            if (textarea.value !== drawn.html) {
+              drawn = { html: textarea.value, out: htmlOut(surface), keep: false };
+            }
         }
 
         wrap.classList.toggle('is-source', sourceMode);
@@ -1790,7 +1831,7 @@
     }());
 
     var sync = function () {
-        if (!sourceMode) { textarea.value = htmlOut(surface); }
+        if (!sourceMode) { textarea.value = current(); }
         countWords();
     };
     surface.addEventListener('input', function () { sync(); refresh(); });
@@ -2524,7 +2565,7 @@
   }
 
   /**
-   * HTML FOR THE SURFACE: each embed from one of the five providers becomes a
+   * HTML FOR THE SURFACE: each embed from one of the providers becomes a
    * block of its own showing the provider's own frame (`embedBlock()`); any
    * other frame goes, and so does a script, as they do on save. Parsed inertly
    * first (`DOMParser` loads and runs nothing), so no other frame ever loads in
@@ -2559,10 +2600,11 @@
     return doc.body.innerHTML;
   }
 
-  // ── THE FIVE PROVIDERS (`Html\Embed` on the server says the same) ────────
-  // Which frame, quote and script is whose, and what each provider's code
-  // writes on its frame. The server is the guarantee; this decides what the
-  // surface shows, and what the HTML view and the save see before it does.
+  // ── THE PROVIDERS (`Html\Embed` on the server says the same) ────────────
+  // Which frame, quote, widget and script is whose, and what each provider's
+  // code writes on its frame or widget. The server is the guarantee; this
+  // decides what the surface shows, and what the HTML view and the save see
+  // before it does.
   var EMBEDS = [
     {
       name: 'youtube',
@@ -2590,6 +2632,69 @@
       attrs: ['src', 'width', 'height', 'style', 'scrolling', 'frameborder', 'allowfullscreen', 'allow',
               'allowtransparency', 'title'],
       style: 'border:none;overflow:hidden',
+      scripts: []
+    },
+    {
+      name: 'googlemaps',
+      // A map from Share → Embed a map, from the Maps Embed API, or from My Maps.
+      frame: /^https:\/\/www\.google\.com\/maps\/(?:embed(?:\/v1\/(?:place|view|directions|streetview|search))?|d\/(?:u\/\d+\/)?embed)\/?(?:[?#][^\s"'<>\\]*)?$/,
+      attrs: ['src', 'width', 'height', 'style', 'frameborder', 'allowfullscreen', 'loading', 'referrerpolicy'],
+      style: 'border:0',
+      scripts: []
+    },
+    {
+      name: 'brevo',
+      // A sign-up form on Brevo's form host, on the account's name there or not.
+      frame: /^https:\/\/(?:[0-9a-f]{8}\.)?sibforms\.com\/serve\/[A-Za-z0-9_-]+\/?(?:[?#][^\s"'<>\\]*)?$/,
+      attrs: ['src', 'width', 'height', 'frameborder', 'scrolling', 'allowfullscreen', 'style'],
+      style: 'display:block;margin-left:auto;margin-right:auto;max-width:100%',
+      scripts: []
+    },
+    {
+      name: 'calendly',
+      // A booking page: Calendly's plain frame of it, or its inline widget,
+      // which Calendly's script fills. What shows for the widget is Calendly's
+      // own page, framed as the script would frame it.
+      frame: /^https:\/\/calendly\.com\/[A-Za-z0-9][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*){0,3}\/?(?:[?#][^\s"'<>\\]*)?$/,
+      attrs: ['src', 'style', 'frameborder', 'width', 'height', 'title'],
+      styleTest: /^(?:min-|max-)?(?:width|height):\d{1,4}(?:px|%)(?:;(?:min-|max-)?(?:width|height):\d{1,4}(?:px|%))*$/,
+      widget: 'div.calendly-inline-widget',
+      widgetKeeps: function (name, value) {
+        if (name === 'class') { return value === 'calendly-inline-widget'; }
+        if (name === 'data-url') { return this.frame.test(value); }
+        if (name === 'style') { return this.styleTest.test(styleOf(value)); }
+        return name === 'data-resize' && value === 'true';
+      },
+      widgetShow: function (el) {
+        var url = String(el.getAttribute('data-url') || '').trim();
+        if (String(el.getAttribute('class') || '').trim() !== 'calendly-inline-widget' || !this.frame.test(url)) { return ''; }
+        url = url.split('#')[0];
+        return url + (url.indexOf('?') === -1 ? '?' : '&') + 'embed_type=Inline&embed_domain=' + encodeURIComponent(window.location.host);
+      },
+      widgetHeight: function (el) {
+        var m = /(?:^|;)height:(\d{1,4})px/.exec(styleOf(el.getAttribute('style')));
+        return m ? Number(m[1]) : 700;
+      },
+      title: 'Calendly',
+      scripts: ['https://assets.calendly.com/assets/external/widget.js', 'https://calendly.com/assets/external/widget.js']
+    },
+    {
+      name: 'kit',
+      // A sign-up form: Kit's script tag is the embed, and names the form. What
+      // shows is the form's own page at Kit.
+      widget: 'script[data-uid]',
+      script: /^https:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.(?:kit\.com|ck\.page))\/([0-9a-f]{10})\/index\.js$/,
+      widgetKeeps: function (name, value) {
+        if (name === 'src') { return this.script.test(value); }
+        if (name === 'data-uid') { return /^[0-9a-f]{10}$/.test(value); }
+        return name === 'async' && (value === '' || value.toLowerCase() === 'async');
+      },
+      widgetShow: function (el) {
+        var m = this.script.exec(String(el.getAttribute('src') || '').trim());
+        return m && String(el.getAttribute('data-uid') || '').trim() === m[2] ? 'https://' + m[1] + '/' + m[2] : '';
+      },
+      widgetHeight: function () { return 420; },
+      title: 'Kit sign-up form',
       scripts: []
     },
     {
@@ -2662,6 +2767,22 @@
       .replace(/\s*([:;,])\s*/g, '$1').replace(/;+$/, '');
   }
 
+  /** A frame's `referrerpolicy`: one a browser knows (`Html\Sanitizer` keeps the same). */
+  var REFERRER_POLICIES = ['no-referrer', 'no-referrer-when-downgrade', 'origin', 'origin-when-cross-origin',
+    'same-origin', 'strict-origin', 'strict-origin-when-cross-origin', 'unsafe-url'];
+
+  /** Every provider's widget, as one selector. */
+  var WIDGETS = EMBEDS.filter(function (p) { return p.widget; }).map(function (p) { return p.widget; }).join(', ');
+
+  /** Whose widget is this element: the provider's element, naming something its frame can show. */
+  function widgetProvider(el) {
+    for (var i = 0; i < EMBEDS.length; i++) {
+      var p = EMBEDS[i];
+      if (p.widget && el.matches(p.widget) && p.widgetShow(el) !== '') { return p; }
+    }
+    return null;
+  }
+
   function frameProvider(src) {
     src = String(src || '').trim();
     for (var i = 0; i < EMBEDS.length; i++) {
@@ -2705,14 +2826,17 @@
   function embedGroups(root) {
     var groups = [];
     var taken = [];
-    Array.prototype.forEach.call(root.querySelectorAll('iframe, blockquote'), function (el) {
+    Array.prototype.forEach.call(root.querySelectorAll('iframe, blockquote' + (WIDGETS ? ', ' + WIDGETS : '')), function (el) {
       if (taken.some(function (n) { return n.contains(el); })) { return; }
       var p, first;
       if (el.nodeName === 'IFRAME') {
         p = frameProvider(el.getAttribute('src'));
         first = p && boxProvider(el.parentNode) === p ? el.parentNode : el;
-      } else {
+      } else if (el.nodeName === 'BLOCKQUOTE') {
         p = quoteProvider(el);
+        first = el;
+      } else {
+        p = widgetProvider(el);
         first = el;
       }
       if (!p) { return; }
@@ -2742,11 +2866,19 @@
         if (!test(a.name.toLowerCase(), a.value.trim())) { el.removeAttribute(a.name); }
       });
     };
+    // A WIDGET: the element the provider's code writes, its own attributes
+    // alone and nothing inside it — a Kit script among them.
+    if (p.widget && copy.matches(p.widget)) {
+      keep(copy, function (name, value) { return p.widgetKeeps(name, value); });
+      copy.textContent = '';
+      return copy;
+    }
     var frame = copy.nodeName === 'IFRAME' ? copy : copy.querySelector('iframe');
     if (copy.nodeName === 'SCRIPT') {
       keep(copy, function (name, value) {
         return name === 'src' || ((name === 'async' || name === 'defer') && (value === '' || value === name))
-          || (name === 'charset' && value.toLowerCase() === 'utf-8');
+          || (name === 'charset' && value.toLowerCase() === 'utf-8')
+          || (name === 'type' && value.toLowerCase() === 'text/javascript');
       });
       copy.textContent = '';
       return copy;
@@ -2756,7 +2888,12 @@
       if (p.attrs.indexOf(name) === -1) { return false; }
       if (name === 'width' || name === 'height' || name === 'frameborder') { return /^\d{1,4}%?$/.test(value); }
       if (name === 'scrolling') { return /^(no|yes|auto)$/i.test(value); }
-      if (name === 'style') { return styleOf(value) === p.style || (copy !== frame && styleOf(value) === p.fill); }
+      if (name === 'loading') { return /^(lazy|eager)$/i.test(value); }
+      if (name === 'referrerpolicy') { return REFERRER_POLICIES.indexOf(value.toLowerCase()) !== -1; }
+      if (name === 'style') {
+        return styleOf(value) === p.style || (copy !== frame && styleOf(value) === p.fill)
+          || (!!p.styleTest && p.styleTest.test(styleOf(value)));
+      }
       return true;
     });
     frame.textContent = '';
@@ -2785,6 +2922,13 @@
       show.setAttribute('frameborder', '0');
       show.setAttribute('scrolling', 'no');
       show.setAttribute('title', quote.textContent.trim().slice(0, 120));
+    } else if (p.widget && group.nodes[0].matches(p.widget)) {
+      show = doc.createElement('iframe');
+      show.setAttribute('src', p.widgetShow(group.nodes[0]));
+      show.setAttribute('width', '100%');
+      show.setAttribute('height', String(p.widgetHeight(group.nodes[0])));
+      show.setAttribute('frameborder', '0');
+      show.setAttribute('title', p.title);
     } else {
       show = embedNode(group.nodes[0], p);
     }
@@ -2828,8 +2972,10 @@
   function pastedEmbed(text) {
     var doc = new DOMParser().parseFromString('<body>' + (text || '') + '</body>', 'text/html');
     var groups = embedGroups(doc.body);
+    // A CODE'S OWN COMMENTS ("Calendly inline widget begin") are not content:
+    // the save drops them, as it drops every comment.
     var nodes = Array.prototype.filter.call(doc.body.childNodes, function (n) {
-      return !(n.nodeType === 3 && !n.textContent.trim());
+      return !(n.nodeType === 3 && !n.textContent.trim()) && n.nodeType !== 8;
     });
     if (groups.length !== 1 || !nodes.every(function (n) { return groups[0].nodes.indexOf(n) !== -1; })) {
       return null;

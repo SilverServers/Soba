@@ -184,6 +184,15 @@ final class Updater
         $version  = is_file($this->site . '/admin/VERSION') ? trim((string) file_get_contents($this->site . '/admin/VERSION')) : null;
 
         $this->out('Site:     ' . $this->site);
+        // THE SITE'S OWN FILES IN admin/config/ (`Site\ConfigFile`), said
+        // before anything here reads them: a config.php that does not compile
+        // is where this stops.
+        foreach (\Cms\Site\ConfigFile::problemsIn($this->site . '/admin/config') as $file => $problem) {
+            $this->out((isset($problem['fatal']) ? 'BROKEN:   ' : 'Note:     ') . "admin/config/{$file}: " . ($problem['fatal'] ?? $problem['output']));
+            if ($file === 'config.php' && isset($problem['fatal'])) {
+                return self::EXIT_BLOCKED;
+            }
+        }
         if ($manifest === null) {
             $this->out('CMS:      ' . ($version ?? 'no admin/VERSION') . ' — no admin/manifest.json (installed before updates existed)');
         } else {
@@ -299,6 +308,22 @@ final class Updater
             return $plan + ['from' => '?', 'to' => '?'];
         }
 
+        // THE SITE'S OWN FILES IN admin/config/ (`Site\ConfigFile`), before
+        // anything here reads them. One that does not compile stops every page,
+        // and would stop this run with a fatal error where config.php is read,
+        // so it is named and refused; one that only prints a blank line is
+        // noted. A config.php that does not compile ends the plan here.
+        foreach (\Cms\Site\ConfigFile::problemsIn($this->site . '/admin/config') as $file => $problem) {
+            if (isset($problem['fatal'])) {
+                $block("admin/config/{$file}: {$problem['fatal']}");
+                if ($file === 'config.php') {
+                    return $plan + ['from' => '?', 'to' => '?'];
+                }
+            } else {
+                $plan['warnings'][] = "admin/config/{$file}: {$problem['output']}";
+            }
+        }
+
         // The package: its manifest, and every staged file matching it.
         $package = Manifest::read($this->stage . '/' . Manifest::FILE);
         if ($package === null) {
@@ -364,6 +389,14 @@ final class Updater
         // sign-in page has been moved already — the sign-in page moves to the
         // old address, so whoever signs in there still can.
         $plan['admin_from'] = Ownership::oldAdminFolder($this->config(), $this->site);
+
+        // MODULE SWITCHES (`Helpers\Modules::notes()`): one written as a word
+        // that switches its module off from this release, and one that is
+        // neither yes nor no, which leaves it on.
+        $modules = $this->config()['modules'] ?? [];
+        foreach (\Cms\Helpers\Modules::notes(is_array($modules) ? $modules : [], true) as $note) {
+            $plan['warnings'][] = 'admin/config/config.php: ' . $note;
+        }
 
         // The site's own files that still use the CMS's old names: they keep
         // working through 0.7.x, and 0.8.0 will need them changed.
@@ -560,6 +593,7 @@ final class Updater
             foreach ($plan['old_names'] as $file) {
                 $this->out('    ' . $file);
             }
+            $this->out("  The CMS writes its old class names beside the new until config.php says 'old_class_names' => false.");
         }
         if ($plan['notes'] !== []) {
             $this->out("\n  Not the CMS's, and not touched: " . implode(', ', $plan['notes']) . '.');
@@ -1179,7 +1213,7 @@ final class Updater
         if (!is_file($file)) {
             throw new RuntimeException('No admin/config/config.php on this site.');
         }
-        $config = require $file;
+        $config = \Cms\Site\ConfigFile::read($file);
         if (!is_array($config)) {
             throw new RuntimeException('admin/config/config.php does not return an array.');
         }

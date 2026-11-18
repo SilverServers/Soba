@@ -31,6 +31,11 @@ use Cms\Security\Csrf;
  * server's fields do not apply and are not drawn, and the screen says so. The
  * key is config.php's alone: nothing here shows or takes it.
  *
+ * ── OR KEEPS IT IN THE MAIL LOG ─────────────────────────────────────────────
+ * `'mail_transport' => 'log'`: nothing is sent, every message is written to
+ * admin/logs/mail.log (`Mail\MailLog`), and the screen says that in the
+ * sending server's place, as it does for Brevo.
+ *
  * ── AND A TEST EMAIL ─────────────────────────────────────────────────────────
  * A card of its own under the settings, its own form (forms do not nest):
  * one message to the address typed, through the saved settings
@@ -75,6 +80,7 @@ $tested      = $tested ?? null;
             <div class="flash flash--success" data-email-test="sent">
                 The test email to <?= h((string) $tested['to']) ?> went to <?= h((string) $tested['how']) ?>.
                 <?= h(match (\Cms\Mail\Mailer::transport()) {
+                    'log'   => 'Nothing left the server: config.php keeps mail in that file instead of sending it.',
                     'brevo' => 'If it does not arrive within a few minutes, the site did its part: look in Brevo\'s log of sent email.',
                     'smtp'  => 'If it does not arrive within a few minutes, the site did its part: look in the mail provider\'s log.',
                     default => 'If it does not arrive within a few minutes, the site did its part: ask the host why the server\'s mail did not deliver it.',
@@ -141,7 +147,15 @@ $tested      = $tested ?? null;
                     </div>
                 </div>
 
-                <?php if ($transport === 'brevo'): ?>
+                <?php if ($transport === 'log'): ?>
+                <div class="form-card__section" data-mail-transport="log">
+                    <?= panel_title('Sending server', 'sending-server') ?>
+                    <p class="form-help">
+                        Nothing is sent. config.php keeps every message this site would send in
+                        <code>admin/logs/<?= h(\Cms\Mail\MailLog::FILE) ?></code> instead, as it would have gone out.
+                    </p>
+                </div>
+                <?php elseif ($transport === 'brevo'): ?>
                 <div class="form-card__section" data-mail-transport="brevo">
                     <?= panel_title('Sending server', 'sending-server') ?>
                     <p class="form-help">

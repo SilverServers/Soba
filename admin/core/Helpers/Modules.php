@@ -11,6 +11,11 @@ namespace Cms\Helpers;
  *
  *     'modules' => ['pages' => false, 'commerce' => false, …],
  *
+ * A switch is read as yes or no (`reading()`): false, 0, and "false", "no",
+ * "off", "0" or "" in any case switch a module off; true, 1, "true", "yes",
+ * "on" and "1" leave it on. Anything else leaves it on, and System health and
+ * an update's check say which (`notes()`).
+ *
  * A switched-off module is switched off, not deleted. It registers no routes
  * (its addresses answer 404, never 405 or a screen), and it shows nowhere in
  * the admin: no sidebar row, no "+ New" entry, no dashboard card or alert, no
@@ -41,8 +46,52 @@ final class Modules
     {
         self::$switches = [];
         foreach (array_keys(self::ALL) as $module) {
-            self::$switches[$module] = (bool) ($switches[$module] ?? true);
+            self::$switches[$module] = self::reading($switches[$module] ?? true) ?? true;
         }
+    }
+
+    /**
+     * A switch as config.php has it, read as yes or no: a bool, 1 or 0, or one
+     * of the words above in any case. Anything else is null: neither.
+     */
+    public static function reading(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return is_int($value) || is_string($value)
+            ? filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+            : null;
+    }
+
+    /**
+     * WHAT TO SAY ABOUT THE SWITCHES AS WRITTEN: each one that is neither yes
+     * nor no, which leaves its module on; and, for an update (`$sinceCast`),
+     * each written as a word that switches its module off where releases
+     * before 0.7.9 read any text as on ("false", "no", "off").
+     *
+     * @param  array<array-key, mixed> $switches config.php's `modules`
+     * @return list<string>
+     */
+    public static function notes(array $switches, bool $sinceCast = false): array
+    {
+        $notes = [];
+        foreach (array_keys(self::ALL) as $module) {
+            if (!array_key_exists($module, $switches) || $switches[$module] === null) {
+                continue;
+            }
+            $value   = $switches[$module];
+            $written = "'modules' => ['{$module}' => " . (is_scalar($value) ? var_export($value, true) : gettype($value)) . ']';
+            $reading = self::reading($value);
+            if ($reading === null) {
+                $notes[] = "{$written} is neither yes nor no, so {$module} stays on: write true or false.";
+            } elseif ($sinceCast && $reading === false && (bool) $value) {
+                $notes[] = "{$written} switches {$module} off from this release; until now any text there left it on.";
+            }
+        }
+
+        return $notes;
     }
 
     /**
@@ -136,7 +185,7 @@ final class Modules
     {
         if (self::$switches === null) {
             // Outside the front controller (a CLI script): read config.php directly.
-            $config = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             self::configure(is_array($config) && is_array($config['modules'] ?? null) ? $config['modules'] : []);
         }
 

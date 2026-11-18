@@ -11,6 +11,7 @@ use Cms\ContentType\FieldRenderer;
 use Cms\ContentType\Registry;
 use Cms\Forms\Logic;
 use Cms\Helpers\Dates;
+use Cms\Helpers\Words;
 use Cms\ContentType\TaxonomyRegistry;
 use Cms\Models\Meta;
 use Cms\Models\Post;
@@ -210,6 +211,8 @@ class ContentTypeController
         Auth::requireAuth();
         $user        = Auth::user();
         $contentType = $this->contentType;
+        // Every line break posted is a LF, as stored (`Words::lineFeeds()`).
+        $_POST = Words::lineFeeds($_POST);
 
         [$errors, $meta] = $this->validateAndSanitize($_POST);
 
@@ -358,7 +361,15 @@ class ContentTypeController
             return;
         }
 
-        [$errors, $sanitizedMeta] = $this->validateAndSanitize($_POST, (int) $vars['id']);
+        // ── A SAVE THAT CHANGES NOTHING CHANGES NOTHING ─────────────────────
+        // A browser posts a textarea's line breaks as CRLF whatever the box
+        // held, so every line break posted is a LF first (`Words::lineFeeds()`);
+        // the date boxes keep the stored second (`publishedAtFrom()`); and
+        // after the save, an entry found exactly as it was keeps its "last
+        // updated" and leaves no revision behind (`state()`).
+        $_POST = Words::lineFeeds($_POST);
+
+        [$errors, $sanitizedMeta] = $this->validateAndSanitize($_POST, (int) $vars['id'], (string) $post['lang']);
 
         if (!empty($errors)) {
             $meta            = Meta::getAll((int) $vars['id']);
@@ -384,11 +395,12 @@ class ContentTypeController
         $rawSlug = self::sanitizeSlugInput($_POST['slug'] ?? '');
         $slug    = $rawSlug !== ''
             ? $rawSlug
-            : Post::generateSlug(trim($_POST['title'] ?? ''), (int) $vars['id']);
+            : Post::generateSlug(trim($_POST['title'] ?? ''), (int) $vars['id'], (string) $post['lang']);
 
         // Capture what is about to be overwritten, so the edit is reversible.
-        Revision::snapshot(Revision::TYPE_POST, (int) $vars['id'], $user['id']);
-        Revision::prune(Revision::TYPE_POST, (int) $vars['id']);
+        // Pruned once the save is known to have changed something (below).
+        $before   = $this->state((int) $vars['id']);
+        $revision = Revision::snapshot(Revision::TYPE_POST, (int) $vars['id'], $user['id']);
 
         Post::update((int) $vars['id'], [
             'title'             => trim($_POST['title'] ?? ''),
@@ -419,7 +431,9 @@ class ContentTypeController
         if ($publicSlug !== '' && $slug !== (string) $post['slug']
             && in_array((string) $post['status'], ['published', 'password'], true)
             && !Post::isScheduled($post)) {
-            \Cms\SEO\Redirects::moved('/' . $publicSlug . '/' . $post['slug'], '/' . $publicSlug . '/' . $slug);
+            // Under its language's prefix, for a translation (/fr/news/…).
+            $in = (string) $post['lang'] !== '' ? '/' . $post['lang'] : '';
+            \Cms\SEO\Redirects::moved($in . '/' . $publicSlug . '/' . $post['slug'], $in . '/' . $publicSlug . '/' . $slug);
         }
 
         self::saveParent((int) $vars['id'], $contentType);
@@ -463,6 +477,22 @@ class ContentTypeController
             $rawIds  = $_POST['taxonomy_' . $taxKey] ?? [];
             $termIds = is_array($rawIds) ? array_map('intval', $rawIds) : [];
             Term::setPostTerms((int) $vars['id'], $taxKey, $termIds);
+        }
+
+        // NOTHING CHANGED: no version to go back to, and "last updated" stays
+        // where it was. Something did: the history keeps its newest 25, and an
+        // entry whose fields, terms or options changed while its row did not
+        // is "updated now" all the same (the row's date moves only with it).
+        $after = $this->state((int) $vars['id']);
+        if ($after === $before) {
+            if ($revision !== null) {
+                Revision::forget($revision);
+            }
+        } else {
+            Revision::prune(Revision::TYPE_POST, (int) $vars['id']);
+            if ((Post::find((int) $vars['id'])['updated_at'] ?? null) === ($post['updated_at'] ?? null)) {
+                Post::touch((int) $vars['id']);
+            }
         }
 
         $post            = Post::find((int) $vars['id']);
@@ -531,8 +561,10 @@ class ContentTypeController
             return;
         }
 
+        // In the entry's own language, as a copy of a translation is one.
+        $lang = (string) $post['lang'];
         $slug = (string) $post['slug'] . '-copy';
-        for ($n = 2; Post::slugOwner($slug, null) !== null; $n++) {
+        for ($n = 2; Post::slugOwner($slug, null, $lang) !== null; $n++) {
             $slug = (string) $post['slug'] . '-copy-' . $n;
         }
         $user  = Auth::user();
@@ -540,6 +572,7 @@ class ContentTypeController
             'post_type'         => (string) $post['post_type'],
             'title'             => mb_substr((string) $post['title'], 0, 493) . ' (copy)',
             'slug'              => $slug,
+            'lang'              => $lang,
             'content'           => (string) ($post['content'] ?? ''),
             'excerpt'           => $post['excerpt'] ?? null,
             'status'            => 'private',
@@ -579,6 +612,31 @@ class ContentTypeController
         }
 
         header('Location: ' . ADMIN_URL . '/' . $this->contentType['admin_slug'] . '/' . $newId . '/edit', true, 303);
+        exit;
+    }
+
+    /**
+     * ITS VERSION IN THE SECOND LANGUAGE (`Content\Translation`): the one it
+     * has, or a Private copy made now with its fields and terms, opened for
+     * translating. Refused with no second language, for a translation, in the
+     * trash and for what the shop sells: back to its own screen, whose
+     * Translation panel says why.
+     */
+    public function handleTranslate(array $vars = []): void
+    {
+        Auth::requireAuth();
+        $post = $this->entryFor($vars);
+        if ($post === null) {
+            return;
+        }
+        $back = ADMIN_URL . '/' . $this->contentType['admin_slug'] . '/';
+        if (\Cms\Content\Translation::problem('posts', $post) !== null) {
+            header('Location: ' . $back . (int) $post['id'] . '/edit#translation', true, 303);
+            exit;
+        }
+
+        $id = \Cms\Content\Translation::entry($post, (int) Auth::user()['id']);
+        header('Location: ' . $back . $id . '/edit', true, 303);
         exit;
     }
 
@@ -1014,6 +1072,11 @@ class ContentTypeController
         $isProduct = in_array('product', (array) ($this->contentType['archetypes'] ?? []), true);
         $stock     = $isProduct && in_array($get('stock'), ['out', 'low'], true) ? $get('stock') : '';
 
+        // ONE LANGUAGE (`Site\Language`): `own`, the site's, or the second
+        // language's prefix.
+        $second = \Cms\Site\Language::prefix();
+        $lang   = $get('lang') === 'own' || ($second !== '' && $get('lang') === $second) ? $get('lang') : '';
+
         // A TERM FILTER IS A TERM OF THIS TYPE'S TAXONOMY, or it is ignored —
         // an id from another taxonomy would otherwise filter by a term the bar
         // cannot show. On a nested taxonomy it stands for its whole branch,
@@ -1056,7 +1119,7 @@ class ContentTypeController
         // Sorting keeps the filters, paging keeps both, and filtering starts
         // again at page 1. Empty values are left out, so an untouched list's
         // address is just its address.
-        $state = ['s' => $search, 'status' => $status, 'author' => $author, 'month' => $month, 'stock' => $stock];
+        $state = ['s' => $search, 'status' => $status, 'author' => $author, 'month' => $month, 'stock' => $stock, 'lang' => $lang];
         foreach ($terms as $taxKey => $termId) {
             $state['tax_' . $taxKey] = $termId;
         }
@@ -1083,6 +1146,7 @@ class ContentTypeController
                 'author'       => $author,
                 'month'        => $month,
                 'stock'        => $stock,
+                'lang'         => $lang,
                 'low_at'       => \Cms\Commerce\Stock::lowAt(),
                 'terms'        => $branches,
                 'orderby'      => $orderby,
@@ -1097,11 +1161,12 @@ class ContentTypeController
                 'author'   => $author,
                 'month'    => $month,
                 'stock'    => $stock,
+                'lang'     => $lang,
                 'terms'    => $terms,
                 'per_page' => $perPage,
             ],
             'sort'      => ['orderby' => $orderby, 'order' => $order],
-            'filtering' => $search !== '' || $status !== '' || $author !== null || $month !== '' || $stock !== '' || $terms !== [],
+            'filtering' => $search !== '' || $status !== '' || $author !== null || $month !== '' || $stock !== '' || $lang !== '' || $terms !== [],
             'url'       => $url,
         ];
     }
@@ -1322,11 +1387,49 @@ class ContentTypeController
      */
     private static function publishedAtFrom(?array $existing): ?string
     {
-        if (!array_key_exists('published_local', $_POST) || is_array($_POST['published_local'])) {
+        if (!array_key_exists('published_local', $_POST) || is_array($_POST['published_local'])
+            || self::boxAsShown('published_local', $existing['published_at'] ?? null)) {
             return $existing['published_at'] ?? null;
         }
         $utc = Dates::fromInput((string) $_POST['published_local']);
         return is_string($utc) ? $utc : null;
+    }
+
+    /**
+     * Whether a date box came back as it was drawn (`Dates::toInput()`). The
+     * box shows the minute, so a date stored with its second (an imported
+     * one, or one set by the clock) came back a few seconds earlier from a
+     * save that changed nothing; posted back as shown, the stored date stays.
+     */
+    private static function boxAsShown(string $box, ?string $stored): bool
+    {
+        return $stored !== null && trim((string) $_POST[$box]) === Dates::toInput($stored);
+    }
+
+    /**
+     * What a save can change on an entry, to tell whether one did: its row
+     * but for the date that moves with it, its fields, its terms and, for a
+     * product, its options. A field stored as NULL has no value (`Meta::set()`),
+     * the same as one never stored: a first save writes the search title and
+     * description that way for an entry that had none, and nothing changed.
+     *
+     * @return array<string, mixed>
+     */
+    private function state(int $id): array
+    {
+        $row = Post::find($id) ?? [];
+        unset($row['updated_at']);
+        $meta = array_filter(Meta::getAll($id), static fn (mixed $v): bool => $v !== null);
+        ksort($meta);
+        $terms = [];
+        foreach (array_keys($this->taxonomies) as $taxKey) {
+            $terms[$taxKey] = array_column(Term::getPostTerms($id, (string) $taxKey), 'id');
+        }
+        $options = in_array('product', (array) ($this->contentType['archetypes'] ?? []), true)
+            ? \Cms\Commerce\Variation::forProduct($id)
+            : [];
+
+        return ['row' => $row, 'meta' => $meta, 'terms' => $terms, 'options' => $options];
     }
 
     /**
@@ -1364,7 +1467,8 @@ class ContentTypeController
 
     private static function unpublishAtFrom(?array $existing): ?string
     {
-        if (!array_key_exists('unpublish_local', $_POST) || is_array($_POST['unpublish_local'])) {
+        if (!array_key_exists('unpublish_local', $_POST) || is_array($_POST['unpublish_local'])
+            || self::boxAsShown('unpublish_local', $existing['unpublish_at'] ?? null)) {
             return $existing['unpublish_at'] ?? null;
         }
         $utc = Dates::fromInput((string) $_POST['unpublish_local']);
@@ -1382,17 +1486,18 @@ class ContentTypeController
      * @param array<string, mixed> $postData
      * @return array{0: string[], 1: array<string, mixed>}  [errors, sanitizedMetaValues]
      */
-    private function validateAndSanitize(array $postData, ?int $excludeId = null): array
+    private function validateAndSanitize(array $postData, ?int $excludeId = null, string $lang = ''): array
     {
         $errors = [];
 
         // ── AN ADDRESS SOMETHING ELSE ALREADY HAS ────────────────────────────
-        // `posts.slug` is UNIQUE across every type and the trash, so a typed
-        // slug that clashed reached the INSERT and came back as a 500 — the
-        // Pages form refused it with a sentence, this one with a stack trace.
-        // Refused here now, naming what is in the way.
+        // `posts.slug` is UNIQUE across every type and the trash within a
+        // language (the entry's, `$lang`), so a typed slug that clashed
+        // reached the INSERT and came back as a 500 — the Pages form refused
+        // it with a sentence, this one with a stack trace. Refused here now,
+        // naming what is in the way.
         $typed = self::sanitizeSlugInput((string) ($postData['slug'] ?? ''));
-        if ($typed !== '' && ($owner = Post::slugOwner($typed, $excludeId)) !== null) {
+        if ($typed !== '' && ($owner = Post::slugOwner($typed, $excludeId, $lang)) !== null) {
             $ownerType = Registry::get((string) $owner['post_type']);
             $what      = $ownerType !== null ? strtolower((string) ($ownerType['label_single'] ?? $owner['post_type'])) : (string) $owner['post_type'];
             $errors[]  = (string) $owner['status'] === 'trash'

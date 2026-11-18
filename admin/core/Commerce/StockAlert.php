@@ -220,6 +220,6 @@ final class StockAlert
             return '';
         }
 
-        return \Cms\Helpers\Url::page(trim((string) $type['public_slug'], '/') . '/' . (string) $product['slug']);
+        return \Cms\Helpers\Url::entry($product, (string) $type['public_slug']);
     }
 }

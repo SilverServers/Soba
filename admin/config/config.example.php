@@ -14,7 +14,7 @@ return [
     // Site
     // ----------------------------------------------------------------
     'base_url'   => 'https://example.com', // No trailing slash
-    'app_env'    => 'development',                     // 'development' or 'production'
+    'app_env'    => 'development',                     // 'production' (or left out), 'development', or another name such as 'staging'
     'app_secret' => 'change-me-to-a-random-secret-string',
 
     // Behind a proxy or CDN (Cloudflare, a load balancer) every request
@@ -60,6 +60,15 @@ return [
     // 'brevo_api_key'  => 'xkeysib-...',
 
     // ----------------------------------------------------------------
+    // Mail kept, not sent (optional)
+    //
+    // For a staging copy or a development install: nothing is sent, and
+    // every message the CMS would send is written to admin/logs/mail.log
+    // instead, where any mail reader opens it. Settings → Email says so.
+    // ----------------------------------------------------------------
+    // 'mail_transport' => 'log',
+
+    // ----------------------------------------------------------------
     // Form conversions the site sends itself (optional)
     //
     // For a site whose own header prints its Google tags: Settings → SEO →
@@ -68,6 +77,26 @@ return [
     // the site's page to take with \Cms\Site\Google::conversion() and send.
     // ----------------------------------------------------------------
     // 'site_sends_conversions' => true,
+
+    // ----------------------------------------------------------------
+    // A list's page number (optional)
+    //
+    // Page 2 of an archive, a term's page or the front page's list is
+    // ?page=2. A site whose own pages number their lists another way names
+    // its parameter here, and the CMS's lists use it too: ?p=2.
+    // ----------------------------------------------------------------
+    // 'paging_parameter' => 'p',
+
+    // ----------------------------------------------------------------
+    // Icons in an entry's text (optional)
+    //
+    // A site whose theme loads an icon font writes an icon as an empty <i>
+    // or <span> with the font's classes and aria-hidden="true". The classes
+    // named here are kept on those two tags, a * standing for one or more
+    // letters, digits, - or _; every other class, style or attribute still
+    // goes. Without the key, <i> and <span> keep no attribute.
+    // ----------------------------------------------------------------
+    // 'icon_classes' => ['fa-solid', 'fa-regular', 'fa-brands', 'fa-*'],
 
     // ----------------------------------------------------------------
     // Modules (optional) — which optional parts of the CMS this site runs.
@@ -84,6 +113,18 @@ return [
     //     'assistant'    => false,   // the Assistant and its spend limit
     //     'forms'        => false,   // forms, their inbox and the public submit address
     // ],
+
+    // ----------------------------------------------------------------
+    // The old class names (optional)
+    //
+    // Before 0.7.0 the CMS drew its forms, galleries and alerts with other
+    // class names, and until 0.8.0 it writes them beside the new ones, so a
+    // site stylesheet or script aimed at them keeps working. A site whose
+    // own files use none of them turns them off here, and then nothing a
+    // visitor is sent names them: not a page, not the CMS's stylesheets and
+    // scripts. `update.php check` names any of the site's files that still do.
+    // ----------------------------------------------------------------
+    // 'old_class_names' => false,
 
     // ----------------------------------------------------------------
     // Database (MySQL / MariaDB)

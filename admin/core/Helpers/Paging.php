@@ -18,6 +18,8 @@ use Cms\Models\Option;
  *
  *   perPage()   "Entries per page" (General → Reading), the option
  *               `posts_per_page`
+ *   parameter() the page number's name in the address: `page`, or the one
+ *               config.php's `paging_parameter` gives
  *   current()   the page this request asks for
  *   url()       page N of a list: its own address for page 1 — never `?page=1`
  *               — and `?page=N` after that
@@ -31,6 +33,53 @@ final class Paging
 
     /** The most a page shows — General's box and a Content Type's own. */
     public const MAX_PER_PAGE = 100;
+
+    /** The page number's name in a list's address, unless config.php gives another. */
+    public const PARAMETER = 'page';
+
+    /**
+     * The names a list's number cannot take: the questions the paged lists
+     * already ask (a sort, a share link, a form's thank-you) and search's.
+     * A shop's filters ask by their taxonomy's key, so no taxonomy's key is
+     * taken either.
+     */
+    private const TAKEN = ['sort', 'share', 'sent', 'form', 'q', 'index'];
+
+    /** The name for this request; null until asked. */
+    private static ?string $parameter = null;
+
+    /**
+     * THE PAGE NUMBER'S NAME IN A PUBLIC LIST'S ADDRESS: `page` (?page=2), or
+     * config.php's `paging_parameter` for a site whose own pages number
+     * theirs another way (?p=2), so its lists and the CMS's read alike. The
+     * admin's own lists keep `page`.
+     */
+    public static function parameter(): string
+    {
+        if (self::$parameter === null) {
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
+            self::configure(is_array($config) ? trim((string) ($config['paging_parameter'] ?? '')) : '');
+        }
+
+        return (string) self::$parameter;
+    }
+
+    /**
+     * The name for this request, as config.php's `paging_parameter` gives it
+     * ('' is `page`), for a site's own front controller or a check. A name
+     * that is not a lower-case one of up to 32 letters, digits, `_` and `-`
+     * starting with a letter, or that a list already asks, is logged and
+     * `page` is used.
+     */
+    public static function configure(string $name): void
+    {
+        if ($name !== '' && (preg_match('/^[a-z][a-z0-9_-]{0,31}$/', $name) !== 1 || in_array($name, self::TAKEN, true)
+            || \Cms\ContentType\TaxonomyRegistry::get($name) !== null)) {
+            error_log('CMS: config.php\'s paging_parameter "' . $name . '" is not a name a list\'s page number can take; page is used.');
+            $name = '';
+        }
+        self::$parameter = $name !== '' ? $name : self::PARAMETER;
+    }
 
     /** How many entries a public list shows on one page — 1 to 100. */
     public static function perPage(): int
@@ -75,10 +124,14 @@ final class Paging
         return 1 + (int) ceil(($total - $perPage - $extra) / $perPage);
     }
 
-    /** The page this request asks for; anything that is not a page is page 1. */
-    public static function current(): int
+    /**
+     * The page this request asks for; anything that is not a page is page 1.
+     * A public list's number is under `parameter()`; an admin list names
+     * `page`.
+     */
+    public static function current(?string $name = null): int
     {
-        $raw = $_GET['page'] ?? '1';
+        $raw = $_GET[$name ?? self::parameter()] ?? '1';
         return is_string($raw) && ctype_digit($raw) ? max(1, (int) $raw) : 1;
     }
 
@@ -89,7 +142,7 @@ final class Paging
      */
     public static function url(string $base, int $n): string
     {
-        return $n <= 1 ? $base : $base . (str_contains($base, '?') ? '&' : '?') . 'page=' . $n;
+        return $n <= 1 ? $base : $base . (str_contains($base, '?') ? '&' : '?') . self::parameter() . '=' . $n;
     }
 
     /**

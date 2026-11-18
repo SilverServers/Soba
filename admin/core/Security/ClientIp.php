@@ -222,7 +222,7 @@ final class ClientIp
             return self::$config;
         }
 
-        $config  = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
+        $config  = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
         $proxies = is_array($config) ? ($config['trusted_proxies'] ?? []) : [];
         if (is_string($proxies)) {
             $proxies = explode(',', $proxies);

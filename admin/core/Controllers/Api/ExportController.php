@@ -142,21 +142,57 @@ class ExportController
     {
         $pdo  = Database::getInstance();
         $stmt = $pdo->query(
-            "SELECT id, title, slug, content, parent_id, menu_order, status,
+            "SELECT id, title, slug, lang,
+                    (SELECT o.slug FROM pages o WHERE o.id = pages.translation_of) AS translates,
+                    content, parent_id, menu_order, status, password_hash,
                     featured_image_id, seo_title, meta_description,
                     created_at, updated_at
              FROM pages
              WHERE status != 'trash'
              ORDER BY menu_order ASC, title ASC"
         );
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map([self::class, 'carried'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * WHAT ANOTHER INSTALL NEEDS TO KEEP A ROW AS IT WAS HERE (`Content\Import`):
+     * a row behind a password keeps the password's hash, and no other row
+     * carries one; and the featured image goes as a file, not as an id, which
+     * names another file anywhere else: its name, its size and its contents'
+     * SHA-256, for the import to find it in its own library.
+     *
+     * A TRANSLATION (`Content\Translation`) carries its language and the slug
+     * of the row it translates (`translates`), its original's id being this
+     * install's; a row in the site's own language carries neither.
+     *
+     * @param  array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private static function carried(array $row): array
+    {
+        if (($row['status'] ?? '') !== 'password') {
+            unset($row['password_hash']);
+        }
+        if ((string) ($row['lang'] ?? '') === '') {
+            unset($row['lang'], $row['translates']);
+        } elseif ((string) ($row['translates'] ?? '') === '') {
+            unset($row['translates']);
+        }
+        $image = \Cms\Models\Media::describe((int) ($row['featured_image_id'] ?? 0));
+        if ($image !== null) {
+            $row['featured_image'] = $image;
+        }
+
+        return $row;
     }
 
     private function getContentTypeEntries(string $postType): array
     {
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
-            "SELECT p.id, p.title, p.slug, p.content, p.excerpt, p.status,
+            "SELECT p.id, p.title, p.slug, p.lang,
+                    (SELECT o.slug FROM posts o WHERE o.id = p.translation_of) AS translates,
+                    p.content, p.excerpt, p.status, p.published_at, p.password_hash,
                     p.featured_image_id, p.author_id,
                     p.created_at, p.updated_at,
                     " . \Cms\Models\User::nameSql('u') . " AS author_name
@@ -170,6 +206,7 @@ class ExportController
 
         // Attach meta + terms to each entry
         foreach ($entries as &$entry) {
+            $entry         = self::carried($entry);
             $entry['meta'] = Meta::getAll((int) $entry['id']);
 
             $termStmt = $pdo->prepare(

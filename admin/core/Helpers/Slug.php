@@ -56,10 +56,16 @@ final class Slug
         if ($withSignIn && \Cms\Security\LoginUrl::enabled()) {
             $reserved[] = \Cms\Security\LoginUrl::slug();
         }
+        // AND THE SECOND LANGUAGE'S PREFIX (`Site\Language`): its addresses
+        // are all under it.
+        $second = \Cms\Site\Language::prefix();
+        if ($second !== '') {
+            $reserved[] = $second;
+        }
 
         return array_values(array_unique($reserved));
     }
 
     /** The site's own first segments: fixed public routes, and the folders under www/. */
-    public const PUBLIC_SEGMENTS = ['api', 'assets', 'uploads', 'cart', 'checkout', 'files', 'forms', 'order', 'search'];
+    public const PUBLIC_SEGMENTS = ['api', 'assets', 'uploads', 'account', 'cart', 'checkout', 'files', 'forms', 'order', 'search'];
 }

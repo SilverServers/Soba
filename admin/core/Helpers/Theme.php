@@ -47,7 +47,8 @@ use Cms\Update\Release;
  *               `assets/theme.css` restyles the CMS's own pages.
  *   whole-page  for a site with chrome of its own around the CMS's pages. A
  *               template for a kind of page — `single`, `archive`, `term`,
- *               `404`, as `{key}/{kind}.php` or `{kind}.php` — renders the
+ *               `404`, or `password` (an entry's password gate), as
+ *               `{key}/{kind}.php` or `{kind}.php` — renders the
  *               ENTIRE page: the controller hands it the rows it loaded and the
  *               SEO it computed, and neither the CMS's template nor `base.php`
  *               is used. Pages it has no template for are rendered framed — by
@@ -491,7 +492,7 @@ final class Theme
     private static function configuredPath(): ?string
     {
         if (self::$configured === null) {
-            $config = defined('ROOT_PATH') ? @include ROOT_PATH . '/config/config.php' : null;
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
             $path   = is_array($config) ? rtrim(trim((string) ($config['theme_path'] ?? '')), '/') : '';
             self::$configured = ($path !== '' && is_dir($path)) ? $path : '';
         }

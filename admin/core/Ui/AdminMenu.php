@@ -511,6 +511,7 @@ final class AdminMenu
             Sidebar::link('Business details', Url::admin('settings/business'), $here === '/admin/settings/business', 'business'),
             Sidebar::link('SEO', Url::admin('settings/seo'), $here === '/admin/settings/seo', 'seo'),
             Sidebar::link('Permalinks', Url::admin('settings/permalinks'), $here === '/admin/settings/permalinks', 'permalinks'),
+            Sidebar::link('Words', Url::admin('settings/words'), $here === '/admin/settings/words', 'words'),
             Sidebar::link('Email', Url::admin('settings/email'), $here === '/admin/settings/email', 'email'),
             // ── SHOP SETTINGS, ON THE SAME CONDITION AS THE SHOP ────────────
             // `array_filter()` inside `Sidebar::group()` drops the null, so a

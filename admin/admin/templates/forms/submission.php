@@ -42,6 +42,7 @@ use Cms\Security\Csrf;
  *
  * @var array<string, mixed> $submission  id, form_id, data, status, spam_reason, source_page, is_read, ip_address, user_agent, notified, submitted_at
  * @var array<string, mixed>|null $resent  what "Send the email again" just did: sent, to, why
+ * @var list<array<string, mixed>> $mails  what became of each email it sent, oldest first
  * @var array<string, mixed> $form
  * @var array<string, mixed> $user
  */
@@ -252,8 +253,9 @@ ob_start();
                         </div>
                     <?php endif; ?>
                     <?php // WHETHER THE EMAIL WENT — NULL when none was due (the form
-                          // has no recipients, or it is spam). ?>
-                    <?php if (!$isSpam && ($submission['notified'] ?? null) !== null): ?>
+                          // has no recipients, or it is spam). Said once: with a
+                          // record of each email, the Emails section says it. ?>
+                    <?php if (!$isSpam && ($submission['notified'] ?? null) !== null && ($mails ?? []) === []): ?>
                         <div class="kv-list__row">
                             <span class="kv-list__key">Email</span>
                             <span class="kv-list__val"><?= (int) $submission['notified'] === 1 ? 'Sent' : 'Could not be sent' ?></span>
@@ -269,6 +271,42 @@ ob_start();
                     <?php endif; ?>
                 </div>
             </div>
+
+            <?php // WHAT BECAME OF EACH EMAIL IT SENT (`FormSubmission::mails()`):
+                  // the notification, each time it was sent again, the
+                  // confirmation to the sender, and an import's history. Sent,
+                  // with the id the mail service gave it, which is what finds it
+                  // in that service's own record; or not, and why. ?>
+            <?php if (($mails ?? []) !== []): ?>
+                <?php
+                $mailKinds = ['notification' => 'Notification', 'resend' => 'Sent again', 'confirmation' => 'Confirmation', 'history' => 'Before this site'];
+                $mailWays  = ['brevo' => 'Brevo', 'smtp' => 'the SMTP server', 'server' => "the server's mail program", 'log' => 'the mail log'];
+                ?>
+                <div class="form-card__section" data-mails>
+                    <?= panel_title('Emails', 'emails') ?>
+                    <div class="kv-list">
+                        <?php foreach ($mails as $mail): ?>
+                            <?php
+                            $mailStatus = (string) $mail['status'];
+                            $mailWord   = $mailStatus === 'sent' ? 'Sent' : ($mailStatus === 'failed' ? 'Not sent' : ucfirst($mailStatus));
+                            $mailWay    = $mailWays[(string) $mail['transport']] ?? '';
+                            ?>
+                            <div class="kv-list__row" data-mail="<?= h((string) $mail['kind']) ?>" data-mail-status="<?= h($mailStatus) ?>">
+                                <span class="kv-list__key"><?= h($mailKinds[(string) $mail['kind']] ?? ucfirst((string) $mail['kind'])) ?></span>
+                                <span class="kv-list__val">
+                                    <?= h($mailWord) ?><?= $mailWay !== '' ? ' by ' . h($mailWay) : '' ?>, <?= h(Dates::stamp((string) $mail['sent_at'])) ?>
+                                    <?php if ((string) ($mail['message_id'] ?? '') !== ''): ?>
+                                        <br><code data-mail-id><?= h((string) $mail['message_id']) ?></code>
+                                    <?php endif; ?>
+                                    <?php if ((string) $mail['note'] !== ''): ?>
+                                        <br><span data-mail-note><?= h((string) $mail['note']) ?></span>
+                                    <?php endif; ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
 
         </div>
     </div>

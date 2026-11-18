@@ -153,12 +153,12 @@ class TermController
         // the later pages are duplicates of the first. `Helpers\Paging` builds
         // it — and `rel="prev"`/`"next"` — from page 1's address, which the
         // template's pager reads too.
-        $pageBase = \Cms\Helpers\Url::page($taxonomy['public_slug'] . '/' . $term['slug']);
+        $pageBase = \Cms\Helpers\Url::term($term, (string) $taxonomy['public_slug']);
         $paged    = Paging::head($pageBase, $page, $totalPages);
 
         $breadcrumbItems = [
-            ['label' => 'Home', 'url' => BASE_URL . '/'],
-            ['label' => (string) $taxonomy['label'], 'url' => $pageBase],
+            ['label' => \Cms\Site\Words::of('home'), 'url' => \Cms\Helpers\Url::home()],
+            ['label' => \Cms\Site\Words::taxonomyLabel($taxonomy), 'url' => $pageBase],
             ['label' => (string) $term['name'], 'url' => $pageBase],
         ];
         Breadcrumbs::set($breadcrumbItems);
@@ -172,15 +172,19 @@ class TermController
         // are what the SEO screen's Term archives pattern offers.
         $tokens = Head::globalTokens();
         $tokens['term_name']      = (string) $term['name'];
-        $tokens['taxonomy_label'] = (string) $taxonomy['label'];
+        $tokens['taxonomy_label'] = \Cms\Site\Words::taxonomyLabel($taxonomy);
         if ($page > 1) {
-            $tokens['page_num'] = 'Page ' . $page;
+            $tokens['page_num'] = \Cms\Site\Words::of('page_n', ['n' => $page]);
         }
 
         Head::set([
             'title'       => Head::buildTitle(Head::titlePattern('term'), $tokens),
             'description' => (string) ($term['description'] ?? ''),
             'canonical'   => $paged['canonical'],
+            // A translated taxonomy's term page is in both languages, when it
+            // lists something in this one; a later page, in its own.
+            'alternates'  => $page === 1 && $total > 0 && \Cms\Content\Translation::taxonomyTranslates((string) $taxonomy['key'])
+                ? \Cms\Site\Language::versions(static fn (string $lang): string => \Cms\Helpers\Url::term($term, (string) $taxonomy['public_slug'], $lang)) : [],
             'prev'        => $paged['prev'],
             'next'        => $paged['next'],
             'og_type'     => 'website',

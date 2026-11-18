@@ -28,11 +28,11 @@ $isEvent    = in_array('event', $archetypes, true);
 ?>
 
 <div class="archive-header">
-    <h1><?= htmlspecialchars($contentType['label'] ?? 'Archive') ?></h1>
+    <h1><?= htmlspecialchars(isset($contentType['label']) ? \Cms\Site\Words::typeLabel($contentType) : \Cms\Site\Words::of('archive')) ?></h1>
     <?php // AN EVENTS LIST AS A CALENDAR TO SUBSCRIBE TO (`Content\Calendar`):
           // a calendar app given this address keeps itself up to date. ?>
     <?php if ($isEvent && \Cms\Content\Calendar::has((string) ($contentType['key'] ?? ''))): ?>
-        <p class="archive-header__calendar"><a href="<?= htmlspecialchars(\Cms\Content\Calendar::url((string) $contentType['key'])) ?>">Subscribe in your calendar</a></p><?php /* audit-ok: the link's own verb, which the system draws */ ?>
+        <p class="archive-header__calendar"><a href="<?= htmlspecialchars(\Cms\Content\Calendar::url((string) $contentType['key'])) ?>"><?= htmlspecialchars(\Cms\Site\Words::of('calendar_subscribe')) ?></a></p><?php /* audit-ok: the link's own verb, which the system draws */ ?>
     <?php endif; ?>
 </div>
 
@@ -45,7 +45,7 @@ $isEvent    = in_array('event', $archetypes, true);
 $shopTools = $shopTools ?? null;
 ?>
 <?php if ($shopTools !== null): ?>
-    <form class="shop-sort" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::page((string) ($contentType['public_slug'] ?? ''))) ?>">
+    <form class="shop-sort" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::archive((string) ($contentType['public_slug'] ?? ''))) ?>">
         <label class="u-visually-hidden" for="shop-sort">Sort</label><?php /* audit-ok: the field's own label */ ?>
         <select class="shop-variant" id="shop-sort" name="sort">
             <?php foreach ($shopTools['sorts'] as $key => $word): ?>
@@ -70,13 +70,13 @@ $shopTools = $shopTools ?? null;
     <p class="post-list-empty">
         <?php // audit-ok: what a list narrowed to nothing says — the system's state, with the way back. ?>
         Nothing here matches that.
-        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::page((string) ($contentType['public_slug'] ?? ''))) ?>">Show everything</a>
+        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::archive((string) ($contentType['public_slug'] ?? ''))) ?>">Show everything</a>
     </p>
 
 <?php elseif (empty($posts)): ?>
 
     <?php // audit-ok: what an EMPTY list says. There is no entry to carry it. ?>
-    <p class="post-list-empty">No entries published yet.</p>
+    <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('empty_archive')) ?></p>
 
 <?php else: ?>
 
@@ -86,7 +86,7 @@ $shopTools = $shopTools ?? null;
           // not in date order. ?>
     <?php $pastFrom = $pastFrom ?? null; ?>
     <?php // audit-ok: the theme's name for this part of the list, like "Related" — renamed in a site's own template. ?>
-    <?php $pastTitle = 'Past events'; ?>
+    <?php $pastTitle = \Cms\Site\Words::of('past_events'); ?>
     <?php $lists = $pastFrom === null ? [[null, $posts]]
         : array_values(array_filter([[null, array_slice($posts, 0, $pastFrom)], [$pastTitle, array_slice($posts, $pastFrom)]],
             static fn (array $list): bool => $list[1] !== [])); ?>
@@ -118,10 +118,10 @@ $shopTools = $shopTools ?? null;
     <?php if ($totalPages > 1): ?>
         <div class="pagination">
             <?php if ($page > 1): ?>
-                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page - 1)) ?>" rel="prev">&laquo; Previous</a>
+                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page - 1)) ?>" rel="prev">&laquo; <?= htmlspecialchars(\Cms\Site\Words::of('previous')) ?></a>
             <?php endif; ?>
             <?php if ($page < $totalPages): ?>
-                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page + 1)) ?>" rel="next">Next &raquo;</a>
+                <a href="<?= htmlspecialchars(\Cms\Helpers\Paging::url($pageBase, $page + 1)) ?>" rel="next"><?= htmlspecialchars(\Cms\Site\Words::of('next')) ?> &raquo;</a>
             <?php endif; ?>
         </div>
     <?php endif; ?>

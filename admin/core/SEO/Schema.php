@@ -59,8 +59,9 @@ class Schema
         if ($opts['seo_org_url'] !== '') {
             $org['url'] = $opts['seo_org_url'];
         }
-        if ($opts['seo_org_logo'] !== '') {
-            $org['logo'] = $opts['seo_org_logo'];
+        $logo = \Cms\SEO\Head::siteImage((string) $opts['seo_org_logo']);
+        if ($logo !== '') {
+            $org['logo'] = $logo;
         }
         $graph[] = \Cms\Site\Business::schema($org, $org['@type'] === 'LocalBusiness');
 

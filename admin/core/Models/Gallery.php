@@ -126,7 +126,7 @@ class Gallery
         $stmt = $pdo->prepare(
             "SELECT gi.id AS item_id, gi.attachment_id, gi.position,
                     gi.caption, gi.link_url, gi.thumb_attachment_id,
-                    a.filename, a.original_name, a.mime_type, a.width, a.height,
+                    a.filename, a.site_path, a.original_name, a.mime_type, a.width, a.height,
                     a.alt_text, a.visibility
              FROM gallery_items gi
              JOIN attachments a ON a.id = gi.attachment_id

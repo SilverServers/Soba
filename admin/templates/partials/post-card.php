@@ -29,7 +29,7 @@ $meta       = $p['meta'] ?? [];
 // A plain-text field as typed — `FieldRenderer::plain()`; each print below
 // escapes it once.
 $plain      = static fn (string $key): string => \Cms\ContentType\FieldRenderer::plain($meta[$key] ?? '');
-$url        = \Cms\Helpers\Url::page(($cardType['public_slug'] ?? '') . '/' . $p['slug']);
+$url        = \Cms\Helpers\Url::entry($p, (string) ($cardType['public_slug'] ?? ''));
 ?>
             <li class="post-list__item">
 

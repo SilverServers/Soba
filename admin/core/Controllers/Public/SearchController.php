@@ -68,8 +68,8 @@ final class SearchController
         $capped  = count($results) >= self::LIMIT;
 
         Head::set([
-            'title'     => $q === '' ? 'Search' : 'Search: ' . $q,
-            'canonical' => \Cms\Helpers\Url::page('search'),
+            'title'     => $q === '' ? \Cms\Site\Words::of('search') : \Cms\Site\Words::of('search_title', ['q' => $q]),
+            'canonical' => \Cms\Helpers\Url::search(),
             // A results page is not content, and indexing one invites every
             // query string on the internet into the search engine's copy.
             'robots'    => 'noindex, follow',
@@ -143,7 +143,7 @@ final class SearchController
 
         [$narrow, $args] = self::narrowing($q, ['title', 'content']);
         $pages = self::kept(
-            "SELECT id, title, slug, content, featured_image_id, updated_at
+            "SELECT id, title, slug, lang, content, featured_image_id, updated_at
                FROM pages
               WHERE " . \Cms\Models\Page::live() . $narrow . "
            ORDER BY " . ($q === null ? '' : '(title LIKE ?) DESC, ') . 'updated_at DESC, id DESC',

@@ -75,8 +75,28 @@ class PostController
                 \Cms\SEO\Head::set([
                     'title'     => $post['title'],
                     'robots'    => 'noindex, nofollow',
-                    'canonical' => \Cms\Helpers\Url::page($slugBase . '/' . $post['slug']),
+                    'canonical' => \Cms\Helpers\Url::entry($post, $slugBase),
                 ]);
+
+                // A WHOLE-PAGE THEME DRAWS ITS OWN GATE when it has a `password`
+                // template (`Helpers\Theme`), handed the entry, the field its
+                // form posts back to this address, the head's robots and
+                // canonical, and whether the password given was wrong. One
+                // without it gets the CMS's own gate, framed.
+                $gate = Theme::template('password', $this->postTypeKey);
+                if ($gate !== null) {
+                    Theme::render($gate, [
+                        'post'           => $post,
+                        'contentType'    => Registry::get($this->postTypeKey),
+                        'contentTypeKey' => $this->postTypeKey,
+                        'title'          => (string) $post['title'],
+                        'canonical'      => \Cms\Helpers\Url::entry($post, $slugBase),
+                        'robots'         => 'noindex, nofollow',
+                        'passwordField'  => 'content_password',
+                        'passwordError'  => !empty($passwordError),
+                    ]);
+                    return;
+                }
 
                 ob_start();
                 require Template::locate('password-form.php');
@@ -89,53 +109,21 @@ class PostController
         $navPages  = [];
         $pageTitle = $post['title'];
 
-        // SEO
+        // SEO: what the entry's page puts in its head, read where a site that
+        // draws its own head reads it (`Head::forEntry()`), so the two agree.
+        // Not the body for a missing description: a cut sentence fragment in a
+        // search result is worse than letting the engine choose.
         $contentType = Registry::get($this->postTypeKey);
         $publicSlug  = $contentType['public_slug'] ?? $this->postTypeKey;
-        $ctLabel     = $contentType['label'] ?? ucfirst($this->postTypeKey);
-
-        $tokens = Head::globalTokens();
-        $tokens['title']              = $post['title'];
-        $tokens['content_type_label'] = $ctLabel;
-        $title = Head::buildTitle(Head::titlePattern('content_type'), $tokens);
-
-        // `Url::page()` — the one builder of a page's address.
-        $canonical = \Cms\Helpers\Url::page($publicSlug . '/' . $post['slug']);
-
-        // Per-entry SEO overrides from post_meta
-        $meta    = Meta::getAll((int) $post['id']);
-        // VARIABLES AND ALL — the Search engines panel edits both boxes as
-        // pills, so `{title}` or `{sep}` typed there resolves here the way the
-        // pattern's do. An empty title is one left on the pattern
-        // (`Head::ownTitle()`).
-        $seoTitle = trim((string) ($meta['_seo_title'] ?? ''));
-        // THE OWNER'S OWN DESCRIPTION FIRST, THEN THEIR EXCERPT (migration 053).
-        // An entry with neither would otherwise go out with no description; the
-        // excerpt is a summary the owner already wrote. Not the body — a cut
-        // sentence fragment in a search result is worse than letting the engine
-        // choose. The excerpt is prose, not a pattern, so it is not run through
-        // the variables.
-        $seoDesc  = Head::buildTitle(trim((string) ($meta['_meta_description'] ?? '')), $tokens);
-        if ($seoDesc === '') {
-            $seoDesc = trim((string) ($post['excerpt'] ?? ''));
-        }
-        // THE ENTRY'S OWN SOCIAL IMAGE: the entry form stores the
-        // picture's id; a full address — from an import, or from before the
-        // form wrote this — is used as it is.
-        $ogImage  = (string) ($meta['_og_image'] ?? '');
-        if (ctype_digit($ogImage)) {
-            $ogImage = \Cms\Models\Media::getUrl((int) $ogImage);
-        }
-        $robots   = $meta['_seo_robots'] ?? 'index, follow';
-
-        // Featured image for OG fallback
-        if ($ogImage === '' && !empty($post['featured_image_id'])) {
-            $ogImage = \Cms\Models\Media::getUrl((int) $post['featured_image_id']);
-        }
+        $ctLabel     = isset($contentType['label']) ? \Cms\Site\Words::typeLabel($contentType) : ucfirst($this->postTypeKey);
+        $meta        = Meta::getAll((int) $post['id']);
+        $seo         = Head::forEntry($post, $meta);
+        $canonical   = $seo['canonical'];
+        $seoDesc     = $seo['description'];
 
         $breadcrumbItems = [
-            ['label' => 'Home',   'url' => BASE_URL . '/'],
-            ['label' => $ctLabel, 'url' => \Cms\Helpers\Url::page($publicSlug)],
+            ['label' => \Cms\Site\Words::of('home'), 'url' => \Cms\Helpers\Url::home()],
+            ['label' => $ctLabel, 'url' => \Cms\Helpers\Url::archive($publicSlug)],
             ['label' => $post['title'], 'url' => $canonical],
         ];
         Breadcrumbs::set($breadcrumbItems);
@@ -174,12 +162,15 @@ class PostController
         $graph[] = Schema::breadcrumbList($breadcrumbItems);
 
         Head::set([
-            'title'       => $seoTitle !== '' ? Head::buildTitle($seoTitle, $tokens) : $title,
+            'title'       => $seo['title'],
             'description' => $seoDesc,
             'canonical'   => $canonical,
-            'robots'      => $robots,
+            // The entry and its translation, both on the site (`Content\Translation`).
+            'alternates'  => \Cms\Content\Translation::versions('posts', $post,
+                static fn (array $row): string => \Cms\Helpers\Url::entry($row, (string) $publicSlug)),
+            'robots'      => $seo['robots'],
             'og_type'     => 'article',
-            'og_image'    => $ogImage,
+            'og_image'    => $seo['image'],
             'schema_json' => Schema::encode($graph),
             'feeds'       => [(string) $this->postTypeKey],
         ]);
@@ -194,11 +185,11 @@ class PostController
                 'meta'           => $meta,
                 'contentType'    => $contentType,
                 'contentTypeKey' => $this->postTypeKey,
-                'title'          => $seoTitle !== '' ? Head::buildTitle($seoTitle, $tokens) : $title,
+                'title'          => $seo['title'],
                 'description'    => $seoDesc,
                 'canonical'      => $canonical,
-                'robots'         => $robots,
-                'ogImage'        => $ogImage,
+                'robots'         => $seo['robots'],
+                'ogImage'        => $seo['image'],
                 'schemaGraph'    => $graph,
                 'breadcrumbs'    => $breadcrumbItems,
             ]);

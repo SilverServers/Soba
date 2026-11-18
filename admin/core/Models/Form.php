@@ -54,6 +54,20 @@ class Form
      *
      * @return array<string, mixed>|null
      */
+    /**
+     * The id the form's element has on a page: its own (its On the page
+     * settings), a letter then letters, digits, `-` or `_`; else
+     * `cms-form-{id}`. A refusal sent without JavaScript goes back to it
+     * (`#…`), and the form's status region's id begins with it.
+     *
+     * @param array<string, mixed> $form
+     */
+    public static function elementId(array $form): string
+    {
+        $own = trim((string) ((is_array($form['settings'] ?? null) ? $form['settings'] : [])['html_id'] ?? ''));
+        return preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/D', $own) === 1 ? $own : 'cms-form-' . (int) ($form['id'] ?? 0);
+    }
+
     public static function byPlace(string $key): ?array
     {
         $stmt = Database::getInstance()->prepare('SELECT id FROM forms WHERE place_key = :key LIMIT 1');
@@ -126,12 +140,22 @@ class Form
     }
 
     /**
-     * Delete a form (submissions cascade).
+     * Delete a form. Its submissions go with it (ON DELETE CASCADE), and the
+     * files they hold, found while the form still says which fields are files
+     * (`FormSubmission::uploadsOf()`).
      */
     public static function delete(int $id): bool
     {
-        $pdo  = Database::getInstance();
-        $stmt = $pdo->prepare("DELETE FROM forms WHERE id = :id");
-        return $stmt->execute([':id' => $id]);
+        $pdo   = Database::getInstance();
+        $ids   = $pdo->prepare('SELECT id FROM form_submissions WHERE form_id = :id');
+        $ids->execute([':id' => $id]);
+        $files = FormSubmission::uploadsOf(array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN)));
+        $stmt  = $pdo->prepare("DELETE FROM forms WHERE id = :id");
+        $done  = $stmt->execute([':id' => $id]);
+        if ($done) {
+            FormSubmission::forget($files);
+        }
+
+        return $done;
     }
 }

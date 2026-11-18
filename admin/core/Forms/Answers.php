@@ -59,9 +59,11 @@ final class Answers
      * half-built.
      *
      * @param  list<array<string, mixed>> $fields the EXPANDED list (`Embed::expand()`)
-     * @return array{data: array<string, string>, raw: array<string, mixed>, errors: list<string>}
+     * @return array{data: array<string, string>, raw: array<string, mixed>, errors: array<string, string>}
      *         data: what is stored and mailed, one string per field; raw: as read;
-     *         errors: what to tell the sender, escaped for the JSON answer
+     *         errors: what to tell the sender, by the field it is about (its
+     *         first fault, one each), escaped for the JSON answer, in the
+     *         form's order, so joined they read as one message
      */
     public function check(array $fields): array
     {
@@ -97,23 +99,22 @@ final class Answers
 
             // AN UPLOAD THAT WAS REFUSED SAYS WHY, instead of "required".
             if (isset($this->uploadErrors[$name])) {
-                $errors[] = htmlspecialchars($label) . ': '
-                          . htmlspecialchars($this->uploadErrors[$name]);
+                $errors[$name] = htmlspecialchars($label) . ': '
+                               . htmlspecialchars($this->uploadErrors[$name]);
                 continue;
             }
 
             if (!empty($field['required']) && $blank) {
                 // THE AUTHOR'S OWN WORDING WINS.
                 $custom = trim((string) ($field['msg_required'] ?? ''));
-                $errors[] = $custom !== ''
+                $errors[$name] = $custom !== ''
                     ? htmlspecialchars($custom)
                     : htmlspecialchars($label) . ' is required.';
             }
 
-            if (!$blank) {
-                foreach ($this->errors($field, $type, $value, $label) as $error) {
-                    $errors[] = $error;
-                }
+            // ONE MESSAGE A FIELD, its first fault: what goes under it.
+            if (!$blank && ($found = $this->errors($field, $type, $value, $label)) !== []) {
+                $errors[$name] = $found[0];
             }
 
             // ONE STRING PER FIELD, joined the type's way: a name reads "Jane
@@ -381,10 +382,12 @@ final class Answers
             }
         }
 
-        // A MAXIMUM THE BUILDER OFFERS IS A MAXIMUM THE SERVER ENFORCES.
+        // A MAXIMUM THE BUILDER OFFERS IS A MAXIMUM THE SERVER ENFORCES, in
+        // the field's own words when it has some for it.
         $max = (int) ($field['maxlength'] ?? 0);
         if ($max > 0 && !is_array($value) && mb_strlen($value) > $max) {
-            $errors[] = $label . ' must be ' . $max . ' characters or fewer.';
+            $long     = trim((string) ($field['msg_long'] ?? ''));
+            $errors[] = $long !== '' ? htmlspecialchars($long) : $label . ' must be ' . $max . ' characters or fewer.';
         }
 
         return $errors;

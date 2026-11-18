@@ -66,6 +66,7 @@ class FormController
         }
         self::postedEvent($errors);
         self::postedTest($errors);
+        self::postedPage($errors);
         $placeKey = self::postedPlace($errors, null);
 
         if (!empty($errors)) {
@@ -134,6 +135,7 @@ class FormController
         }
         self::postedEvent($errors);
         self::postedTest($errors);
+        self::postedPage($errors);
         $placeKey = self::postedPlace($errors, $form['place_key'] ?? null);
 
         if (!empty($errors)) {
@@ -577,7 +579,7 @@ class FormController
             exit;
         }
         $result = (int) ($submission['notified'] ?? -1) === 0
-            ? Notify::resend($form, $submission)
+            ? self::resendOne($form, $submission)
             : ['sent' => false, 'to' => '', 'why' => 'its email was not one that could not be sent'];
         $_SESSION['submission_resend'] = ['id' => $submissionId] + $result;
 
@@ -611,7 +613,7 @@ class FormController
                 $out['skipped']++;
                 continue;
             }
-            $result = Notify::resend($formRow, $submission);
+            $result = self::resendOne($formRow, $submission);
             if ($result['sent']) {
                 $out['done']++;
             } else {
@@ -621,6 +623,27 @@ class FormController
         }
 
         return $out;
+    }
+
+    /**
+     * One submission's email sent again (`Forms\Notify::resend()`), and what
+     * became of it kept with the submission (`FormSubmission::recordMail()`)
+     * when a message was tried: not when it was refused before that, as spam,
+     * or with nobody to send it to.
+     *
+     * @param array<string, mixed> $form
+     * @param array<string, mixed> $submission
+     * @return array{sent: bool, to: string, why: string}
+     */
+    private static function resendOne(array $form, array $submission): array
+    {
+        \Cms\Mail\Mailer::clearResult();
+        $result = Notify::resend($form, $submission);
+        $mailed = \Cms\Mail\Mailer::lastResult();
+        if ($mailed['transport'] !== '' || $mailed['error'] !== '') {
+            FormSubmission::recordMail((int) $submission['id'], 'resend', $mailed);
+        }
+        return $result;
     }
 
     /** The reason a person's own "Mark as spam" is stored with. */
@@ -685,6 +708,9 @@ class FormController
         $resent = is_array($_SESSION['submission_resend'] ?? null) && (int) ($_SESSION['submission_resend']['id'] ?? 0) === $submissionId
             ? $_SESSION['submission_resend'] : null;
         unset($_SESSION['submission_resend']);
+
+        // WHAT BECAME OF EACH EMAIL IT SENT, oldest first (migration 121).
+        $mails = FormSubmission::mails($submissionId);
 
         $pageTitle   = 'Submission #' . $submissionId;
         $currentPage = ($submission['status'] ?? '') === FormSubmission::SPAM ? 'forms-spam' : 'forms-entries';
@@ -838,6 +864,10 @@ class FormController
                       'max' => 'max', 'step' => 'step', 'columns' => 'columns',
                       'scale_low' => 'scale_low', 'scale_high' => 'scale_high',
                       'source' => 'source', 'embed_form' => 'embed_form',
+                      // How it is drawn and what it says (`Helpers\Shortcode`):
+                      // a browser's autofill word, a select's empty choice,
+                      // and the words for an answer over its length.
+                      'autocomplete' => 'autocomplete', 'blank_label' => 'blank_label', 'msg_long' => 'msg_long',
                       // The appointment field's availability shape.
                       'appt_days' => 'appt_days', 'appt_from' => 'appt_from',
                       'appt_to' => 'appt_to', 'appt_minutes' => 'appt_minutes',
@@ -858,6 +888,15 @@ class FormController
             $max = (int) ($field['maxlength'] ?? 0);
             if ($max > 0) {
                 $out['maxlength'] = $max;
+            }
+            // A TEXTAREA'S LINES, 1 to 50; blank: 5.
+            $rows = (int) ($field['rows'] ?? 0);
+            if ($type === 'textarea' && $rows >= 1 && $rows <= 50) {
+                $out['rows'] = $rows;
+            }
+            // AUTOFILL IS WORDS, NOT TEXT: one to four of HTML's tokens.
+            if (isset($out['autocomplete']) && preg_match('/^[a-z0-9-]+(?: [a-z0-9-]+){0,3}$/D', strtolower($out['autocomplete'])) !== 1) {
+                unset($out['autocomplete']);
             }
 
             // A FILE FIELD'S OWN KINDS, as the kinds a form takes that it names
@@ -914,10 +953,53 @@ class FormController
             // The most links a message may carry (change 30, `Forms\Guard`
             // reads it); blank: 4. Nothing saved it, so it was never set.
             'max_links'      => preg_match('/^\d{1,3}$/', trim((string) ($post['max_links'] ?? ''))) === 1 ? trim((string) $post['max_links']) : '',
+            // The seconds its page must be open before it sends (`Forms\Guard::
+            // minSeconds()`); blank: 3. Within the range the guard keeps to.
+            'min_seconds'    => preg_match('/^\d{1,3}$/', trim((string) ($post['min_seconds'] ?? ''))) === 1
+                ? (string) max(\Cms\Forms\Guard::MIN_SECONDS_RANGE[0], min(\Cms\Forms\Guard::MIN_SECONDS_RANGE[1], (int) $post['min_seconds'])) : '',
+            // 'thanks': a post the rules turn away is answered as one sent
+            // (`Forms\Guard::answersSent()`); blank: its sender is told.
+            'spam_answer'    => ($post['spam_answer'] ?? '') === 'thanks' ? 'thanks' : '',
+            // HOW IT IS DRAWN ON A PAGE (`Helpers\Shortcode`, form.js): its
+            // element's id (`Form::elementId()`) and classes, its button's
+            // classes, its fields' ids, where its messages show, whether it
+            // checks its own answers, and its words while sending and when it
+            // cannot. Class names only; an id refused is said (`postedPage()`).
+            'html_id'        => preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/D', trim((string) ($post['html_id'] ?? ''))) === 1 ? trim((string) $post['html_id']) : '',
+            'html_class'     => self::classNames((string) ($post['html_class'] ?? '')),
+            'button_class'   => self::classNames((string) ($post['button_class'] ?? '')),
+            'bare_ids'       => ($post['bare_ids'] ?? '') === '1' ? '1' : '',
+            'status_place'   => ($post['status_place'] ?? '') === 'above' ? 'above' : '',
+            'own_checks'     => ($post['own_checks'] ?? '') === '1' ? '1' : '',
+            'sending_label'  => mb_substr(trim((string) ($post['sending_label'] ?? '')), 0, 200),
+            'msg_fix'        => mb_substr(trim((string) ($post['msg_fix'] ?? '')), 0, 200),
+            'msg_offline'    => mb_substr(trim((string) ($post['msg_offline'] ?? '')), 0, 200),
             // The event a real submission sends to Google (`Site\Google`);
             // blank: none. A form saved before there was one sends the default.
             'conversion_event' => trim((string) ($post['conversion_event'] ?? \Cms\Site\Google::DEFAULT_EVENT)),
         ];
+    }
+
+    /** Class names as a site writes them, the rest dropped; at most twelve. */
+    private static function classNames(string $typed): string
+    {
+        $keep = array_filter(preg_split('/\s+/', trim($typed)) ?: [],
+            static fn (string $c): bool => preg_match('/^-?[A-Za-z_][A-Za-z0-9_-]{0,63}$/D', $c) === 1);
+        return implode(' ', array_slice(array_values(array_unique($keep)), 0, 12));
+    }
+
+    /**
+     * The form's id, when typed, is one an element can have: said rather
+     * than dropped, as the test address is.
+     *
+     * @param list<string> $errors
+     */
+    private static function postedPage(array &$errors): void
+    {
+        $typed = trim((string) ($_POST['html_id'] ?? ''));
+        if ($typed !== '' && preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/D', $typed) !== 1) {
+            $errors[] = "The form's id is a letter, then letters, digits, - or _, at most 64 in all.";
+        }
     }
 
     /**

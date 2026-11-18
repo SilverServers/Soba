@@ -86,11 +86,20 @@ class FormSubmission
      *   is_read       true for a submission nobody needs to open (history)
      *   is_test       true for a test: one sent from the form's test address,
      *                 or a history import's test
+     *   mail          what became of its emails, from a history import: one
+     *                 record, or a list of them, each with `status` (a word:
+     *                 delivered, pending, failed, suppressed, sent …), `note`
+     *                 ("sent via Brevo API <…>", "send rejected (400)"), and
+     *                 optionally `message_id`, `transport` and `at` ('Y-m-d
+     *                 H:i:s' UTC, else its submitted_at). Shown in the inbox as
+     *                 given (`mails()`).
      *   id            its own number, from a history import, so a site's lead
      *                 numbers carry on. Refused when a row already has it (a
      *                 \RuntimeException, and nothing is written); new
      *                 submissions then continue after the highest, so no
-     *                 number is ever given out twice. Absent: the next one.
+     *                 number is ever given out twice. Absent: the next one,
+     *                 or the number set ahead (`setNextNumber()`) while no
+     *                 submission has reached it.
      *
      * @param array<string, mixed> $data
      * @param array<string, mixed> $opts
@@ -113,6 +122,10 @@ class FormSubmission
         }
 
         $pdo  = Database::getInstance();
+        // A NUMBER SET AHEAD, while nothing has reached it: taken here, and
+        // forgotten once taken (`setNextNumber()`).
+        $ahead = $id === null ? self::numberAhead() : null;
+        $id    = $ahead ?? $id;
         // `id` is NULL unless one is given, and NULL takes the next number.
         $stmt = $pdo->prepare(
             'INSERT INTO form_submissions
@@ -121,7 +134,17 @@ class FormSubmission
         );
         try {
             self::insert($stmt, $id, $formId, $data, $status, $opts, $cut, $ipAddress, $at);
+            if ($ahead !== null) {
+                Option::delete(self::NEXT_OPTION);
+            }
         } catch (\PDOException $e) {
+            // THE NUMBER SET AHEAD, TAKEN A MOMENT EARLIER by another post: this
+            // one takes the next, which the database now gives after it.
+            if ($ahead !== null && (int) ($e->errorInfo[1] ?? 0) === 1062) {
+                $id = null;
+                self::insert($stmt, null, $formId, $data, $status, $opts, $cut, $ipAddress, $at);
+                return (int) $pdo->lastInsertId();
+            }
             // Taken between the look above and the write: refused all the same.
             if ($id !== null && (int) ($e->errorInfo[1] ?? 0) === 1062) {
                 throw new \RuntimeException("Submission #{$id} already exists: an imported submission keeps its own number or is not imported.", 0, $e);
@@ -130,7 +153,66 @@ class FormSubmission
         }
         // AN ID GIVEN IS THE ID: the database's last insert id names only one
         // it chose itself.
-        return $id ?? (int) $pdo->lastInsertId();
+        $made = $id ?? (int) $pdo->lastInsertId();
+        if (isset($opts['mail']) && is_array($opts['mail'])) {
+            $rows = array_is_list($opts['mail']) ? $opts['mail'] : [$opts['mail']];
+            foreach ($rows as $row) {
+                if (is_array($row)) {
+                    self::insertMail($made, 'history', (string) ($row['transport'] ?? 'history'), (string) ($row['status'] ?? ''),
+                        (string) ($row['message_id'] ?? ''), (string) ($row['note'] ?? ''), (string) ($row['at'] ?? $at));
+                }
+            }
+        }
+        return $made;
+    }
+
+    /**
+     * WHAT BECAME OF ONE EMAIL A SUBMISSION SENT (migration 121), as the
+     * mailer reported it (`Mail\Mailer::lastResult()`): the first
+     * notification, one sent again from the inbox, or the confirmation to
+     * the sender. Sent, with the id its transport gave it; or not, and why.
+     *
+     * @param 'notification'|'resend'|'confirmation' $kind
+     * @param array{transport: string, sent: bool, id: string, error: string} $result
+     */
+    public static function recordMail(int $id, string $kind, array $result): void
+    {
+        $sent = !empty($result['sent']);
+        self::insertMail($id, $kind, (string) ($result['transport'] ?? ''), $sent ? 'sent' : 'failed',
+            $sent ? (string) ($result['id'] ?? '') : '',
+            $sent ? '' : ((string) ($result['error'] ?? '') !== '' ? (string) $result['error'] : 'it was not sent'),
+            gmdate('Y-m-d H:i:s'));
+    }
+
+    /**
+     * Every email's record for a submission, oldest first.
+     *
+     * @return list<array{kind: string, transport: string, status: string, message_id: ?string, note: string, sent_at: string}>
+     */
+    public static function mails(int $id): array
+    {
+        $stmt = Database::getInstance()->prepare(
+            'SELECT kind, transport, status, message_id, note, sent_at FROM form_submission_mail
+              WHERE submission_id = :id ORDER BY sent_at ASC, id ASC'
+        );
+        $stmt->execute([':id' => $id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** One email's record, its words kept to their columns' widths. */
+    private static function insertMail(int $id, string $kind, string $transport, string $status, string $messageId, string $note, string $at): void
+    {
+        $word   = static fn (string $w): string => preg_match('/^[a-z][a-z_-]{0,15}$/', strtolower(trim($w))) === 1 ? strtolower(trim($w)) : '';
+        $status = $word($status) !== '' ? $word($status) : 'unknown';
+        $at     = preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $at) === 1 ? $at : gmdate('Y-m-d H:i:s');
+        $line   = static fn (string $t, int $n): string => mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $t)), 0, $n);
+        Database::getInstance()->prepare(
+            'INSERT INTO form_submission_mail (submission_id, kind, transport, status, message_id, note, sent_at)
+             VALUES (:id, :kind, :via, :status, :mid, :note, :at)'
+        )->execute([
+            ':id' => $id, ':kind' => $word($kind), ':via' => $word($transport), ':status' => $status,
+            ':mid' => $line($messageId, 255) !== '' ? $line($messageId, 255) : null, ':note' => $line($note, 500), ':at' => $at,
+        ]);
     }
 
     /**
@@ -158,6 +240,65 @@ class FormSubmission
             ':token'  => preg_match('/^[0-9a-f]{64}$/', (string) ($opts['token_hash'] ?? '')) === 1 ? $opts['token_hash'] : null,
             ':at'     => $at,
         ]);
+    }
+
+    /**
+     * The option holding a number set ahead for the next new submission
+     * (`setNextNumber()`), until a submission takes it.
+     */
+    public const NEXT_OPTION = 'forms_next_number';
+
+    /**
+     * NUMBER THE NEXT NEW SUBMISSION $next, and those after it $next + 1 and
+     * on: for a site whose lead numbers have to carry on past the ones another
+     * system gave out, or will give out while it is switched off. Refused (an
+     * \InvalidArgumentException or a \RuntimeException, and nothing changes)
+     * at or below the highest number a submission has, so two leads never
+     * share one; a history import below it keeps its own numbers all the same.
+     *
+     * KEPT TWICE. The table's own counter is moved, and the number is kept as
+     * an option that `create()` reads while no submission has reached it: a
+     * database that sets its counter back to the highest row's number on a
+     * restart (MySQL before 8.0, MariaDB before 10.2.4) still gives it out.
+     * Taken, the option goes.
+     */
+    public static function setNextNumber(int $next): void
+    {
+        if ($next < 1 || $next > 4294967295) {
+            throw new \InvalidArgumentException('A submission number is a whole number from 1.');
+        }
+        $highest = self::highestNumber();
+        if ($next <= $highest) {
+            throw new \RuntimeException("Submission #{$highest} already exists, so the next number has to be higher than {$highest}.");
+        }
+        // A whole number checked above, never text from the request: ALTER
+        // takes no placeholder.
+        Database::getInstance()->exec('ALTER TABLE form_submissions AUTO_INCREMENT = ' . $next);
+        Option::set(self::NEXT_OPTION, (string) $next);
+    }
+
+    /** The highest number any submission has, spam and tests included; 0 for none. */
+    public static function highestNumber(): int
+    {
+        return (int) Database::getInstance()->query('SELECT COALESCE(MAX(id), 0) FROM form_submissions')->fetchColumn();
+    }
+
+    /**
+     * The number set ahead (`setNextNumber()`) while no submission has
+     * reached it, else null. One some submission has since reached is spent,
+     * and forgotten here.
+     */
+    public static function numberAhead(): ?int
+    {
+        $set = (int) (Option::get(self::NEXT_OPTION, '0') ?? '0');
+        if ($set < 1) {
+            return null;
+        }
+        if (self::highestNumber() >= $set) {
+            Option::delete(self::NEXT_OPTION);
+            return null;
+        }
+        return $set;
     }
 
     /** Whether the notification email went: true sent, false failed. */
@@ -406,7 +547,9 @@ class FormSubmission
             'delete'   => "DELETE FROM form_submissions WHERE id IN ($in2)",
         };
         $params = $action === 'spam' ? [mb_substr($reason !== '' ? $reason : 'marked as spam', 0, 255), ...$hit] : $hit;
+        $files  = $action === 'delete' ? self::uploadsOf($hit) : [];
         $pdo->prepare($sql)->execute($params);
+        self::forget($files);
 
         return ['done' => count($hit), 'skipped' => count($ids) - count($hit)];
     }
@@ -463,11 +606,11 @@ class FormSubmission
         $pdo   = Database::getInstance();
         $until = microtime(true) + $seconds;
         [$where, $args] = self::scope(self::SPAM, $formId);
-        $stmt  = $pdo->prepare("DELETE FROM form_submissions WHERE $where ORDER BY submitted_at LIMIT 5000");
+        $find  = $pdo->prepare("SELECT id FROM form_submissions WHERE $where ORDER BY submitted_at LIMIT 5000");
         $done  = 0;
         do {
-            $stmt->execute($args);
-            $n     = $stmt->rowCount();
+            $find->execute($args);
+            $n     = self::deleteWithUploads(array_map('intval', $find->fetchAll(PDO::FETCH_COLUMN)));
             $done += $n;
         } while ($n > 0 && microtime(true) < $until);
 
@@ -486,12 +629,12 @@ class FormSubmission
             return 0;
         }
         $stmt = Database::getInstance()->prepare(
-            "DELETE FROM form_submissions
+            "SELECT id FROM form_submissions
              WHERE status = 'spam' AND submitted_at < UTC_TIMESTAMP() - INTERVAL :d DAY
              ORDER BY submitted_at LIMIT " . max(1, $limit)
         );
         $stmt->execute([':d' => $days]);
-        return $stmt->rowCount();
+        return self::deleteWithUploads(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)));
     }
 
     // ----------------------------------------------------------------
@@ -625,11 +768,93 @@ class FormSubmission
     }
 
     /**
-     * Delete a single submission.
+     * Delete a single submission, and the files it holds (`uploadsOf()`).
      */
     public static function delete(int $id): bool
     {
-        return Database::getInstance()->prepare('DELETE FROM form_submissions WHERE id = :id')
+        $files = self::uploadsOf([$id]);
+        $done  = Database::getInstance()->prepare('DELETE FROM form_submissions WHERE id = :id')
             ->execute([':id' => $id]);
+        if ($done) {
+            self::forget($files);
+        }
+
+        return $done;
+    }
+
+    /**
+     * THE FILES THESE SUBMISSIONS HOLD: the media library's ids in their
+     * answers to a file or a signature field, as their form now defines it,
+     * that are private, as a form's uploads are. Nothing an owner put in the
+     * library, and nothing a number field happened to hold.
+     *
+     * @param  list<int> $ids submission ids
+     * @return list<int>
+     */
+    public static function uploadsOf(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn (int $i): bool => $i > 0));
+        if ($ids === []) {
+            return [];
+        }
+        $pdo  = Database::getInstance();
+        $in   = implode(',', array_fill(0, count($ids), '?'));
+        $rows = $pdo->prepare("SELECT form_id, data FROM form_submissions WHERE id IN ($in)");
+        $rows->execute($ids);
+        $named = [];   // form id => its file and signature fields' names
+        $found = [];
+        foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $formId = (int) $row['form_id'];
+            if (!isset($named[$formId])) {
+                $form   = Form::find($formId);
+                $fields = \Cms\Forms\Embed::expand(is_array($form['fields'] ?? null) ? $form['fields'] : []);
+                $named[$formId] = array_values(array_filter(array_map(
+                    static fn (array $f): string => in_array($f['type'] ?? '', ['file', 'signature'], true) ? (string) ($f['name'] ?? '') : '',
+                    $fields
+                )));
+            }
+            if ($named[$formId] === []) {
+                continue;
+            }
+            $data = json_decode((string) $row['data'], true);
+            foreach ($named[$formId] as $name) {
+                $value = is_array($data) ? ($data[$name] ?? '') : '';
+                if (is_scalar($value) && ctype_digit((string) $value) && (int) $value > 0) {
+                    $found[(int) $value] = true;
+                }
+            }
+        }
+        if ($found === []) {
+            return [];
+        }
+        $in2  = implode(',', array_fill(0, count($found), '?'));
+        $keep = $pdo->prepare("SELECT id FROM attachments WHERE visibility = 'private' AND id IN ($in2)");
+        $keep->execute(array_keys($found));
+
+        return array_map('intval', $keep->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /** Delete these submissions and the files they hold; how many went. @param list<int> $ids */
+    private static function deleteWithUploads(array $ids): int
+    {
+        if ($ids === []) {
+            return 0;
+        }
+        $files = self::uploadsOf($ids);
+        $stmt  = Database::getInstance()->prepare(
+            'DELETE FROM form_submissions WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'
+        );
+        $stmt->execute($ids);
+        self::forget($files);
+
+        return $stmt->rowCount();
+    }
+
+    /** The files of submissions just deleted, deleted too (`Media::delete()`). @param list<int> $files */
+    public static function forget(array $files): void
+    {
+        foreach ($files as $file) {
+            Media::delete($file);
+        }
     }
 }

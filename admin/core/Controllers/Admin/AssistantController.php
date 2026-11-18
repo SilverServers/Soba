@@ -654,8 +654,8 @@ class AssistantController
      */
     private static function transport(): Transport
     {
-        $config = require ROOT_PATH . '/config/config.php';
-        $claude = ClaudeTransport::fromConfig($config);
+        $config = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
+        $claude = ClaudeTransport::fromConfig(is_array($config) ? $config : []);
 
         return $claude->isConfigured() ? $claude : new StubTransport();
     }

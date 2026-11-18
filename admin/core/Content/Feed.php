@@ -53,7 +53,7 @@ final class Feed
     /** A type's feed, as a full address. */
     public static function url(string $typeKey): string
     {
-        return Url::page((string) (Registry::get($typeKey)['public_slug'] ?? '') . '/feed.xml');
+        return Url::feed((string) (Registry::get($typeKey)['public_slug'] ?? ''));
     }
 
     /**
@@ -88,7 +88,7 @@ final class Feed
         $label  = (string) ($type['label'] ?? $typeKey);
 
         $stmt = Database::getInstance()->prepare(
-            'SELECT p.title, p.slug, p.content, p.excerpt, p.published_at FROM posts p
+            'SELECT p.title, p.slug, p.lang, p.content, p.excerpt, p.published_at FROM posts p
              WHERE p.post_type = :pt AND ' . Post::live('p') . '
              ORDER BY p.published_at DESC, p.id DESC LIMIT ' . self::ITEMS
         );
@@ -97,7 +97,7 @@ final class Feed
 
         $items = '';
         foreach ($rows as $row) {
-            $link    = Url::page($public . '/' . (string) $row['slug']);
+            $link    = Url::entry($row, $public);
             $summary = Post::summary($row);
             $items  .= "    <item>\n"
                 . '      <title>' . $x((string) $row['title']) . "</title>\n"
@@ -112,7 +112,7 @@ final class Feed
             . '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">' . "\n"
             . "  <channel>\n"
             . '    <title>' . $x($site . ' · ' . $label) . "</title>\n"
-            . '    <link>' . $x(Url::page($public)) . "</link>\n"
+            . '    <link>' . $x(Url::archive($public)) . "</link>\n"
             . '    <description>' . $x('The newest from ' . $site . ': ' . $label) . "</description>\n"
             . '    <language>' . $x(strtolower(\Cms\Site\Language::current())) . "</language>\n"
             . ($rows !== [] ? '    <lastBuildDate>' . $date((string) $rows[0]['published_at']) . "</lastBuildDate>\n" : '')

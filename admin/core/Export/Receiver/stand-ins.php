@@ -119,6 +119,21 @@ namespace Cms\Helpers {
     }
 }
 
+namespace Cms\Site {
+
+    /**
+     * The theme's words (`Helpers\Dates` asks them how a page writes its
+     * months): a copy's handler writes a date in an email as PHP does.
+     */
+    final class Words
+    {
+        public static function dateFormat(string $format, \DateTimeInterface $at): string
+        {
+            return $format;
+        }
+    }
+}
+
 namespace Cms\Mail {
 
     use Cms\Export\Receiver\Handler;

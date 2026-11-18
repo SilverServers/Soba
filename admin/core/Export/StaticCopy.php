@@ -33,8 +33,9 @@ use RuntimeException;
  * and a list's later pages come along. A file a page uses — a stylesheet and
  * what it imports, a script, a font, an upload, a theme's picture — is copied
  * as it is. A page is written as `<path>/index.html`, which every host serves
- * at `<path>/`; a list's page 2, `?page=2` here, is `<path>/page/2/`, since a
- * static host ignores a query, and every link to it is rewritten so.
+ * at `<path>/`; a list's page 2, `?page=2` here (or under the site's own name
+ * for it, `Paging::parameter()`), is `<path>/page/2/`, since a static host
+ * ignores a query, and every link to it is rewritten so.
  *
  * ── WHAT IS NOT ─────────────────────────────────────────────────────────────
  * What only a server can answer (SERVER_ONLY): the admin, the API, private
@@ -477,25 +478,34 @@ final class StaticCopy
         if (is_file(PUBLIC_PATH . '/favicon.ico')) {
             $keys[] = '/favicon.ico';
         }
-        // THE SEARCH PAGE, which a search box anywhere sends its visitor to,
-        // with its index beside it (`extras()`).
-        if (\Cms\Helpers\Modules::enabled('search')) {
-            $keys[] = Url::pagePath('search');
-        }
         $pdo = Database::getInstance();
-        foreach ($pdo->query('SELECT slug FROM pages WHERE ' . \Cms\Models\Page::live() . ' ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) as $slug) {
-            $keys[] = Url::pagePath((string) $slug);
-        }
-        foreach (Registry::all() as $key => $type) {
-            $slug = (string) ($type['public_slug'] ?? '');
-            if ($slug === '') {
-                continue;
+        // EACH LANGUAGE'S: the site's own, then the second language's under
+        // its prefix (`Site\Language`), with its own front page, search,
+        // pages, and the archives and entries of the types it translates.
+        $second = \Cms\Site\Language::prefix();
+        foreach ($second !== '' ? ['', $second] : [''] as $lang) {
+            if ($lang !== '') {
+                $keys[] = Url::inLanguage('', $lang);
             }
-            $keys[] = Url::pagePath($slug);
-            $stmt = $pdo->prepare('SELECT slug FROM posts WHERE post_type = :t AND ' . Post::live() . ' ORDER BY id');
-            $stmt->execute([':t' => (string) $key]);
-            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $entry) {
-                $keys[] = Url::pagePath($slug . '/' . $entry);
+            // THE SEARCH PAGE, which a search box anywhere sends its visitor
+            // to, with its index beside it (`extras()`).
+            if (\Cms\Helpers\Modules::enabled('search')) {
+                $keys[] = Url::inLanguage('search', $lang);
+            }
+            foreach ($pdo->query('SELECT slug FROM pages WHERE ' . \Cms\Models\Page::live('', $lang) . ' ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) as $slug) {
+                $keys[] = Url::inLanguage((string) $slug, $lang);
+            }
+            foreach (Registry::all() as $key => $type) {
+                $slug = (string) ($type['public_slug'] ?? '');
+                if ($slug === '' || ($lang !== '' && !\Cms\Content\Translation::translates((string) $key))) {
+                    continue;
+                }
+                $keys[] = Url::inLanguage($slug, $lang);
+                $stmt = $pdo->prepare('SELECT slug FROM posts WHERE post_type = :t AND ' . Post::live('', $lang) . ' ORDER BY id');
+                $stmt->execute([':t' => (string) $key]);
+                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $entry) {
+                    $keys[] = Url::inLanguage($slug . '/' . $entry, $lang);
+                }
             }
         }
         return $keys;
@@ -906,8 +916,9 @@ final class StaticCopy
         if ($kind === 'page') {
             $path = Url::pagePath($path);
             parse_str($query, $q);
-            $n   = is_string($q['page'] ?? null) && ctype_digit($q['page']) ? (int) $q['page'] : 1;
-            $key = $path . ($n > 1 ? '?page=' . $n : '');
+            $p   = \Cms\Helpers\Paging::parameter();
+            $n   = is_string($q[$p] ?? null) && ctype_digit($q[$p]) ? (int) $q[$p] : 1;
+            $key = $path . ($n > 1 ? '?' . $p . '=' . $n : '');
         } else {
             $key = $path;
         }
@@ -1015,7 +1026,8 @@ final class StaticCopy
 
     /**
      * The file a page's key is written to: `/` → `index.html`, `/news` →
-     * `news/index.html`, `/news?page=2` → `news/page/2/index.html`, and an
+     * `news/index.html`, `/news?page=2` → `news/page/2/index.html` (the
+     * number under the site's own name for it, `Paging::parameter()`), and an
      * address that names a file (`/sitemap.xml`) → that name. Null when a
      * segment cannot be a file's name.
      */
@@ -1035,7 +1047,8 @@ final class StaticCopy
             $segments[] = $segment;
         }
         parse_str($query, $q);
-        $n = is_string($q['page'] ?? null) && ctype_digit($q['page']) ? (int) $q['page'] : 1;
+        $p = \Cms\Helpers\Paging::parameter();
+        $n = is_string($q[$p] ?? null) && ctype_digit($q[$p]) ? (int) $q[$p] : 1;
         $last = $segments !== [] ? $segments[count($segments) - 1] : '';
         if ($n <= 1 && str_contains($last, '.')) {
             return implode('/', $segments);
@@ -1148,7 +1161,8 @@ final class StaticCopy
     }
 
     /**
-     * `?page=N` made a path: `/news?page=2` → `/news/page/2/`, the file the
+     * `?page=N` made a path (the number under the site's own name for it,
+     * `Paging::parameter()`): `/news?page=2` → `/news/page/2/`, the file the
      * copy wrote it to, in the ending Settings → Permalinks chose. Whole
      * addresses on the copy's host, and paths that start an attribute or a
      * `url()`; a page of a list whose address has other questions in it
@@ -1163,7 +1177,7 @@ final class StaticCopy
         $to = static function (array $m) use ($slash): string {
             return $m[1] . rtrim($m[2], '/') . '/page/' . $m[3] . $slash;
         };
-        $tail = '\?page=([2-9]|[1-9][0-9]+)(?=["\'\s<>#)]|$)';
+        $tail = '\?' . preg_quote(\Cms\Helpers\Paging::parameter(), '~') . '=([2-9]|[1-9][0-9]+)(?=["\'\s<>#)]|$)';
         $text = (string) preg_replace_callback('~(' . preg_quote($root . $base, '~') . ')(/[^"\'\s<>?#]*)?' . $tail . '~', static function (array $m) use ($to): string {
             $m[2] = $m[2] !== '' ? $m[2] : '/';
             return $to($m);
@@ -1315,22 +1329,28 @@ final class StaticCopy
         // script, and may not fetch a file. Each result is made relative to
         // the search page, which is where it is shown. A result's card may
         // show a picture no other page does: it is queued.
-        $search = self::outFile(Url::pagePath('search'));
-        if ($search !== null && isset($this->job['written'][$search])) {
-            [$status, $body, $error] = $this->render(Url::pagePath('search') . '?index=1');
+        // Each language's search page has its own (`Site\Language`).
+        $second = \Cms\Site\Language::prefix();
+        foreach ($second !== '' ? ['', $second] : [''] as $lang) {
+            $at     = Url::inLanguage('search', $lang);
+            $search = self::outFile($at);
+            if ($search === null || !isset($this->job['written'][$search])) {
+                continue;
+            }
+            [$status, $body, $error] = $this->render($at . '?index=1');
             $index = $status === 200 ? json_decode($this->sourceToCopy($body), true) : null;
             if ($error !== null || !is_array($index)) {
-                $this->problem(self::ERROR, Url::pagePath('search'), 'its index could not be made: '
+                $this->problem(self::ERROR, $at, 'its index could not be made: '
                     . ($error ?? 'it answered ' . $status));
             } else {
                 $items = is_array($index['items'] ?? null) ? $index['items'] : [];
-                $this->discoverHtml(implode("\n", array_map('strval', array_column($items, 'h'))), Url::pagePath('search'));
+                $this->discoverHtml(implode("\n", array_map('strval', array_column($items, 'h'))), $at);
                 foreach ($items as $i => $item) {
                     $items[$i]['h'] = $this->anywhere((string) ($item['h'] ?? ''), $search);
                 }
                 $this->put(dirname($search) . '/index.js', 'window.cmsSearchIndex = '
                     . json_encode(['items' => $items], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ";\n",
-                    Url::pagePath('search') . '?index=1');
+                    $at . '?index=1');
             }
         }
 
@@ -1603,7 +1623,7 @@ final class StaticCopy
     /** The site's own address, from config.php. */
     private static function sourceAddress(): string
     {
-        $config = (static fn (string $__f): mixed => require $__f)(ROOT_PATH . '/config/config.php');
+        $config = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
         return is_array($config) ? rtrim((string) ($config['base_url'] ?? ''), '/') : '';
     }
 }

@@ -72,7 +72,7 @@ final class FileCheck
         // Read with the site's own name for its front controller
         // (`Ownership::installNames()`), or that file would be "missing" and
         // the renamed one "unknown".
-        $config = @include $site . '/admin/config/config.php';
+        $config = \Cms\Site\ConfigFile::read($site . '/admin/config/config.php');
         $rules  = Ownership::load($manifest->layout(), $site . '/admin/core/Update/ownership.php');
         $names  = is_array($config) ? Ownership::installNames($config, $site, $manifest->layout() === 'router' ? $rules->front() : null) : [];
         $diff   = $manifest->diffTree($site, Ownership::load($manifest->layout(), $site . '/admin/core/Update/ownership.php', $names));

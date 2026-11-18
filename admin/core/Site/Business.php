@@ -224,14 +224,14 @@ final class Business
     private static function pageUrl(int $id): string
     {
         try {
-            $stmt = Database::getInstance()->prepare("SELECT slug FROM pages WHERE id = ? AND status = 'published'");
+            $stmt = Database::getInstance()->prepare("SELECT slug, lang FROM pages WHERE id = ? AND status = 'published'");
             $stmt->execute([$id]);
-            $slug = $stmt->fetchColumn();
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         } catch (\Throwable) {
             return '';
         }
 
-        return is_string($slug) && $slug !== '' ? \Cms\Helpers\Url::page($slug) : '';
+        return is_array($row) && (string) $row['slug'] !== '' ? \Cms\Helpers\Url::pageOf($row) : '';
     }
 
     // ── SAVING ──────────────────────────────────────────────────────────────
@@ -552,14 +552,18 @@ final class Business
                     $runs[] = [$d];
                 }
             }
+            // IN THE PAGE'S LANGUAGE (`Site\Words`): its days, and its words
+            // between them and between the hours.
+            $name  = static fn (string $d): string => Words::day((string) array_search($d, self::DAYS, true));
+            $and   = ' ' . Words::of('hours_and') . ' ';
             $spans = array_map(static fn (array $r): string => match (count($r)) {
-                1       => $r[0],
-                2       => $r[0] . ' and ' . $r[1],
-                default => $r[0] . ' to ' . end($r),
+                1       => $name($r[0]),
+                2       => $name($r[0]) . $and . $name($r[1]),
+                default => $name($r[0]) . ' ' . Words::of('hours_days') . ' ' . $name(end($r)),
             }, $runs);
-            $days    = count($spans) > 1 ? implode(', ', array_slice($spans, 0, -1)) . ' and ' . end($spans) : $spans[0];
+            $days    = count($spans) > 1 ? implode(', ', array_slice($spans, 0, -1)) . $and . end($spans) : $spans[0];
             $lines[] = $days . ', ' . Dates::asTyped($g['opens'], Dates::timeFormat())
-                . ' to ' . Dates::asTyped($g['closes'], Dates::timeFormat());
+                . ' ' . Words::of('hours_times') . ' ' . Dates::asTyped($g['closes'], Dates::timeFormat());
         }
 
         return implode('; ', $lines);

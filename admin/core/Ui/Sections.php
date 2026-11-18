@@ -73,8 +73,15 @@ final class Sections
             'after-submit'    => 'paper-plane',
             'answers'         => 'list-check',
             'received'        => 'clock',
+            // What became of each email a submission sent (migration 121).
+            'emails'          => 'envelope',
             // Certain spam, counted and thrown away (`Forms\Guard`).
             'discarded'       => 'trash',
+            // A form's own spam rules: its link limit, how long its page must
+            // be open, and how a turned-away post is answered.
+            'spam'            => 'shield-halved',
+            // How a form is drawn on a page: its ids, classes and messages.
+            'on-the-page'     => 'window-maximize',
 
             // ── Field groups ────────────────────────────────────────────────
             'fields'          => 'list',
@@ -220,6 +227,14 @@ final class Sections
             // its fonts, the header's logo and the tab's icon.
             'look-colours'        => 'droplet',
             'look-fonts'          => 'quote-left',
+            // Settings → Words (`Site\Words`): one mark for each group of words.
+            'words-lists'         => 'list-ul',
+            'words-search'        => 'magnifying-glass',
+            'words-not-found'     => 'lock',
+            'words-menus'         => 'bars',
+            'words-hours'         => 'clock',
+            'words-dates'         => 'calendar',
+            'words-names'         => 'tags',
             'look-logo'           => 'image',
             'look-icon'           => 'window-maximize',
             // Its Sign-in tab: the logo, what is behind the card,
@@ -283,6 +298,8 @@ final class Sections
             // submission. A history is a sequence of things that happened, and
             // `list-ol` is the ordered list that says so.
             'history'         => 'list-ol',
+            // A page's or an entry's other language (`Content\Translation`).
+            'translation'     => 'language',
             'order-status'    => 'sort',
             'payment'         => 'sliders',
             // TAX IS A DOCUMENT, not a setting — `scroll` is the rolled-up

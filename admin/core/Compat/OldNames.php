@@ -19,6 +19,13 @@ namespace Cms\Compat;
  * Planned removal: 0.8.0, whose updater refuses a site whose own files still
  * use an old name (and names each one). Until then `update.php check` lists
  * them as a note.
+ *
+ * Of the old names, the class names the CMS prints beside the new are the
+ * ones a site can switch off before then: `'old_class_names' => false` in
+ * config.php (`keepsOldClasses()`), for a site whose own files use none. Then
+ * nothing a visitor is sent names one: not the markup, not the stylesheets
+ * (`stylesheet()`), not the scripts (assets/js/old-names.js, loaded only while
+ * a site keeps them).
  */
 final class OldNames
 {
@@ -55,6 +62,9 @@ final class OldNames
     public const EXPORT_MARKER = 'imprint_export';
 
     private static bool $registered = false;
+
+    /** `keepsOldClasses()`, once read. */
+    private static ?bool $keepsClasses = null;
 
     /**
      * Make every `Imprint\X` the same class as `Cms\X`. Run once, by composer's
@@ -142,8 +152,21 @@ final class OldNames
      * `imprint-form…`/`-gallery…`/`-alert…`, `ImprintMedia`,
      * `data-imprint-form` — relative to the site, at most `$max` of them. They
      * keep working through 0.7.x; `update.php check` lists them so they can be
-     * changed before 0.8.0. Read-only: PHP, CSS, JS and HTML under 512 KB,
-     * outside the CMS's own paths, its backups and uploads.
+     * changed before 0.8.0. Read-only: PHP, CSS, JS and HTML under 512 KB.
+     *
+     * ONLY WHAT THE SITE CAN RUN. A site's code may sit anywhere in its
+     * project folder (a router site's own includes, a `theme_path` theme), so
+     * all of it is read except what never runs as the site:
+     *   the CMS's own paths       replaced by the update itself
+     *   what the CMS keeps there  admin/updates/, admin/exports/ (static
+     *                             copies, drawn with the old names beside the
+     *                             new), admin/backups/, admin/imports/,
+     *                             admin/logs/, www/uploads/
+     *   a dot-folder              .git/, a build's working copies (.build/),
+     *                             an editor's settings
+     *   another install           a folder holding its own admin/manifest.json
+     *                             or admin/VERSION: its own update reads it
+     *   node_modules/, vendor/    at the top: a package manager's
      *
      * @return list<string>
      */
@@ -151,7 +174,7 @@ final class OldNames
     {
         $site  = rtrim($site, '/');
         $found = [];
-        $skip  = '#^(admin/updates|admin/logs|www/uploads|\.git|node_modules|vendor)(/|$)#';
+        $skip  = '#^(admin/(?:updates|exports|backups|imports|logs)|www/uploads|node_modules|vendor)(/|$)#';
         $seen  = 0;
         $walk  = static function (string $dir) use (&$walk, &$found, &$seen, $site, $ownership, $skip, $max): void {
             foreach (@scandir($dir) ?: [] as $name) {
@@ -164,7 +187,8 @@ final class OldNames
                     continue;
                 }
                 if (is_dir($path)) {
-                    if ($ownership->classify($rel . '/x') !== 'core') {
+                    if ($name[0] !== '.' && !is_file($path . '/admin/manifest.json') && !is_file($path . '/admin/VERSION')
+                        && $ownership->classify($rel . '/x') !== 'core') {
                         $walk($path);
                     }
                 } elseif (preg_match('/\.(php|css|js|html?)$/', $name) === 1 && $ownership->classify($rel) !== 'core'
@@ -199,18 +223,85 @@ final class OldNames
      */
     public static function withOldClasses(string $html): string
     {
-        $html = (string) preg_replace_callback('/\bclass="([^"]*)"/', static function (array $m): string {
-            $old = [];
-            foreach (preg_split('/\s+/', trim($m[1])) ?: [] as $token) {
-                if (preg_match('/^cms-(?:form|gallery|alert)(?![a-z])/', $token) === 1) {
-                    $old[] = 'imprint-' . substr($token, 4);
-                }
-            }
-
-            return $old === [] ? $m[0] : 'class="' . $m[1] . ' ' . implode(' ', $old) . '"';
-        }, $html);
+        $html = (string) preg_replace_callback('/\bclass="([^"]*)"/',
+            static fn (array $m): string => 'class="' . self::twinned($m[1]) . '"', $html);
 
         return (string) preg_replace('/(\sdata-cms-form)(?=[\s>\/=])/', '$1 data-imprint-form', $html);
+    }
+
+    /**
+     * DOES THIS SITE KEEP THE OLD CLASS NAMES? Yes, unless config.php says
+     * `'old_class_names' => false`. A site whose own stylesheets and scripts
+     * use none of them turns them off, and the CMS's markup carries the new
+     * names alone: `markup()` for what it renders, `classes()` for what its
+     * templates write, and the scripts a form loads add an old name to what
+     * they draw only inside a form that carries `data-imprint-form`. Read
+     * once per request; a value config.php cannot read as yes or no keeps
+     * them, as before there was a choice.
+     */
+    public static function keepsOldClasses(): bool
+    {
+        if (self::$keepsClasses === null) {
+            $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
+            $value  = is_array($config) ? ($config['old_class_names'] ?? true) : true;
+            self::$keepsClasses = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
+        }
+
+        return self::$keepsClasses;
+    }
+
+    /**
+     * Markup the CMS renders for a site's pages, as the site has it: with the
+     * old class names beside the new (`withOldClasses()`) while it keeps them,
+     * else exactly as given.
+     */
+    public static function markup(string $html): string
+    {
+        return self::keepsOldClasses() ? self::withOldClasses($html) : $html;
+    }
+
+    /**
+     * A class list a CMS template writes on a site's page, as the site has it:
+     * each `cms-form…`, `cms-gallery…` and `cms-alert…` class's `imprint-…`
+     * twin added at the end while it keeps them, else as given. Plain text,
+     * for the template to escape.
+     */
+    public static function classes(string $classes): string
+    {
+        return self::keepsOldClasses() ? self::twinned($classes) : $classes;
+    }
+
+    /**
+     * A public stylesheet as the site is served it: theme.css and gallery.css
+     * as written while it keeps the old class names, and else their copies in
+     * assets/current/, the same rules with every selector naming an old class
+     * taken out (written from those two and checked to match them). Any other
+     * path as given.
+     */
+    public static function stylesheet(string $path): string
+    {
+        if (self::keepsOldClasses()) {
+            return $path;
+        }
+
+        return match ($path) {
+            'assets/css/theme.css'   => 'assets/current/theme.css',
+            'assets/css/gallery.css' => 'assets/current/gallery.css',
+            default                  => $path,
+        };
+    }
+
+    /** A class list with its old twins at the end, or as it was when it has none. */
+    private static function twinned(string $classes): string
+    {
+        $old = [];
+        foreach (preg_split('/\s+/', trim($classes)) ?: [] as $token) {
+            if (preg_match('/^cms-(?:form|gallery|alert)(?![a-z])/', $token) === 1) {
+                $old[] = 'imprint-' . substr($token, 4);
+            }
+        }
+
+        return $old === [] ? $classes : $classes . ' ' . implode(' ', $old);
     }
 
     private static function alias(string $new): void

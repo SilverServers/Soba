@@ -35,12 +35,24 @@ class Head
      * @param array<string, mixed> $data Keys: title, description, canonical,
      *   prev, next, robots, og_title, og_description, og_image, og_type, og_url,
      *   twitter_card, twitter_title, twitter_description, twitter_image,
-     *   schema_json, and `feeds`: the types whose feeds the page names
-     *   (`Content\Feed`)
+     *   schema_json, `feeds`: the types whose feeds the page names
+     *   (`Content\Feed`), and `alternates`: the page in each language, tag
+     *   => address, the site's own first (`Site\Language::versions()`)
      */
     public static function set(array $data): void
     {
         self::$data = $data;
+    }
+
+    /**
+     * The page being drawn in each language it is in, tag => address, the
+     * site's own first: what `set()` was given, empty for a page in one.
+     *
+     * @return array<string, string>
+     */
+    public static function alternates(): array
+    {
+        return is_array(self::$data['alternates'] ?? null) ? self::$data['alternates'] : [];
     }
 
     /**
@@ -77,6 +89,17 @@ class Head
             $html .= '<link rel="canonical" href="' . htmlspecialchars($canonical) . '">' . "\n";
         }
 
+        // 4a. THE PAGE IN EACH LANGUAGE IT IS IN (`Site\Language`): one
+        // alternate for each, and the site's own language's as the address
+        // for any other reader (x-default).
+        $alternates = self::alternates();
+        if (count($alternates) > 1) {
+            foreach ($alternates as $tag => $url) {
+                $html .= '<link rel="alternate" hreflang="' . htmlspecialchars((string) $tag) . '" href="' . htmlspecialchars((string) $url) . '">' . "\n";
+            }
+            $html .= '<link rel="alternate" hreflang="x-default" href="' . htmlspecialchars((string) reset($alternates)) . '">' . "\n";
+        }
+
         // 4b. A PAGED LIST'S NEIGHBOURS — `rel="prev"` and `rel="next"`, from
         // `Helpers\Paging::head()`, so they cannot disagree with the pager
         // links the page itself prints.
@@ -104,7 +127,7 @@ class Head
         // entry forms imply by putting the picker on the item.
         $ogImage = $d['og_image'] ?? '';
         if ($ogImage === '') {
-            $ogImage = (string) (\Cms\Models\Option::get('seo_og_image', '') ?? '');
+            $ogImage = self::siteImage((string) (\Cms\Models\Option::get('seo_og_image', '') ?? ''));
         }
         $ogType  = $d['og_type'] ?? 'website';
         $ogUrl   = $d['og_url'] ?? $canonical;
@@ -191,6 +214,60 @@ class Head
     }
 
     /**
+     * WHAT AN ENTRY'S OWN PAGE PUTS IN ITS HEAD, resolved: its title (its own,
+     * or its type's pattern, every variable filled), its description (its
+     * own, or else its excerpt), its robots, its social image (its own, or
+     * else its featured image, as an address) and its canonical address. For
+     * a site that draws its own head around an entry it reads through the
+     * models, whose `_seo_title` is as it was typed, `{sep}` and all. The
+     * entry's own page reads it here too, so the two cannot disagree.
+     *
+     * VARIABLES AND ALL: the Search engines panel edits the title and the
+     * description as pills, so `{title}` or `{sep}` typed there resolves here
+     * as the pattern's do, and an empty title is one left on the pattern
+     * (`ownTitle()`). The excerpt stands in for no description because it is
+     * a summary the owner already wrote; it is prose, not a pattern, so its
+     * braces are left as they are. The social image is stored as a picture's
+     * id; a full address, from an import or from before the form wrote ids,
+     * is used as it is.
+     *
+     * @param array<string, mixed>      $post a row of `posts` (`Post::find()`)
+     * @param array<string, mixed>|null $meta its meta, when the caller has read it already
+     * @return array{title: string, description: string, robots: string, image: string, canonical: string}
+     */
+    public static function forEntry(array $post, ?array $meta = null): array
+    {
+        $key    = (string) ($post['post_type'] ?? '');
+        $type   = \Cms\ContentType\Registry::get($key) ?? [];
+        $meta ??= \Cms\Models\Meta::getAll((int) ($post['id'] ?? 0));
+        $tokens = self::globalTokens();
+        $tokens['title']              = (string) ($post['title'] ?? '');
+        $tokens['content_type_label'] = (string) ($type['label'] ?? ucfirst($key));
+
+        $own         = trim((string) ($meta['_seo_title'] ?? ''));
+        $description = self::buildTitle(trim((string) ($meta['_meta_description'] ?? '')), $tokens);
+        if ($description === '') {
+            $description = trim((string) ($post['excerpt'] ?? ''));
+        }
+        $image = (string) ($meta['_og_image'] ?? '');
+        if (ctype_digit($image)) {
+            $image = \Cms\Models\Media::getUrl((int) $image);
+        }
+        if ($image === '' && !empty($post['featured_image_id'])) {
+            $image = \Cms\Models\Media::getUrl((int) $post['featured_image_id']);
+        }
+
+        return [
+            'title'       => self::buildTitle($own !== '' ? $own : self::titlePattern('content_type'), $tokens),
+            'description' => $description,
+            'robots'      => (string) ($meta['_seo_robots'] ?? 'index, follow'),
+            'image'       => $image,
+            // `Url::entry()`: the one builder of an entry's address, in its language.
+            'canonical'   => \Cms\Helpers\Url::entry($post, (string) ($type['public_slug'] ?? $key)),
+        ];
+    }
+
+    /**
      * Get global SEO tokens from the options table.
      *
      * @return array<string, string>
@@ -206,14 +283,17 @@ class Head
         // THE SITE TITLE IS THE SITE'S NAME EVERYWHERE — admin bar, sign-in,
         // tab titles, mail, schema. The CMS is white-label: it never falls
         // back to the product's name. Unset, it is the site's own host name.
-        $name = trim((string) ($opts['site_name'] ?? ''));
+        //
+        // IN THE PAGE'S LANGUAGE: on a page drawn in the second language, the
+        // title and tagline it has in that language (`Site\Language::words()`).
+        $name = trim(\Cms\Site\Language::words('site_name', (string) ($opts['site_name'] ?? '')));
         if ($name === '') {
             $name = (string) parse_url(defined('BASE_URL') ? BASE_URL : '', PHP_URL_HOST);
         }
 
         return [
             'site_name' => $name,
-            'tagline'   => $opts['site_tagline'] ?? '',
+            'tagline'   => \Cms\Site\Language::words('site_tagline', (string) ($opts['site_tagline'] ?? '')),
             'sep'       => self::separatorFrom((string) ($opts['seo_separator'] ?? '')),
         ];
     }
@@ -374,4 +454,26 @@ class Head
         $saved   = trim((string) (Option::get('seo_pattern_' . $context, $default) ?? ''));
         return $saved !== '' ? $saved : $default;
     }
+
+    /**
+     * A SITE-WIDE IMAGE FROM SETTINGS → SEO (`seo_og_image`, `seo_org_logo`),
+     * as a page prints it: the picture the media library keeps under the
+     * stored id, at its address now, so a file renamed or a site moved to its
+     * own domain keeps it; or an address outside the library, kept from before
+     * there was a picker, as it is. '' for none, and for an id that is no
+     * public picture.
+     */
+    public static function siteImage(string $stored): string
+    {
+        $stored = trim($stored);
+        if ($stored === '' || !ctype_digit($stored)) {
+            return $stored;
+        }
+        $row = \Cms\Models\Media::find((int) $stored);
+
+        return $row !== null && ($row['visibility'] ?? 'public') === 'public' && str_starts_with((string) ($row['mime_type'] ?? ''), 'image/')
+            ? \Cms\Models\Media::urlOf($row)
+            : '';
+    }
+
 }

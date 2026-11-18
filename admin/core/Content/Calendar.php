@@ -47,13 +47,13 @@ final class Calendar
     /** A type's calendar, as a full address. */
     public static function url(string $typeKey): string
     {
-        return Url::page(self::slugOf($typeKey) . '/calendar.ics');
+        return Url::calendar(self::slugOf($typeKey));
     }
 
     /** One event's file, as a full address. */
     public static function eventUrl(string $typeKey, string $slug): string
     {
-        return Url::page(self::slugOf($typeKey) . '/' . $slug . '.ics');
+        return Url::calendar(self::slugOf($typeKey), $slug);
     }
 
     /**
@@ -82,7 +82,7 @@ final class Calendar
     public static function forEvent(string $typeKey, string $slug): ?string
     {
         $stmt = Database::getInstance()->prepare(
-            'SELECT p.id, p.title, p.slug, p.content, p.excerpt, p.updated_at FROM posts p
+            'SELECT p.id, p.title, p.slug, p.lang, p.content, p.excerpt, p.updated_at FROM posts p
              WHERE p.post_type = :pt AND p.slug = :slug AND ' . Post::live('p') . ' LIMIT 1'
         );
         $stmt->execute([':pt' => $typeKey, ':slug' => $slug]);
@@ -98,7 +98,7 @@ final class Calendar
     public static function forType(string $typeKey): string
     {
         $stmt = Database::getInstance()->prepare(
-            'SELECT p.id, p.title, p.slug, p.content, p.excerpt, p.updated_at FROM posts p
+            'SELECT p.id, p.title, p.slug, p.lang, p.content, p.excerpt, p.updated_at FROM posts p
              WHERE p.post_type = :pt AND ' . Post::live('p') . ' ORDER BY p.id'
         );
         $stmt->execute([':pt' => $typeKey]);
@@ -146,7 +146,7 @@ final class Calendar
         $allDay = preg_match('/^\d{4}-\d{2}-\d{2}$/', $startAt) === 1;
         $end    = $endAt !== '' ? Events::moment($endAt, $allDay) : null;
         $utc    = static fn (\DateTimeImmutable $at): string => $at->setTimezone(new \DateTimeZone('UTC'))->format('Ymd\THis\Z');
-        $page   = Url::page(self::slugOf($typeKey) . '/' . (string) $row['slug']);
+        $page   = Url::entry($row, self::slugOf($typeKey));
         $host   = (string) (parse_url($page, PHP_URL_HOST) ?: 'localhost');
         $where  = trim((string) (Meta::get($id, 'event_location') ?? ''));
         $about  = Post::summary($row, 500);

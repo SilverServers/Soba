@@ -44,12 +44,12 @@ use Cms\Models\Option;
 <?php if (($_paletteSheet = \Cms\Site\Look::paletteSheet()) !== ''): ?>
     <link rel="stylesheet" href="<?= htmlspecialchars($_paletteSheet) ?>">
 <?php endif; ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/theme.css')) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site(\Cms\Compat\OldNames::stylesheet('assets/css/theme.css'))) ?>">
     <?php // THE ONE COMPONENT THE ADMIN RENDERS TOO. The gallery editor links
           // this same file, so the tiles it arranges are laid out by the rules
           // that will lay them out on this page — not by a second grid that
           // agreed with it on the day it was written. See gallery.css's header. ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/gallery.css')) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site(\Cms\Compat\OldNames::stylesheet('assets/css/gallery.css'))) ?>">
 <?php // The active theme's stylesheet (Appearance → Themes, `Helpers\Theme`):
       // after the CMS's, before the site's own, so the site can still correct
       // it. A theme of nothing but `assets/theme.css` restyles every page here.
@@ -70,12 +70,21 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
       // reaches it: a keyboard or a switch goes straight to what the page is
       // for, not through every link of the menu again (WCAG 2.4.1). ?>
 <?php // audit-ok: the keyboard's way past the header, the admin's own words for it. ?>
-<a class="skip-link" href="#main">Skip to content</a>
+<a class="skip-link" href="#main"><?= htmlspecialchars(\Cms\Site\Words::of('skip')) ?></a>
 
 <?php $_publicSiteName = \Cms\SEO\Head::globalTokens()['site_name']; ?>
 <header class="site-header">
     <?= \Cms\Site\Look::brand($_publicSiteName) ?>
     <?= \Cms\Helpers\MenuRenderer::render('primary', 'site-header__nav') ?>
+<?php
+/* THE PAGE IN THE OTHER LANGUAGE, on a site with a second one
+   (`Site\Language::other()`): its version there, or that language's front
+   page when it has none, named as that language writes its name. At column 0,
+   so a site with one language gets the page byte for byte as before. */
+$_otherLanguage = \Cms\Site\Language::other();
+if ($_otherLanguage !== null): ?>
+    <a href="<?= htmlspecialchars($_otherLanguage['url']) ?>" class="site-header__lang" hreflang="<?= htmlspecialchars($_otherLanguage['tag']) ?>" lang="<?= htmlspecialchars($_otherLanguage['tag']) ?>"><?= htmlspecialchars($_otherLanguage['name']) ?></a>
+<?php endif; ?>
     <?php
     /* THE BASKET LINK APPEARS WHEN THERE IS SOMETHING TO SELL, AND NOT BEFORE.
        `Registry::withArchetype('product')` is the test — the Registry, not a
@@ -122,7 +131,7 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
     unset($_SESSION['shop_notice']);
     if (is_array($_shopNotice)):
     ?>
-        <div class="shop-notice cms-alert cms-alert--<?= htmlspecialchars((string) ($_shopNotice['tone'] ?? 'success')) ?> imprint-alert imprint-alert--<?= htmlspecialchars((string) ($_shopNotice['tone'] ?? 'success')) ?>"
+        <div class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('shop-notice cms-alert cms-alert--' . (string) ($_shopNotice['tone'] ?? 'success'))) ?>"
              role="status">
             <?= htmlspecialchars((string) ($_shopNotice['text'] ?? '')) ?>
             <?php // TO THE BASKET from a notice about it, and not from one about
@@ -147,7 +156,7 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
    the menu editor's "Show this menu in" select. A location left unrendered is
    a Footer Navigation an owner can build, assign and save, and find on no page
    of their site — the admin offering something and the site ignoring it. */
-$_footerText  = trim((string) (Option::get('site_footer_text', '') ?? ''));
+$_footerText  = trim(\Cms\Site\Language::option('site_footer_text'));
 $_footerMenus = array_filter([
     \Cms\Helpers\MenuRenderer::render('footer', 'site-footer__nav'),
     \Cms\Helpers\MenuRenderer::render('footer_secondary', 'site-footer__nav'),

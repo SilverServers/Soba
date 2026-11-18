@@ -37,6 +37,9 @@ final class Brevo
     /** Why the last message was not sent, for a screen to show; '' after one that was. */
     private string $error = '';
 
+    /** The id Brevo gave the last message it took (its `messageId`); '' for none. */
+    private string $messageId = '';
+
     private function __construct(private string $key, private string $url)
     {
     }
@@ -45,6 +48,16 @@ final class Brevo
     public function error(): string
     {
         return $this->error;
+    }
+
+    /**
+     * The id Brevo gave the last message it took, as its answer named it
+     * (`messageId`, "<…@smtp-relay.mailin.fr>"): what a lead is traced by in
+     * Brevo's own record of what became of it. '' when it was not taken.
+     */
+    public function messageId(): string
+    {
+        return $this->messageId;
     }
 
     /**
@@ -128,7 +141,10 @@ final class Brevo
         $status = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
         $error  = curl_error($handle);
 
+        $this->messageId = '';
         if ($status >= 200 && $status < 300) {
+            $taken = json_decode(is_string($answer) ? $answer : '', true);
+            $this->messageId = is_array($taken) && is_string($taken['messageId'] ?? null) ? self::oneLine($taken['messageId']) : '';
             return true;
         }
         if ($answer === false || $status === 0) {

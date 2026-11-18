@@ -101,6 +101,18 @@ ob_start();
                         <option value="<?= h($key) ?>"><?= h($statusLabel) ?></option>
                     <?php endforeach; ?>
                 </select>
+
+                <?php // ONE LANGUAGE AT A TIME, on a site with a second one
+                      // (`Site\Language`): each row's `data-lang` is `own` or
+                      // its language's prefix. ?>
+                <?php $listSecond = \Cms\Site\Language::prefix(); ?>
+                <?php if ($listSecond !== ''): ?>
+                    <select class="select" aria-label="Filter by language" data-filter-attr="data-lang">
+                        <option value="">All languages</option>
+                        <option value="own"><?= h(\Cms\Site\Language::nameOf('')) ?></option>
+                        <option value="<?= h($listSecond) ?>"><?= h(\Cms\Site\Language::nameOf($listSecond)) ?></option>
+                    </select>
+                <?php endif; ?>
             </div>
 
             <div class="filterbar__actions">
@@ -130,7 +142,7 @@ ob_start();
                 // control on some rows and not others for no reason the owner
                 // could see.
                 $viewUrl = (string) $page['status'] !== 'trash'
-                    ? Url::page((string) $page['slug'])
+                    ? Url::pageOf($page)
                     : null;
 
                 $stamp = $page['status'] === 'published' && !empty($page['published_at'])
@@ -143,11 +155,19 @@ ob_start();
                       // published row, and "admin" one hitting everything. ?>
                 <div class="list__row<?= $isChild ? ' page-list__row--child' : '' ?>"
                      data-status="<?= h(Status::forEntry($page)) ?>"
+                     <?php if ($listSecond !== ''): ?>data-lang="<?= h((string) $page['lang'] !== '' ? (string) $page['lang'] : 'own') ?>"<?php endif; ?>
                      data-text="<?= h($page['title'] . ' ' . $page['slug']) ?>">
                     <div class="entry-list__main">
                         <a class="list__row-link list__row-title"
                            href="<?= h(Url::admin('pages/' . (int) $page['id'] . '/edit')) ?>"><?= h((string) $page['title']) ?></a>
-                        <div class="list__row-sub">/<?= h((string) $page['slug']) ?></div>
+                        <div class="list__row-sub">/<?= h(((string) $page['lang'] !== '' ? $page['lang'] . '/' : '') . $page['slug']) ?></div>
+                        <?php // A TRANSLATION SAYS ITS LANGUAGE (`Content\Translation`). ?>
+                        <?php if ((string) $page['lang'] !== ''): ?>
+                            <div class="list__row-sub entry-list__lang">
+                                <?= icon('language', 'icon icon--sm') ?>
+                                <?= h(\Cms\Site\Language::nameOf((string) $page['lang'])) ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
 
                     <?= Status::render(Status::forEntry($page)) ?>

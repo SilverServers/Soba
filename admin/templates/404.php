@@ -26,7 +26,7 @@ use Cms\Helpers\Asset;
           // The admin requires this page too, and there they print nothing. ?>
     <?= \Cms\Site\Google::head() ?>
     <?php // audit-ok: the browser tab on a page that has no content to name. ?>
-    <title>404 Not Found</title>
+    <title><?= htmlspecialchars(\Cms\Site\Words::of('not_found_tab')) ?></title>
     <?= \Cms\Site\Look::iconTags() ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/reset.css')) ?>">
@@ -34,7 +34,7 @@ use Cms\Helpers\Asset;
 <?php if (($_paletteSheet = \Cms\Site\Look::paletteSheet()) !== ''): ?>
     <link rel="stylesheet" href="<?= htmlspecialchars($_paletteSheet) ?>">
 <?php endif; ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/theme.css')) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site(\Cms\Compat\OldNames::stylesheet('assets/css/theme.css'))) ?>">
 <?php // The active theme's stylesheet, then the site's own, as base.php links them.
 if (($_themeCss = \Cms\Helpers\Theme::stylesheet()) !== null): ?>
     <link rel="stylesheet" href="<?= htmlspecialchars($_themeCss) ?>">
@@ -51,8 +51,8 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
             <p class="notfound__code">404</p>
             <?php /* The words shown when the requested content does not exist.
                      There is nothing for an owner to edit them on. audit-ok */ ?>
-            <p class="notfound__text">Page not found.</p>
-            <a class="notfound__home" href="<?= htmlspecialchars(BASE_URL . '/') ?>">Go home</a>
+            <p class="notfound__text"><?= htmlspecialchars(\Cms\Site\Words::of('not_found')) ?></p>
+            <a class="notfound__home" href="<?= htmlspecialchars(\Cms\Helpers\Url::home()) ?>"><?= htmlspecialchars(\Cms\Site\Words::of('go_home')) ?></a>
         </div>
     </main>
 </body>

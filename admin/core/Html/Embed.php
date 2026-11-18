@@ -7,23 +7,27 @@ namespace Cms\Html;
 use DOMElement;
 
 /**
- * EMBEDS FROM FIVE PROVIDERS, AND NO OTHER. A writer copies
- * a video's or a post's embed code from the provider (its Share or Embed
- * option) and pastes it wherever content is written; the editor shows it,
- * saving keeps the code as pasted, and every theme prints it as it is: the
- * provider's own player or post, exactly as that code draws it on any other
- * site.
+ * EMBEDS FROM THE PROVIDERS LISTED HERE, AND NO OTHER: videos and posts
+ * (YouTube, Vimeo, Facebook, Instagram, X), maps (Google Maps), booking
+ * (Calendly) and sign-up forms (Brevo, Kit). A writer copies the embed code
+ * from the provider (its Share or Embed option) and pastes it wherever content
+ * is written; the editor shows it, saving keeps the code as pasted, and every
+ * theme prints it as it is: the provider's own player, post, map, booking page
+ * or form, exactly as that code draws it on any other site.
  *
  * Kept as pasted means limited to the provider's own markup and addresses.
  * Each provider's class says what its code writes, and `Html\Sanitizer` keeps
  * that and removes the rest, as it does for anything else in a body.
  *
- * ── TWO SHAPES OF CODE ──────────────────────────────────────────────────────
+ * ── THREE SHAPES OF CODE ────────────────────────────────────────────────────
  * A FRAME (`EmbedFrame`): an `<iframe>` on the provider's address, sometimes in
  * a box of the provider's that keeps its shape, sometimes with the provider's
  * script after it. A QUOTE (`EmbedQuote`): a `<blockquote>` that the
  * provider's own script, which follows it, turns into the post; until then,
- * and wherever that script is blocked, the blockquote is what shows.
+ * and wherever that script is blocked, the blockquote is what shows. A WIDGET
+ * (`EmbedWidget`): an empty element the provider's own script fills — a
+ * `<div>` naming what to draw, with the script after it, or the script tag
+ * itself, which draws where it stands.
  *
  * ── A PROVIDER'S SCRIPT ─────────────────────────────────────────────────────
  * Kept only at one of the addresses the provider's code writes, with nothing
@@ -34,10 +38,25 @@ use DOMElement;
 final class Embed
 {
     /** @var list<class-string<EmbedFrame>> */
-    public const FRAMES = [YouTube::class, Vimeo::class, Facebook::class];
+    public const FRAMES = [YouTube::class, Vimeo::class, Facebook::class, GoogleMaps::class, Brevo::class, Calendly::class];
 
     /** @var list<class-string<EmbedQuote>> */
     public const QUOTES = [Instagram::class, XPost::class];
+
+    /** @var list<class-string<EmbedWidget>> */
+    public const WIDGETS = [Calendly::class, Kit::class];
+
+    /** Whose widget is this element, or null. */
+    public static function widget(DOMElement $el): ?string
+    {
+        foreach (self::WIDGETS as $provider) {
+            if ($provider::isWidget($el)) {
+                return $provider;
+            }
+        }
+
+        return null;
+    }
 
     /** Whose frame is this `src`, or null. */
     public static function frame(string $src): ?string
@@ -92,7 +111,7 @@ final class Embed
     public static function script(string $src): ?string
     {
         $src = trim(html_entity_decode($src, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        foreach ([...self::FRAMES, ...self::QUOTES] as $provider) {
+        foreach ([...self::FRAMES, ...self::QUOTES, ...self::WIDGETS] as $provider) {
             if (in_array($src, $provider::scripts(), true)) {
                 return $provider;
             }
@@ -120,6 +139,19 @@ final class Embed
         return strtolower((string) ($parts['scheme'] ?? '')) === 'https'
             && in_array(strtolower((string) ($parts['host'] ?? '')), $hosts, true)
             && preg_match($path, (string) ($parts['path'] ?? '')) === 1;
+    }
+
+    /**
+     * Is this one of a provider's addresses on a host its account names
+     * (`abc12345.sibforms.com`)? As `address()`, the host matched by
+     * `$hostPattern`.
+     */
+    public static function addressOn(string $url, string $hostPattern, string $path): bool
+    {
+        $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $host = strtolower((string) (parse_url($url, PHP_URL_HOST) ?? ''));
+
+        return $host !== '' && preg_match($hostPattern, $host) === 1 && self::address($url, [$host], $path);
     }
 
     /**
