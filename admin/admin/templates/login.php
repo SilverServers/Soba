@@ -49,18 +49,18 @@ $notice       = $notice       ?? null;
 $challenge    = $challenge    ?? null;
 
 // No sidebar here, so the first-paint skeleton must not paint a rail band.
-$pageTitle = 'Sign in · ' . \Cms\Ui\Brand::name();
+$pageTitle = 'Sign in · ' . (string) \Cms\SEO\Head::globalTokens()['site_name'];
 $hasRail   = false;
 $user      = null;
 
-// At the sign-in address: its logo, background and CSS (`SignInPage`).
+// At the sign-in address: Settings → Branding's theme and logo (`Ui\Branding`).
 $signInPage = true;
 require ROOT_PATH . '/admin/templates/partials/head.php';
 ?>
 <body>
 <main class="auth">
     <div class="auth__inner">
-        <?= \Cms\Security\SignInPage::brand(\Cms\Ui\Brand::name()) ?>
+        <?= \Cms\Ui\Branding::signInBrand() ?>
 
         <?php if ($notice !== null && $error === null): ?>
             <div class="flashes">

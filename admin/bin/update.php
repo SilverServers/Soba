@@ -11,7 +11,7 @@ declare(strict_types=1);
  *      holding admin/ and www/). It unpacks entirely inside
  *      admin/updates/incoming/<version>/, so it cannot overwrite anything:
  *
- *        tar -xzf cms-<profile>-<version>-update.tar.gz --keep-old-files
+ *        tar -xzf soba-<profile>-<version>-update.tar.gz --keep-old-files
  *
  *   2. See what it would do. Changes nothing:
  *

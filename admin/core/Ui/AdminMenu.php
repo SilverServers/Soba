@@ -25,7 +25,7 @@ use Cms\Helpers\Url;
  *     Files & media   Library · Galleries
  *     Forms           All forms · Submissions · Spam
  *     Structure       Content types · Field groups · Taxonomies
- *     Appearance      Themes · Branding · Menus
+ *     Appearance      Menus
  *     Tools           Import and export · Redirects · System health
  *     Settings        General · SEO · Permalinks · Email · Users
  *     Security        Overview · Login protection · Activity log
@@ -198,7 +198,10 @@ final class AdminMenu
 
         if ($isAdmin) {
             $sections[] = self::structureSection($here);
-            $sections[] = self::appearanceSection($here);
+            // Appearance holds Menus alone, so it goes with the menus module.
+            if (Modules::enabled('menus')) {
+                $sections[] = self::appearanceSection($here);
+            }
         }
         // Tools sits between the two in every column that has it: the CMS's
         // own rows are the administrators', but a site's tool is shown to the
@@ -461,19 +464,8 @@ final class AdminMenu
 
     private static function appearanceSection(string $here): array
     {
-        return Sidebar::group('appearance', 'Appearance', 'group-appearance', Url::admin('appearance/themes'), [
-            // THEMES FIRST (`Helpers\Theme`).
-            Sidebar::link('Themes', Url::admin('appearance/themes'), self::under($here, '/admin/appearance/themes'), 'themes'),
-            // The CMS in the site's own name (`Ui\Brand`), and the sign-in
-            // page's look.
-            // The public site's own look (`Site\Look`).
-            Sidebar::link('Customizer', Url::admin('appearance/customizer'), self::under($here, '/admin/appearance/customizer'), 'customizer'),
-            Sidebar::link('Branding', Url::admin('appearance/branding'), self::under($here, '/admin/appearance/branding'), 'branding'),
-            // The menus module's rows (`Helpers\Modules`); Themes and Branding
-            // are the CMS's own and stay. A null row is dropped.
-            Modules::enabled('menus')
-                ? Sidebar::link('Menus', Url::admin('appearance/menus'), self::under($here, '/admin/appearance/menus'), 'menus')
-                : null,
+        return Sidebar::group('appearance', 'Appearance', 'group-appearance', Url::admin('appearance/menus'), [
+            Sidebar::link('Menus', Url::admin('appearance/menus'), self::under($here, '/admin/appearance/menus'), 'menus'),
         ], self::under($here, '/admin/appearance'));
     }
 
@@ -508,6 +500,8 @@ final class AdminMenu
     {
         return Sidebar::group('settings', 'Settings', 'group-settings', Url::admin('settings/general'), [
             Sidebar::link('General', Url::admin('settings/general'), $here === '/admin/settings/general', 'settings'),
+            // The site's logo on the top bar and the sign-in pages, and their look (`Ui\Branding`).
+            Sidebar::link('Branding', Url::admin('settings/branding'), $here === '/admin/settings/branding', 'branding'),
             Sidebar::link('Business details', Url::admin('settings/business'), $here === '/admin/settings/business', 'business'),
             Sidebar::link('SEO', Url::admin('settings/seo'), $here === '/admin/settings/seo', 'seo'),
             Sidebar::link('Permalinks', Url::admin('settings/permalinks'), $here === '/admin/settings/permalinks', 'permalinks'),

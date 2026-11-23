@@ -18,6 +18,8 @@ declare(strict_types=1);
  * the migrations. `run` gives that account a random password and prints it
  * here, once, for whoever holds the server. Its owner chooses their own at
  * the first sign-in; `security.php password` prints a new one if it is lost.
+ * The same run gives a site with no content its first (`Install\StartingContent`):
+ * a Posts type, a first post and an About page.
  *
  * THE SITE'S OWN FILES IN admin/config/ ARE CHECKED FIRST (`php -l`, through
  * `Cms\Site\ConfigFile`): one that does not compile, such as a byte-order mark
@@ -40,6 +42,7 @@ declare(strict_types=1);
 use Cms\Auth\Auth;
 use Cms\Database\Database;
 use Cms\Database\Migrator;
+use Cms\Install\StartingContent;
 use Cms\Models\User;
 use Cms\Security\LoginUrl;
 
@@ -151,6 +154,11 @@ try {
             // Only where it is kept: a development install does not insist.
             . (Auth::enforcesPasswordChanges() ? "It asks for a name and password of your own straight away.\n" : '')
             . "This is the only time it is printed. A new one: php admin/bin/security.php password {$first['username']}\n";
+        // A NEW SITE'S FIRST CONTENT (`Install\StartingContent`), as the
+        // browser set-up makes it: only on a site with none.
+        if (StartingContent::create($first['id'])) {
+            echo "A Posts type, a first post and an About page are there to start from.\n";
+        }
     }
     exit($code);
 } catch (\Throwable $e) {

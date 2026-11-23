@@ -140,7 +140,7 @@ $countryField = static function (string $key, bool $required, array $form, array
     <h1 class="shop__title">Checkout</h1><?php /* audit-ok: the page's own name, which is also its address */ ?>
 
     <?php if (isset($errors['cart'])): ?>
-        <div class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-alert cms-alert--error')) ?>"><?= htmlspecialchars($errors['cart']) ?></div>
+        <div class="<?= htmlspecialchars('cms-alert cms-alert--error') ?>"><?= htmlspecialchars($errors['cart']) ?></div>
         <p><a class="shop__link" href="<?= htmlspecialchars(BASE_URL . '/cart') ?>">Back to the basket</a></p>
     <?php elseif ($items === []): ?>
         <div class="shop-empty">
@@ -155,7 +155,7 @@ $countryField = static function (string $key, bool $required, array $form, array
                   // per-field message is what they need when they get there.
                   // One without the other means either scrolling to find the
                   // problem or being told there is one and not where. ?>
-            <div class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-alert cms-alert--error')) ?>">
+            <div class="<?= htmlspecialchars('cms-alert cms-alert--error') ?>">
                 Please check the fields marked below.<?php /* audit-ok: the form saying validation failed, which it decided */ ?>
             </div>
         <?php endif; ?>

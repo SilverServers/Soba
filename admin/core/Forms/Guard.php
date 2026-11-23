@@ -627,12 +627,11 @@ final class Guard
      * outcomes, and that password is not something a visitor can know.
      */
     /**
-     * A FIXED VALUE, NOT A NAME — NEVER RENAMED. The fallback key is a hash of
-     * this text with the database's name and password, so changing it changes
-     * the key, and with it every form's decoy field names and every page's
-     * token already sent. It keeps the working title it was first written with.
+     * A FIXED VALUE. The fallback key is a hash of this text with the
+     * database's name and password, so changing it changes the key, and with
+     * it every form's decoy field names and every page's token already sent.
      */
-    private const FALLBACK_SALT = 'imprint-forms|';
+    private const FALLBACK_SALT = 'cms-forms|';
 
     private static function secret(): string
     {

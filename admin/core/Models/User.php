@@ -227,9 +227,12 @@ class User
         $sets   = [];
         $params = [':id' => $id];
 
-        // Appearance is not a "preset" column: it is two orthogonal axes
-        // (data-theme × data-radius), rendered server-side. Store them as two
-        // columns when the appearance pane is built.
+        // THE ACCOUNT'S ADMIN THEME (`Ui\Theme`): a theme's key, or NULL for the
+        // default. The caller has checked that the key names a theme.
+        if (array_key_exists('theme_preset', $data)) {
+            $sets[]                  = 'theme_preset = :theme_preset';
+            $params[':theme_preset'] = $data['theme_preset'] === null ? null : (string) $data['theme_preset'];
+        }
 
         if (isset($data['email']) && $data['email'] !== '') {
             $sets[]            = 'email = :email';
@@ -316,7 +319,7 @@ class User
      * the first sign-in ('seed'). Null when no account is waiting for one,
      * which is every run after the first.
      *
-     * @return array{username: string, password: string}|null
+     * @return array{id: int, username: string, password: string}|null
      */
     public static function issueFirstPassword(): ?array
     {
@@ -327,7 +330,7 @@ class User
             return null;
         }
 
-        return ['username' => (string) $row['username'], 'password' => self::issuePassword((int) $row['id'], 'seed')];
+        return ['id' => (int) $row['id'], 'username' => (string) $row['username'], 'password' => self::issuePassword((int) $row['id'], 'seed')];
     }
 
     /**

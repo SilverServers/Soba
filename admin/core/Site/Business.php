@@ -13,7 +13,7 @@ use Cms\Models\Option;
 /**
  * THE BUSINESS'S OWN DETAILS (Settings → Business details): its name, how to
  * reach it, its hours, where it is and where it works, and its social
- * profiles. A small business's phone number is on the header's call button,
+ * profiles. Its phone number is on the header's call button,
  * the footer, the contact page, every call to action, a sentence in a page and
  * the structured data; kept in a theme's own file, the owner cannot change it
  * without a developer. Kept here, they change it once and every one follows.

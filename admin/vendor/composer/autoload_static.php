@@ -4,11 +4,10 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
+class ComposerStaticInitfaf1dc8864235efc78b510bb30a20adc
 {
     public static $files = array (
         '253c157292f75eb38082b5acb06f3f01' => __DIR__ . '/..' . '/nikic/fast-route/src/functions.php',
-        '1c249f614de264ec84c3e542d59288dc' => __DIR__ . '/../..' . '/core/Compat/autoload.php',
     );
 
     public static $prefixLengthsPsr4 = array (
@@ -91,7 +90,6 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Commerce\\Variation' => __DIR__ . '/../..' . '/core/Commerce/Variation.php',
         'Cms\\Commerce\\Webhooks' => __DIR__ . '/../..' . '/core/Commerce/Webhooks.php',
         'Cms\\Commerce\\Words' => __DIR__ . '/../..' . '/core/Commerce/Words.php',
-        'Cms\\Compat\\OldNames' => __DIR__ . '/../..' . '/core/Compat/OldNames.php',
         'Cms\\ContentType\\ArchetypeDefaults' => __DIR__ . '/../..' . '/core/ContentType/ArchetypeDefaults.php',
         'Cms\\ContentType\\ContentTypeSchema' => __DIR__ . '/../..' . '/core/ContentType/ContentTypeSchema.php',
         'Cms\\ContentType\\FieldDisplay' => __DIR__ . '/../..' . '/core/ContentType/FieldDisplay.php',
@@ -114,14 +112,12 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Controllers\\Admin\\AssistantController' => __DIR__ . '/../..' . '/core/Controllers/Admin/AssistantController.php',
         'Cms\\Controllers\\Admin\\AuthController' => __DIR__ . '/../..' . '/core/Controllers/Admin/AuthController.php',
         'Cms\\Controllers\\Admin\\BackupsController' => __DIR__ . '/../..' . '/core/Controllers/Admin/BackupsController.php',
-        'Cms\\Controllers\\Admin\\BrandingController' => __DIR__ . '/../..' . '/core/Controllers/Admin/BrandingController.php',
         'Cms\\Controllers\\Admin\\BrokenLinksController' => __DIR__ . '/../..' . '/core/Controllers/Admin/BrokenLinksController.php',
         'Cms\\Controllers\\Admin\\BusinessController' => __DIR__ . '/../..' . '/core/Controllers/Admin/BusinessController.php',
         'Cms\\Controllers\\Admin\\ContentTypeController' => __DIR__ . '/../..' . '/core/Controllers/Admin/ContentTypeController.php',
         'Cms\\Controllers\\Admin\\ContentTypeDefinitionController' => __DIR__ . '/../..' . '/core/Controllers/Admin/ContentTypeDefinitionController.php',
         'Cms\\Controllers\\Admin\\CouponController' => __DIR__ . '/../..' . '/core/Controllers/Admin/CouponController.php',
         'Cms\\Controllers\\Admin\\CustomerController' => __DIR__ . '/../..' . '/core/Controllers/Admin/CustomerController.php',
-        'Cms\\Controllers\\Admin\\CustomizerController' => __DIR__ . '/../..' . '/core/Controllers/Admin/CustomizerController.php',
         'Cms\\Controllers\\Admin\\DashboardController' => __DIR__ . '/../..' . '/core/Controllers/Admin/DashboardController.php',
         'Cms\\Controllers\\Admin\\FieldGroupController' => __DIR__ . '/../..' . '/core/Controllers/Admin/FieldGroupController.php',
         'Cms\\Controllers\\Admin\\FormController' => __DIR__ . '/../..' . '/core/Controllers/Admin/FormController.php',
@@ -141,7 +137,6 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Controllers\\Admin\\StockController' => __DIR__ . '/../..' . '/core/Controllers/Admin/StockController.php',
         'Cms\\Controllers\\Admin\\TaxonomyController' => __DIR__ . '/../..' . '/core/Controllers/Admin/TaxonomyController.php',
         'Cms\\Controllers\\Admin\\TermController' => __DIR__ . '/../..' . '/core/Controllers/Admin/TermController.php',
-        'Cms\\Controllers\\Admin\\ThemeController' => __DIR__ . '/../..' . '/core/Controllers/Admin/ThemeController.php',
         'Cms\\Controllers\\Admin\\ToolsController' => __DIR__ . '/../..' . '/core/Controllers/Admin/ToolsController.php',
         'Cms\\Controllers\\Admin\\TwoStepController' => __DIR__ . '/../..' . '/core/Controllers/Admin/TwoStepController.php',
         'Cms\\Controllers\\Admin\\UserController' => __DIR__ . '/../..' . '/core/Controllers/Admin/UserController.php',
@@ -217,6 +212,8 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Html\\Vimeo' => __DIR__ . '/../..' . '/core/Html/Vimeo.php',
         'Cms\\Html\\XPost' => __DIR__ . '/../..' . '/core/Html/XPost.php',
         'Cms\\Html\\YouTube' => __DIR__ . '/../..' . '/core/Html/YouTube.php',
+        'Cms\\Install\\Installer' => __DIR__ . '/../..' . '/core/Install/Installer.php',
+        'Cms\\Install\\StartingContent' => __DIR__ . '/../..' . '/core/Install/StartingContent.php',
         'Cms\\Mail\\Brevo' => __DIR__ . '/../..' . '/core/Mail/Brevo.php',
         'Cms\\Mail\\MailLog' => __DIR__ . '/../..' . '/core/Mail/MailLog.php',
         'Cms\\Mail\\Mailer' => __DIR__ . '/../..' . '/core/Mail/Mailer.php',
@@ -277,7 +274,6 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Security\\SecurityLog' => __DIR__ . '/../..' . '/core/Security/SecurityLog.php',
         'Cms\\Security\\Session' => __DIR__ . '/../..' . '/core/Security/Session.php',
         'Cms\\Security\\Sessions' => __DIR__ . '/../..' . '/core/Security/Sessions.php',
-        'Cms\\Security\\SignInPage' => __DIR__ . '/../..' . '/core/Security/SignInPage.php',
         'Cms\\Security\\TemporaryAccess' => __DIR__ . '/../..' . '/core/Security/TemporaryAccess.php',
         'Cms\\Security\\Throttle' => __DIR__ . '/../..' . '/core/Security/Throttle.php',
         'Cms\\Security\\Totp' => __DIR__ . '/../..' . '/core/Security/Totp.php',
@@ -289,14 +285,14 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Site\\ConfigFile' => __DIR__ . '/../..' . '/core/Site/ConfigFile.php',
         'Cms\\Site\\ConfigWriter' => __DIR__ . '/../..' . '/core/Site/ConfigWriter.php',
         'Cms\\Site\\Environment' => __DIR__ . '/../..' . '/core/Site/Environment.php',
+        'Cms\\Site\\FirstStep' => __DIR__ . '/../..' . '/core/Site/FirstStep.php',
         'Cms\\Site\\Front' => __DIR__ . '/../..' . '/core/Site/Front.php',
         'Cms\\Site\\Google' => __DIR__ . '/../..' . '/core/Site/Google.php',
         'Cms\\Site\\Language' => __DIR__ . '/../..' . '/core/Site/Language.php',
-        'Cms\\Site\\Look' => __DIR__ . '/../..' . '/core/Site/Look.php',
         'Cms\\Site\\Tools' => __DIR__ . '/../..' . '/core/Site/Tools.php',
         'Cms\\Site\\Words' => __DIR__ . '/../..' . '/core/Site/Words.php',
         'Cms\\Ui\\AdminMenu' => __DIR__ . '/../..' . '/core/Ui/AdminMenu.php',
-        'Cms\\Ui\\Brand' => __DIR__ . '/../..' . '/core/Ui/Brand.php',
+        'Cms\\Ui\\Branding' => __DIR__ . '/../..' . '/core/Ui/Branding.php',
         'Cms\\Ui\\Editor' => __DIR__ . '/../..' . '/core/Ui/Editor.php',
         'Cms\\Ui\\FieldWidth' => __DIR__ . '/../..' . '/core/Ui/FieldWidth.php',
         'Cms\\Ui\\Icons' => __DIR__ . '/../..' . '/core/Ui/Icons.php',
@@ -312,6 +308,7 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
         'Cms\\Ui\\Theme' => __DIR__ . '/../..' . '/core/Ui/Theme.php',
         'Cms\\Ui\\VariableEditor' => __DIR__ . '/../..' . '/core/Ui/VariableEditor.php',
         'Cms\\Ui\\View' => __DIR__ . '/../..' . '/core/Ui/View.php',
+        'Cms\\Ui\\Welcome' => __DIR__ . '/../..' . '/core/Ui/Welcome.php',
         'Cms\\Update\\DbSnapshot' => __DIR__ . '/../..' . '/core/Update/DbSnapshot.php',
         'Cms\\Update\\Manifest' => __DIR__ . '/../..' . '/core/Update/Manifest.php',
         'Cms\\Update\\Ownership' => __DIR__ . '/../..' . '/core/Update/Ownership.php',
@@ -347,9 +344,9 @@ class ComposerStaticInitb739d8009fb098ba7636a2ce4352d724
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInitb739d8009fb098ba7636a2ce4352d724::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInitb739d8009fb098ba7636a2ce4352d724::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInitb739d8009fb098ba7636a2ce4352d724::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInitfaf1dc8864235efc78b510bb30a20adc::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInitfaf1dc8864235efc78b510bb30a20adc::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInitfaf1dc8864235efc78b510bb30a20adc::$classMap;
 
         }, null, ClassLoader::class);
     }

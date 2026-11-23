@@ -76,7 +76,11 @@ $shopTools = $shopTools ?? null;
 <?php elseif (empty($posts)): ?>
 
     <?php // audit-ok: what an EMPTY list says. There is no entry to carry it. ?>
-    <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('empty_archive')) ?></p>
+    <?php // AND THE WAY TO FILL IT, in the same line, for someone signed in who
+          // can (`Site\FirstStep`), never a visitor. audit-ok: an editor's
+          // link, not the site's words. ?>
+    <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('empty_archive')) ?>
+        <?php if (($first = \Cms\Site\FirstStep::forList([(string) ($contentType['key'] ?? '')])) !== null): ?><a href="<?= htmlspecialchars($first['href']) ?>"><?= htmlspecialchars($first['label']) ?></a><?php endif; ?></p>
 
 <?php else: ?>
 

@@ -1,8 +1,8 @@
 {
-    "name": "silverservers/cms",
-    "description": "A lightweight CMS for web agencies",
+    "name": "silverservers/soba",
+    "description": "Soba: a self-hosted content management system written from scratch in PHP",
     "type": "project",
-    "license": "proprietary",
+    "license": "GPL-3.0-or-later",
     "require": {
         "php": "^8.2",
         "nikic/fast-route": "^1.3",
@@ -11,10 +11,7 @@
     "autoload": {
         "psr-4": {
             "Cms\\": "core/"
-        },
-        "files": [
-            "core/Compat/autoload.php"
-        ]
+        }
     },
     "config": {
         "optimize-autoloader": true

@@ -23,21 +23,21 @@ use Cms\Security\Csrf;
  */
 
 $site      = \Cms\SEO\Head::globalTokens()['site_name'];
-$pageTitle = 'Sign in · ' . \Cms\Ui\Brand::name();
+$pageTitle = 'Sign in · ' . (string) \Cms\SEO\Head::globalTokens()['site_name'];
 $hasRail   = false;
 $user      = null;
 // Posts back to its own link — rebuilt from the sign-in address and the one key
 // it needs, never the raw request URI.
 $self      = $signIn . '?action=access&key=' . rawurlencode((string) ($_GET['key'] ?? ''));
 
-// At the sign-in address: its logo, background and CSS (`SignInPage`).
+// At the sign-in address: Settings → Branding's theme and logo (`Ui\Branding`).
 $signInPage = true;
 require ROOT_PATH . '/admin/templates/partials/head.php';
 ?>
 <body>
 <main class="auth">
     <div class="auth__inner">
-        <?= \Cms\Security\SignInPage::brand(\Cms\Ui\Brand::name()) ?>
+        <?= \Cms\Ui\Branding::signInBrand() ?>
 
         <?php if ($error !== null): ?>
             <div class="alert alert--danger" role="alert">

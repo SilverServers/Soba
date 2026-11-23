@@ -75,7 +75,7 @@ $cmsVersion = Auth::hasRole('admin') && empty($mainFlush) ? \Cms\Update\Release:
 // document title with the app name appended. Captured before the suffix goes on,
 // rather than stripped off again downstream.
 $navTitle  = (string) ($pageTitle ?? '');
-$pageTitle = ($pageTitle ?? 'Admin') . ' · ' . \Cms\Ui\Brand::name();
+$pageTitle = ($pageTitle ?? 'Admin') . ' · ' . (string) \Cms\SEO\Head::globalTokens()['site_name'];
 
 require ROOT_PATH . '/admin/templates/partials/head.php';
 ?>

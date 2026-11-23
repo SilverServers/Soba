@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Cms\Security;
 
-use Cms\Compat\OldNames;
 use Cms\Database\Database;
 use PDO;
 
@@ -58,20 +57,14 @@ final class TrustedBrowsers
         if ($left === false) {
             return false;
         }
-        // Remembered before 0.7.0: the same token, re-issued under the cookie's
-        // name now for the time it has left, and the old cookie cleared.
-        if (!isset($_COOKIE[self::COOKIE])) {
-            self::send(self::COOKIE, $token, time() + max(1, (int) $left));
-            self::send(OldNames::TRUSTED_COOKIE, '', 1);
-        }
 
         return true;
     }
 
-    /** This browser's cookie — under its name now, or the one it had before 0.7.0 (Compat\OldNames). */
+    /** This browser's cookie. */
     private static function token(): string
     {
-        return (string) ($_COOKIE[self::COOKIE] ?? $_COOKIE[OldNames::TRUSTED_COOKIE] ?? '');
+        return (string) ($_COOKIE[self::COOKIE] ?? '');
     }
 
     private static function send(string $name, string $value, int $expires): void

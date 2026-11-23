@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Cms\Update;
 
-use Cms\Compat\OldNames;
 use RuntimeException;
 
 /**
@@ -52,9 +51,7 @@ final class Ownership
             );
         }
 
-        // A list from before 0.7.0 (a tag re-cut by today's packager) calls the
-        // class by its old name (Compat\OldNames::OWNERSHIP_CLASS).
-        foreach ($data['core'] ?? $data[OldNames::OWNERSHIP_CLASS] ?? [] as $entry) {
+        foreach ($data['core'] ?? [] as $entry) {
             $path = $this->resolve($entry);
             if ($path === null) {
                 continue;
@@ -107,16 +104,12 @@ final class Ownership
      *                      until the updater moves it back to `www/admin/`
      *
      * Refuses a front controller that is not a plain name: it becomes a path
-     * an update moves things to. In the router layout (`$routerFront`: its
-     * front controller's name now, passed by the caller — never read from
-     * ownership.php here, which an update moves mid-way), an install that
-     * names none and still has the old front controller's file keeps that
-     * name (Compat\OldNames::routerFront()).
+     * an update moves things to.
      *
      * @param array<string, mixed> $config
      * @return array<string, string>
      */
-    public static function installNames(array $config, ?string $site = null, ?string $routerFront = null): array
+    public static function installNames(array $config, ?string $site = null): array
     {
         $names = [];
         $slug  = self::oldAdminFolder($config, $site);
@@ -129,11 +122,6 @@ final class Ownership
                 throw new RuntimeException("config.php's front_controller '{$front}' is not a plain file name ending .php.");
             }
             $names['@front'] = 'www/' . $front;
-        } elseif ($routerFront !== null && $site !== null) {
-            $old = OldNames::routerFront($site, $routerFront);
-            if ($old !== null) {
-                $names['@front'] = $old;
-            }
         }
 
         return $names;

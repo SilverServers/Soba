@@ -1,11 +1,8 @@
--- Migration 070: a user's admin look may be "the site's".
+-- Migration 070: a user's admin palette and corners may be unset.
 --
--- Appearance → Branding sets the palette and the corners the admin wears
--- (options `brand_admin_theme`, `brand_admin_radius`, `Ui\Brand`). A user's own choice
--- (`theme_preset`, `radius_pref`, migrations 006 and 037) still wins — but
--- both columns were NOT NULL with a default, so every account held a value
--- and "never chose" could not be told from "chose the default". NULL now
--- means the site's look.
+-- `theme_preset` and `radius_pref` (migrations 006 and 037) were NOT NULL with
+-- a default, so every account held a value and "never chose" could not be told
+-- from "chose the default". NULL now means the default (`Ui\Theme`).
 --
 -- The values that are the old defaults become NULL: no screen has ever let
 -- anyone choose one, so a 'tuxedo' or a 'classic' on a row is the default it

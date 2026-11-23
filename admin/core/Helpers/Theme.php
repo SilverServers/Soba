@@ -8,22 +8,21 @@ use Cms\Models\Option;
 use Cms\Update\Release;
 
 /**
- * A SITE'S THEME — its own templates and its own chrome, chosen in the admin
- * (Appearance → Themes) and kept where no update can reach it.
+ * A SITE'S THEME — its own templates and its own chrome, set when the site is
+ * built and kept where no update can reach it. The admin does not choose,
+ * add or delete themes.
  *
- * Every site can white-label itself and set its own chrome. A site's
- * `admin/site/templates/` alone is a developer's override, with nothing to
- * choose, nothing to see in the admin, and no way for a site with its own
- * chrome to render a whole page; a theme adds all three.
+ * A site's `admin/site/templates/` alone is a developer's override, with no
+ * way for a site with its own chrome to render a whole page; a theme adds
+ * that.
  *
  * ── WHAT A THEME IS ─────────────────────────────────────────────────────────
  * A directory holding `theme.json` — `name` (required), `description`,
- * `version`, `author`, `mode` — its templates, an `assets/` directory for what
- * a browser fetches (`theme.css` there is loaded on every framed page), and
- * optionally `screenshot.png` (or .jpg/.webp). Where they are found:
+ * `version`, `author`, `mode` — its templates, and an `assets/` directory for
+ * what a browser fetches (`theme.css` there is loaded on every framed page).
+ * Where they are found:
  *
  *   built in            "Default": `admin/templates/`, what the CMS ships
- *                       (its picture is `admin/templates/screenshot.jpg`)
  *   admin/site/themes/  one directory per theme — site-owned, never shipped,
  *                       never touched by an update (`Update/ownership.php`)
  *   config theme_path   one more directory, wherever the site keeps it —
@@ -35,8 +34,8 @@ use Cms\Update\Release;
  * THE `theme_path` THEME KEEPS WORKING THE WAY IT DID. Before there was a
  * choice, naming a directory there WAS turning the theme on, and the directory
  * has no `theme.json` — so it needs none (it is read as a whole-page theme
- * named after its folder), and it stays the active theme until somebody picks
- * another on the screen. An update must not quietly put a site back on Default.
+ * named after its folder), and it stays the active theme. An update must not
+ * quietly put a site back on Default.
  *
  * ── TWO WAYS TO RENDER (`mode`) ─────────────────────────────────────────────
  *   framed      (the default) the theme's templates are found first, by the
@@ -136,9 +135,6 @@ final class Theme
             'dir'         => null,
             'where'       => 'Built in',
             'configured'  => false,
-            // The CMS's own pages at 1200×900 — what an owner compares a site's
-            // own theme against.
-            'screenshot'  => is_file(Template::coreDir() . '/screenshot.jpg') ? Template::coreDir() . '/screenshot.jpg' : null,
             'problem'     => null,
         ]];
 
@@ -181,73 +177,6 @@ final class Theme
         }
 
         return $all[self::$activeKey];
-    }
-
-    /** Make a theme the active one. False when it is missing or broken. */
-    public static function activate(string $key): bool
-    {
-        $theme = self::all()[$key] ?? null;
-        if ($theme === null || $theme['problem'] !== null) {
-            return false;
-        }
-        Option::set(self::OPTION, $key);
-        self::$activeKey = null;
-
-        return true;
-    }
-
-    /**
-     * Why a theme cannot be deleted from the screen, or null when it can. Only
-     * a folder in `admin/site/themes/` that is not the active theme: Default is
-     * the CMS's, and the `theme_path` theme is the site's own code, kept where
-     * the site keeps it — it goes from config.php, not from here.
-     */
-    public static function deleteProblem(string $key): ?string
-    {
-        $theme = self::all()[$key] ?? null;
-        $root  = realpath(self::sitesDir());
-        $dir   = is_array($theme) && is_string($theme['dir']) ? realpath($theme['dir']) : false;
-
-        return match (true) {
-            $key === self::DEFAULT_KEY                              => 'The built-in theme cannot be deleted.',
-            $theme === null                                         => 'There is no such theme.',
-            $theme['configured'] === true                           => 'It is set in config.php (theme_path); it is removed there.',
-            $key === self::active()['key']                          => 'It is the active theme. Activate another first.',
-            $root === false || $dir === false
-                || !str_starts_with($dir, $root . '/') || is_link((string) $theme['dir']) => 'It is not a folder in admin/site/themes/.',
-            default                                                 => null,
-        };
-    }
-
-    /**
-     * Delete a theme's folder, everything in it. False when `deleteProblem()`
-     * says no, or when anything in it would not go. A link inside is removed as
-     * a link — never followed, so nothing outside the folder is touched.
-     */
-    public static function delete(string $key): bool
-    {
-        if (self::deleteProblem($key) !== null) {
-            return false;
-        }
-        $dir   = (string) realpath((string) self::all()[$key]['dir']);
-        $items = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST
-        );
-        $ok = true;
-        foreach ($items as $item) {
-            /** @var \SplFileInfo $item */
-            $path = $item->getPathname();
-            $ok = ($item->isLink() || !$item->isDir() ? @unlink($path) : @rmdir($path)) && $ok;
-        }
-        $ok = @rmdir($dir) && $ok;
-
-        if (Option::get(self::OPTION) === $key) {
-            Option::set(self::OPTION, null);
-        }
-        self::reset();
-
-        return $ok;
     }
 
     /** The active theme's directory, or null when Default is active. */
@@ -398,13 +327,6 @@ final class Theme
             : null;
     }
 
-    /** Where a theme's screenshot is, or null. Served by the admin, never from the theme's directory. */
-    public static function screenshot(string $key): ?string
-    {
-        $theme = self::all()[$key] ?? null;
-        return is_array($theme) && is_string($theme['screenshot']) ? $theme['screenshot'] : null;
-    }
-
     /** The site's theme directories: `admin/site/themes/`. */
     public static function sitesDir(): string
     {
@@ -455,14 +377,6 @@ final class Theme
             $problem = 'Its folder is named "default", which is the built-in theme\'s name.';
         }
 
-        $shot = null;
-        foreach (['png', 'jpg', 'webp'] as $ext) {
-            if (is_file($dir . '/screenshot.' . $ext)) {
-                $shot = $dir . '/screenshot.' . $ext;
-                break;
-            }
-        }
-
         $str = static fn (string $k): string => mb_substr(trim((string) ($data[$k] ?? '')), 0, 200);
         $mode = (string) ($data['mode'] ?? 'framed');
 
@@ -476,7 +390,6 @@ final class Theme
             'dir'         => $dir,
             'where'       => self::relative($dir),
             'configured'  => $configured,
-            'screenshot'  => $shot,
             'problem'     => $problem,
         ];
     }

@@ -18,7 +18,7 @@ use Cms\Helpers\Asset;
  */
 ?>
 <!DOCTYPE html>
-<html lang="<?= htmlspecialchars(\Cms\Site\Language::current()) ?>"<?= \Cms\Site\Look::htmlAttributes() ?>>
+<html lang="<?= htmlspecialchars(\Cms\Site\Language::current()) ?>" data-radius="<?= htmlspecialchars(\Cms\Ui\Theme::DEFAULT_RADIUS) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,14 +27,10 @@ use Cms\Helpers\Asset;
     <?= \Cms\Site\Google::head() ?>
     <?php // audit-ok: the browser tab on a page that has no content to name. ?>
     <title><?= htmlspecialchars(\Cms\Site\Words::of('not_found_tab')) ?></title>
-    <?= \Cms\Site\Look::iconTags() ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/reset.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/tokens-base.css')) ?>">
-<?php if (($_paletteSheet = \Cms\Site\Look::paletteSheet()) !== ''): ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars($_paletteSheet) ?>">
-<?php endif; ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site(\Cms\Compat\OldNames::stylesheet('assets/css/theme.css'))) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/theme.css')) ?>">
 <?php // The active theme's stylesheet, then the site's own, as base.php links them.
 if (($_themeCss = \Cms\Helpers\Theme::stylesheet()) !== null): ?>
     <link rel="stylesheet" href="<?= htmlspecialchars($_themeCss) ?>">

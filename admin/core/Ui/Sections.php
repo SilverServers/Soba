@@ -100,6 +100,8 @@ final class Sections
 
             // ── Users ───────────────────────────────────────────────────────
             'account'         => 'user',
+            // The account's admin theme (`Ui\Theme`).
+            'admin-theme'     => 'droplet',
             'password'        => 'lock',
 
             // ── Settings ────────────────────────────────────────────────────
@@ -219,14 +221,9 @@ final class Sections
             // Login redirection: sent on elsewhere; the rules, in order.
             'login-redirection'   => 'share',
             'redirect-rules'      => 'list-ol',
-            // Appearance → Branding, Admin tab (`Ui\Brand`): who the admin
-            // says it is — the Branding row's own mark — and how it looks.
-            'brand-identity'      => 'star',
-            'brand-look'          => 'droplet',
-            // Appearance → Customizer (`Site\Look`): the public site's colours,
-            // its fonts, the header's logo and the tab's icon.
-            'look-colours'        => 'droplet',
-            'look-fonts'          => 'quote-left',
+            // Settings → Branding (`Ui\Branding`): the logo, and the sign-in page.
+            'branding-logo'       => 'image',
+            'branding-signin'     => 'arrow-right-to-bracket',
             // Settings → Words (`Site\Words`): one mark for each group of words.
             'words-lists'         => 'list-ul',
             'words-search'        => 'magnifying-glass',
@@ -235,13 +232,6 @@ final class Sections
             'words-hours'         => 'clock',
             'words-dates'         => 'calendar',
             'words-names'         => 'tags',
-            'look-logo'           => 'image',
-            'look-icon'           => 'window-maximize',
-            // Its Sign-in tab: the logo, what is behind the card,
-            // and the owner's own CSS.
-            'signin-logo'         => 'image',
-            'signin-background'   => 'layer-group',
-            'signin-css'          => 'object-group',
             'hsts'                => 'lock',
 
             // ── Tools ───────────────────────────────────────────────────────

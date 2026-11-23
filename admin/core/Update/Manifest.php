@@ -72,7 +72,7 @@ final class Manifest
 
         return new self([
             'schema'     => 1,
-            // Another name before 0.7.0 (Compat\OldNames). Never compared: an update accepts either.
+            // Recorded, never compared.
             'product'    => 'cms',
             ...$meta,
             'layout'     => $ownership->layout(),
@@ -108,22 +108,6 @@ final class Manifest
     public function files(): array
     {
         return $this->data['files'];
-    }
-
-    /**
-     * The same manifest with some of its files under other names
-     * (`[old => new]`) — Compat\OldNames::manifest().
-     *
-     * @param array<string, string> $names
-     */
-    public function renamed(array $names): self
-    {
-        $files = [];
-        foreach ($this->files() as $path => $hash) {
-            $files[$names[$path] ?? $path] = $hash;
-        }
-
-        return new self(['files' => $files] + $this->data);
     }
 
     /** @return list<string> */

@@ -1,0 +1,20 @@
+Copyright (C) 2026 SilverServers
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+more details. Its full text is in admin/LICENSE.
+
+These components keep their own licences:
+
+- The Inter and Fira Mono fonts, under the SIL Open Font License 1.1. The
+  licence, with each font's copyright, is beside the fonts, in
+  www/assets/fonts/OFL.txt and www/admin/assets/fonts/OFL.txt.
+- The icons, by Font Awesome (https://fontawesome.com), under CC BY 4.0.
+- FastRoute (BSD-3-Clause) and PHPMailer (LGPL-2.1), with their licences in
+  admin/vendor/.

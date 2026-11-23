@@ -22,11 +22,11 @@ declare(strict_types=1);
 </div>
 
 <form class="search-form" role="search" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::search()) ?>">
-    <input class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__input')) ?>" type="search" name="q"
+    <input class="<?= htmlspecialchars('cms-form__input') ?>" type="search" name="q"
            value="<?= htmlspecialchars($q) ?>"
            placeholder="<?= htmlspecialchars(\Cms\Site\Words::of('search_label')) ?>" aria-label="<?= htmlspecialchars(\Cms\Site\Words::of('search_label')) ?>">
     <?php // audit-ok: the verb on the search form's own button. ?>
-    <button class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__submit')) ?>" type="submit"><?= htmlspecialchars(\Cms\Site\Words::of('search')) ?></button>
+    <button class="<?= htmlspecialchars('cms-form__submit') ?>" type="submit"><?= htmlspecialchars(\Cms\Site\Words::of('search')) ?></button>
 </form>
 
 <?php if ($q !== ''): ?>

@@ -17,39 +17,30 @@ use Cms\Models\Option;
  * Order matters and is the package's: faces, then reset, then tokens, then
  * components — see the header of `www/assets/css/theme.css`.
  *
- * ── THE OWNER'S LOOK, STAMPED ───────────────────────────────────────────────
- * The admin's palette and corners are each user's (`users.theme_preset`,
- * `users.radius_pref`); the public site's are the owner's, chosen once on
- * Appearance → Customizer (`Site\Look`) and the same for every visitor. They
- * are attributes on `<html>`: `data-theme`, `data-radius`, `data-font-body`,
- * `data-font-head`. The palette's family sheet follows the base tokens when the
- * palette is not the default, whose tokens `tokens-base.css`'s bare `:root`
- * already carries, so a page is tokenized before any attribute is read.
- * Without `data-radius` the bare `:root` resolves to the rounded tier, which
- * is why it is always stamped, square unless the owner chose rounded.
+ * ── data-radius, AND NO data-theme ─────────────────────────────────────────
+ * The colours are `tokens-base.css`'s bare `:root`, the design language's
+ * default palette, so a page is tokenized before any attribute is read.
+ * `data-radius` is stamped from `Theme::DEFAULT_RADIUS`, square: without it
+ * the bare `:root` resolves to the rounded tier.
  *
  * @var string $pageContent  the rendered inner template
  */
 ?>
 <!DOCTYPE html>
-<html lang="<?= htmlspecialchars(\Cms\Site\Language::current()) ?>"<?= \Cms\Site\Look::htmlAttributes() ?>>
+<html lang="<?= htmlspecialchars(\Cms\Site\Language::current()) ?>" data-radius="<?= htmlspecialchars(\Cms\Ui\Theme::DEFAULT_RADIUS) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <?= \Cms\SEO\Head::render() ?>
-    <?= \Cms\Site\Look::iconTags() ?>
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/reset.css')) ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/tokens-base.css')) ?>">
-<?php if (($_paletteSheet = \Cms\Site\Look::paletteSheet()) !== ''): ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars($_paletteSheet) ?>">
-<?php endif; ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site(\Cms\Compat\OldNames::stylesheet('assets/css/theme.css'))) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/theme.css')) ?>">
     <?php // THE ONE COMPONENT THE ADMIN RENDERS TOO. The gallery editor links
           // this same file, so the tiles it arranges are laid out by the rules
           // that will lay them out on this page — not by a second grid that
           // agreed with it on the day it was written. See gallery.css's header. ?>
-    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site(\Cms\Compat\OldNames::stylesheet('assets/css/gallery.css'))) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(Asset::site('assets/css/gallery.css')) ?>">
 <?php // The active theme's stylesheet (Appearance → Themes, `Helpers\Theme`):
       // after the CMS's, before the site's own, so the site can still correct
       // it. A theme of nothing but `assets/theme.css` restyles every page here.
@@ -74,7 +65,7 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
 
 <?php $_publicSiteName = \Cms\SEO\Head::globalTokens()['site_name']; ?>
 <header class="site-header">
-    <?= \Cms\Site\Look::brand($_publicSiteName) ?>
+    <a href="<?= htmlspecialchars(\Cms\Helpers\Url::home()) ?>" class="site-header__name"><?= htmlspecialchars($_publicSiteName) ?></a>
     <?= \Cms\Helpers\MenuRenderer::render('primary', 'site-header__nav') ?>
 <?php
 /* THE PAGE IN THE OTHER LANGUAGE, on a site with a second one
@@ -131,7 +122,7 @@ if ($_otherLanguage !== null): ?>
     unset($_SESSION['shop_notice']);
     if (is_array($_shopNotice)):
     ?>
-        <div class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('shop-notice cms-alert cms-alert--' . (string) ($_shopNotice['tone'] ?? 'success'))) ?>"
+        <div class="<?= htmlspecialchars('shop-notice cms-alert cms-alert--' . (string) ($_shopNotice['tone'] ?? 'success')) ?>"
              role="status">
             <?= htmlspecialchars((string) ($_shopNotice['text'] ?? '')) ?>
             <?php // TO THE BASKET from a notice about it, and not from one about

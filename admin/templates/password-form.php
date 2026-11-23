@@ -26,21 +26,21 @@ declare(strict_types=1);
 
     <?php if (!empty($passwordError)): ?>
         <?php // audit-ok: an error message on the gate. ?>
-        <p class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-alert cms-alert--error')) ?>"><?= htmlspecialchars(\Cms\Site\Words::of('password_wrong')) ?></p>
+        <p class="<?= htmlspecialchars('cms-alert cms-alert--error') ?>"><?= htmlspecialchars(\Cms\Site\Words::of('password_wrong')) ?></p>
     <?php endif; ?>
 
     <form method="POST">
         <div class="gate__field">
             <?php // audit-ok: the label on the gate's own input. ?>
-            <label class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__label')) ?>" for="content_password"><?= htmlspecialchars(\Cms\Site\Words::of('password_label')) ?></label>
+            <label class="<?= htmlspecialchars('cms-form__label') ?>" for="content_password"><?= htmlspecialchars(\Cms\Site\Words::of('password_label')) ?></label>
             <input type="password"
                    id="content_password"
                    name="content_password"
                    required
                    autocomplete="off"
-                   class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__input')) ?>">
+                   class="<?= htmlspecialchars('cms-form__input') ?>">
         </div>
         <?php // audit-ok: the verb on the gate's own button. ?>
-        <button type="submit" class="<?= htmlspecialchars(\Cms\Compat\OldNames::classes('cms-form__submit')) ?>"><?= htmlspecialchars(\Cms\Site\Words::of('password_submit')) ?></button>
+        <button type="submit" class="<?= htmlspecialchars('cms-form__submit') ?>"><?= htmlspecialchars(\Cms\Site\Words::of('password_submit')) ?></button>
     </form>
 </article>

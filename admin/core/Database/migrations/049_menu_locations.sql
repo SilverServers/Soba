@@ -8,7 +8,7 @@
 -- A location shows exactly one menu — that is what "the primary navigation" MEANS,
 -- and two menus in one slot is not a state a renderer can resolve. But a menu in
 -- exactly one location is an invented constraint. The commonest thing a site owner
--- does with a small site's navigation is put the SAME menu in the header and the
+-- does with the site's navigation is put the SAME menu in the header and the
 -- footer, and this schema made that impossible: assigning it to the footer took it
 -- out of the header, silently, because `assignLocation()` cleared the other row
 -- first. The owner's header navigation disappeared and nothing said why.

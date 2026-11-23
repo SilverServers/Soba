@@ -1,13 +1,13 @@
 <?php return array(
     'root' => array(
-        'name' => 'silverservers/imprint',
-        'pretty_version' => '1.0.0+no-version-set',
-        'version' => '1.0.0.0',
-        'reference' => null,
+        'name' => 'silverservers/soba',
+        'pretty_version' => 'v0.8.0',
+        'version' => '0.8.0.0',
+        'reference' => '5972b2270d9f179825d0c9cc2c55b90da4d37db1',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
-        'dev' => true,
+        'dev' => false,
     ),
     'versions' => array(
         'nikic/fast-route' => array(
@@ -28,10 +28,10 @@
             'aliases' => array(),
             'dev_requirement' => false,
         ),
-        'silverservers/imprint' => array(
-            'pretty_version' => '1.0.0+no-version-set',
-            'version' => '1.0.0.0',
-            'reference' => null,
+        'silverservers/soba' => array(
+            'pretty_version' => 'v0.8.0',
+            'version' => '0.8.0.0',
+            'reference' => '5972b2270d9f179825d0c9cc2c55b90da4d37db1',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

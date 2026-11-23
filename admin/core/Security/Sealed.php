@@ -25,7 +25,7 @@ use RuntimeException;
  * set up again, and until then its owner signs in with a backup code, an email
  * code, or `php admin/bin/security.php two-step off <user>`.
  *
- * Stored as `v1:` + base64(nonce ‖ tag ‖ ciphertext); the version leaves room
+ * Stored as `v2:` + base64(nonce ‖ tag ‖ ciphertext); the version leaves room
  * to change the scheme without guessing what a stored value is.
  */
 final class Sealed
@@ -33,17 +33,19 @@ final class Sealed
     private const PLACEHOLDER = 'change-me-to-a-random-secret-string';
 
     /**
-     * FIXED INPUTS TO THE CIPHER AND THE KEYED HASH — NOT NAMES, NEVER RENAMED.
-     * They carry the CMS's working title from when they were first written,
-     * and every value sealed or hashed since depends on them byte for byte: a
-     * different one opens no authenticator secret and matches no backup code,
-     * which shuts every two-step account out. 0.7.0 renamed every NAME in the
-     * codebase and left these alone on purpose. A new scheme gets a new
-     * version prefix (`v2:`), not an edit here.
+     * FIXED INPUTS TO THE CIPHER AND THE KEYED HASH. Every value sealed or
+     * hashed depends on them byte for byte: a different one opens no
+     * authenticator secret and matches no backup code. They changed once,
+     * with the stored form's prefix (`v2:`): migration 126 cleared what was
+     * kept the earlier way, and each account sets its authenticator up again.
+     * A new scheme gets a new prefix again, never a quiet edit here.
      */
-    private const AAD       = 'imprint';
-    private const KEY_INFO  = 'imprint sealed v1';
-    private const HMAC_INFO = 'imprint hmac v1';
+    private const AAD       = 'cms';
+    private const KEY_INFO  = 'cms sealed v2';
+    private const HMAC_INFO = 'cms hmac v2';
+
+    /** The stored form's version, ahead of its base64. */
+    private const PREFIX = 'v2:';
 
     /** Can anything be sealed on this install? */
     public static function ready(): bool
@@ -79,16 +81,16 @@ final class Sealed
             throw new RuntimeException('Could not seal.');
         }
 
-        return 'v1:' . base64_encode($nonce . $tag . $cipher);
+        return self::PREFIX . base64_encode($nonce . $tag . $cipher);
     }
 
     /** open(), under a given secret. */
     public static function openWith(string $secret, string $sealed): ?string
     {
-        if (!str_starts_with($sealed, 'v1:')) {
+        if (!str_starts_with($sealed, self::PREFIX)) {
             return null;
         }
-        $raw = base64_decode(substr($sealed, 3), true);
+        $raw = base64_decode(substr($sealed, strlen(self::PREFIX)), true);
         if ($raw === false || strlen($raw) < 28) {
             return null;
         }

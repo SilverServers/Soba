@@ -20,7 +20,7 @@
 
    Any control carrying data-appearance="<axis>" applies on `change`. That is the
    whole picker: a labelled <select> in a settings pane. Do NOT build a grid of
-   theme swatch tiles — 21 swatches is a wall of colour that tells you nothing
+   theme swatch tiles — a row of swatches is a wall of colour that tells you nothing
    about how a theme reads on a real page, and the page behind the dropdown IS
    the preview.
 

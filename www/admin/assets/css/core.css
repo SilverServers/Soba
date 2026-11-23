@@ -1145,7 +1145,7 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
    alert-colour tint.
 
    The state reads from the GLYPH, not the colour. This is not minimalism — it is
-   what makes the chip survive 21 themes. Amber and red are plausible ACCENT
+   what makes the chip survive every theme. Amber and red are plausible ACCENT
    colours; the moment a theme's accent is orange or pink, a "warning" chip and a
    "brand" chip are the same colour and the alarm stops meaning anything.
 

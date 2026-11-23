@@ -1,33 +1,44 @@
-# CMS
+# Soba
 
-A content management system for the websites an agency builds and hands over to its clients. What a WordPress site gets from a dozen plugins (custom content types and fields, forms, galleries, SEO, sign-in security) is built into one PHP codebase, with no plugin layer. A site owner who is not technical can change what a small business changes (hours, contact details, events, news, images, forms) and read what its forms collect.
+A self-hosted content management system written from scratch in PHP.
 
-## What it does
+It does what a typical WordPress site needs a dozen plugins for (custom content types, forms, a shop, SEO, a second language, backups and sign-in security) in one codebase, with no plugins, no framework and no build step. It runs on ordinary shared hosting, and a site owner who isn't technical can keep their own site up to date.
 
-- **Content Types and fields.** Define a type (News, Events, Staff, …) with its own fields, archive and address, entirely from the admin. Field groups attach to types by location rules.
-- **Taxonomies, menus and pages.** Categories and tags with their own addresses, menus for several locations, parent and child entries, revisions and undo.
-- **A second language.** Chosen on Settings → General. Translate on a page or an entry makes its version in that language, linked to it, at the same address under the language's prefix (`/fr/about`, `/fr/news/…`, the front page at `/fr`), Private until it is written and published. The site's title, tagline and footer text each have a version in it on Settings → General, the site's own standing in for one left empty, and each menu location has a twin in it (Primary Navigation (French)) with a menu of its own: a page in that language shows those menus, and none where its twin has none. A page says which language it is in, names its version in the other language for search engines (in its head and in the sitemap) and links to it from the header, in that language's own name, or to that language's front page when it has none; archives, term pages, search and feeds list one language at a time. What a page says that no page holds, its list's links, search, the not-found page, the password gate, the menu's button, the cookie banner, opening hours, and the months and days in its dates, is in the page's language: French ships with English, so a site in French says them in French too, and Settings → Words changes any of them for either language and gives each translated type its name in the second; the page and entry lists say each translation's language and filter by it. The shop, forms and the admin stay in the site's own language. A translation renamed leaves its redirect, and an export, an import and a static copy carry the translations.
-- **Media.** A library with folders, chosen from a row over it and managed on a screen of their own, sorted by date added or taken, name, size, type or dimensions. A photo keeps the date its camera wrote, and an import keeps the dates it brings. New images are stored as WebP, with smaller widths beside them that a page offers to a phone or a small picture. Galleries.
-- **Embeds.** A video or a post from YouTube, Vimeo, X, Instagram or Facebook, a Google map, a Calendly booking page, or a Brevo or Kit sign-up form goes into any text as the embed code the provider gives out, and the page shows it as the provider draws it.
-- **Import Markdown.** A Markdown document, pasted or chosen as a file, goes into the body where the cursor is, with its headings, lists, tables and links. Nothing is saved until the entry is, and pictures that are only on the writer's computer are named so they can be added.
-- **Forms.** A form builder (pages, conditions, repeaters, uploads, ratings, appointments), a submissions inbox, and spam handling that discards what is certainly spam and keeps what is only suspicious. A test sent from a form's test address is handled as a real submission, its email goes to a test inbox alone, and the inbox marks it. A submission whose email could not be sent says so in the inbox, and can be sent again. What became of each email a submission sends is kept with it: the id its mail service gave it, or why it was refused. A form sets how long its page must be open before it sends, and can answer spam as though it was sent, keeping it with its reason; a site adds rules of its own in `form-spam.php`. A photo sent through a form keeps nothing about where it was taken or the phone that took it, and a file field can take only the kinds of file it names.
-- **Mail.** Every message goes through the server's own mail program, an SMTP server named on Settings → Email, or Brevo's API, chosen with its key in `config.php`. A test email from Settings → Email shows whether it works, and if not, why. A staging copy can keep every message in `admin/logs/mail.log` instead of sending it (`'mail_transport' => 'log'`).
-- **A shop.** Products sold as themselves or in sizes and colours, each option with its own code, photo, price, sale and count. A basket and checkout with tax by province or state, delivery by place and local pickup, and discount codes. Orders with their emails and notes, refunds by the line, exchanges, tracking, packing slips and invoices, orders taken by telephone, and a spreadsheet for the books. A stock screen with each count's history, mail when a size runs low or sells out, and a list of who is waiting for it to come back. Prices, sales and counts changed across a selection, and products in and out of a spreadsheet. Customers who sign in from a link sent to their inbox, with what is kept about them given or erased on request. Reports of what sold and the tax collected by province. A feed for Google Merchant Center and Meta's catalogue, and an API with keys and webhooks for other programs. Payment is by bank transfer, cheque or on delivery: there is no card gateway yet.
-- **SEO.** Titles and descriptions with variables, structured data, a sitemap, redirects.
-- **Business details.** The business's name, phone numbers, email, opening hours, place, service areas and social profiles, kept once on Settings → Business details. A page's text prints them with `[phone]`, `[sms]`, `[email]` and `[hours]`, the structured data carries them, and a theme reads them all with `\Cms\Site\Business::get()`, so a number changed there changes everywhere.
-- **Google's measurement tags.** A GA4 measurement ID, a Tag Manager container ID and a Search Console verification code, typed on Settings → SEO → Google, print Google's own code on every public page in production. Each form sends one conversion event for each real submission, and clicks on phone numbers and email addresses can be sent too. A site whose own header prints its tags can have each conversion carried to its own thank-you page instead.
-- **Users and sign-in security.** Roles, two-step sign-in, signing in without a password, temporary access, a sign-in page at an address of your own or one made at random, lockouts, a log of who changed what, and a check of the CMS's own files against the release they came from.
-- **White-label.** Every name a visitor or an editor sees is the site's own title.
-- **Modules.** Pages, menus, search, the shop, appointments, the assistant and forms can each be switched off in `config.php`; their data stays.
-- **An assistant (optional).** The site owner asks in plain words. It proposes a change, a person approves the rendered difference, and only then does the CMS apply it: the model has no way to write. In a shop it also reads the orders, stock and sales, and proposes a new count, an order's move, a discount code or an option the same way. It uses the Claude API with the owner's own key and a spend limit.
-- **Updates with a way back.** The updater backs up the database and every file it replaces, refuses to overwrite a file the site has changed, and rolls itself back if anything fails.
-- **A static copy.** The whole site as files, for a web host that runs no CMS: every page as the site draws it, with its pictures, files and redirects, a search that runs in the visitor's browser, and the shop as a catalogue. Its links can be made to work anywhere: at any address, or opened from a folder with no web server. On a host with PHP its forms are sent by a small handler of its own, by the site's rules; without PHP each form's place shows words of your choosing. Tools → Static copy, or `php admin/bin/export-static.php`.
+![A news story being written in the admin, on an example site](docs/screenshots/editor.png)
 
-Nothing is fetched from a third party at runtime: no CDN scripts, no remote fonts. The exceptions are an embed a writer pastes, which loads from its provider, and Google's measurement tags once a site owner types their IDs.
+## Highlights
+
+- **Built in, not bolted on.** Content types, forms, a shop, SEO, media, menus and translations are one system with one admin.
+- **No third-party code at runtime.** Nothing loads from another company's servers unless the owner adds an embed or Google's tags. The two libraries it uses, FastRoute and PHPMailer, are included.
+- **Safe updates.** Every update backs up the database and the files it replaces, refuses to overwrite files the site has changed, and rolls itself back if anything fails.
+- **Modest requirements.** PHP 8.2 or later and MySQL or MariaDB. A static copy of the site runs where there is no PHP at all.
+
+## A look inside
+
+From an example site, for a fictional students' union.
+
+| Setting up a new site | The dashboard |
+| --- | --- |
+| ![The set-up a new site opens with: its title, its address and the first account](docs/screenshots/setup.png) | ![The example site's dashboard](docs/screenshots/dashboard.png) |
+| **Building a form** | **A content type of the site's own** |
+| ![A contact form being built](docs/screenshots/form-builder.png) | ![The settings of the site's Events](docs/screenshots/content-type.png) |
+
+## Features
+
+- **Content:** custom content types and fields, categories and tags, parent and child entries, menus, revisions and undo, and Markdown import.
+- **Two languages:** each page and entry can have a translation at the same address under a language prefix (`/fr/about`), with its own menus, search and sitemap. French ships with English.
+- **Media:** a library with folders, images stored as WebP in responsive sizes, galleries, and embeds from YouTube, Vimeo, X, Instagram, Facebook, Google Maps, Calendly, Brevo and Kit.
+- **Forms:** a form builder with multi-page forms, conditional fields, repeaters, uploads, ratings and appointments, plus a submissions inbox, spam filtering and a record of every email sent.
+- **Mail:** sent through the server, an SMTP server or Brevo, with a test email that says what went wrong when one fails.
+- **Shop:** products with variants, tax by province or state, delivery and pickup, discount codes, orders, refunds and exchanges, invoices, stock tracking, back-in-stock lists, sales and tax reports, product feeds for Google and Meta, and an API with webhooks. Payment is by bank transfer, cheque or on delivery; there is no card gateway yet.
+- **SEO and analytics:** titles and descriptions with variables, structured data, a sitemap, redirects, and Google Analytics, Tag Manager and Search Console by ID.
+- **Business details:** name, phone numbers, hours, location and service areas, entered once and used everywhere, structured data included.
+- **Security:** roles, two-step and passwordless sign-in, temporary access, a movable sign-in page, lockouts, an audit log, and a check of the CMS's own files.
+- **Operations:** scheduled backups, updates with rollback, a static copy of the whole site, WordPress import, and modules that can be switched off.
 
 ## Requirements
 
-- PHP 8.2 or later, with the PDO MySQL, mbstring, DOM and fileinfo extensions. Two-step sign-in also needs OpenSSL, the assistant and mail through Brevo need curl, and a shop's webhooks need `allow_url_fopen`. Imagick, when present, is used for WebP.
+- PHP 8.2 or later, with the PDO MySQL, mbstring, DOM and fileinfo extensions. Two-step sign-in also needs OpenSSL, mail through Brevo needs curl, and a shop's webhooks need `allow_url_fopen`. Imagick, when present, is used for WebP.
 - MySQL or MariaDB
 - Apache with `mod_rewrite` (the rules are in `www/.htaccess`), or a server that sends every request that is not a file to `www/index.php`
 
@@ -38,9 +49,15 @@ The two PHP libraries the CMS uses, FastRoute and PHPMailer, are included in `ad
 This repository is an installation: `admin/` holds the code and its configuration, and `www/` is the web server's document root.
 
 1. Copy `admin/` and `www/` to the server, and point the document root at `www/`.
-2. Create a database. Copy `admin/config/config.example.php` to `admin/config/config.php` and fill it in: the site's address, the database, and a long random `app_secret`. Use `'app_env' => 'production'` for a live site.
-3. Run `php admin/bin/migrate.php run`. It prints the password for the first sign-in, once, with the address of the sign-in page.
-4. Sign in there as `admin` with that password. The CMS asks for a name and password of your own straight away. Then set the Site title under Settings → General.
+2. Create a database, and a user that may use it, in your host's control panel.
+3. Open the site's address. It asks for the database, then the Site title and your own account, and writes `admin/config/config.php` with a long random `app_secret` of its own. Where the server will not let it write that file, it shows the text to save there yourself.
+4. Sign in with the account you chose. The site starts with a Posts type, a first post and an About page, each edited or deleted like anything else.
+
+Finish the set-up as soon as the files are on the server: until it is done, the first person to open the site's address can set it up.
+
+Only a site that has never been set up opens that set-up. One that has run with a `config.php` and loses it answers with an error instead, so nobody else can point it at a database of theirs; put its `config.php` back.
+
+From the command line instead: copy `admin/config/config.example.php` to `admin/config/config.php` and fill it in (the site's address, the database, a long random `app_secret`, and `'app_env' => 'production'` for a live site), then run `php admin/bin/migrate.php run`. It prints the password for the first sign-in, once, with the address of the sign-in page. Sign in there as `admin` with that password; the CMS asks for a name and password of your own straight away. A site that keeps its own router (below) is installed this way.
 
 If that password is lost before anyone signs in, `php admin/bin/security.php password admin` prints a new one. The same command is the way back in for any account whose owner cannot sign in.
 
@@ -55,14 +72,12 @@ A shop's unpaid orders are cancelled after the days Settings → Shop allows, an
 Each release is published on this repository's Releases page with an install package and an update package. To update a site, put the update package in the site's root and unpack it. It lands in `admin/updates/incoming/<version>/` and overwrites nothing:
 
 ```
-tar -xzf cms-standalone-<version>-update.tar.gz --keep-old-files
+tar -xzf soba-standalone-<version>-update.tar.gz --keep-old-files
 php admin/updates/incoming/<version>/admin/bin/update.php check
 php admin/updates/incoming/<version>/admin/bin/update.php apply
 ```
 
 `check` says what will change and names any file the site has changed itself. `apply` backs up, updates, runs the release's migrations, and rolls everything back if a step fails.
-
-`check` also names the site's own files that still use a name the CMS had before 0.7.0. Those names keep working until 0.8.0. It reads every file the site could run, and leaves out folders whose names start with a dot and any other copy of the CMS kept inside the site's folder. A site whose files use none of the old class names stops the CMS writing them beside the new with `'old_class_names' => false` in `config.php`.
 
 Images added to the library before an update get their smaller widths from `php admin/bin/media-sizes.php`.
 
@@ -87,7 +102,7 @@ php admin/bin/export-static.php https://www.example.com [--anywhere] [--no-php] 
 
 ## Beside a site that keeps its own router
 
-A site may keep its own `www/index.php` and run the CMS beside it. Install from the release's router package (`cms-router-<version>-install.tar.gz`), whose front controller is `www/cms.php`, and have the site's router ask the CMS first:
+A site may keep its own `www/index.php` and run the CMS beside it. Install from the release's router package (`soba-router-<version>-install.tar.gz`), whose front controller is `www/cms.php`, and have the site's router ask the CMS first:
 
 ```php
 require __DIR__ . '/../admin/vendor/autoload.php';
@@ -97,7 +112,7 @@ if (\Cms\Site\Front::owns($_SERVER['REQUEST_URI'] ?? '/')) {
 }
 ```
 
-`owns()` answers for the admin, the API, private files, form posts, the sign-in page wherever it has moved, and every Content Type and taxonomy published at an address, under the second language's prefix too for those it translates. The site declares its own first segments in `admin/config/site-addresses.php`. Such a site updates from the release's router update package (`cms-router-<version>-update.tar.gz`), the same way.
+`owns()` answers for the admin, the API, private files, form posts, the sign-in page wherever it has moved, and every Content Type and taxonomy published at an address, under the second language's prefix too for those it translates. The site declares its own first segments in `admin/config/site-addresses.php`. Such a site updates from the release's router update package (`soba-router-<version>-update.tar.gz`), the same way.
 
 A site's own header prints Google's measurement tags by calling `<?= \Cms\Site\Google::head() ?>` in its `<head>` and `<?= \Cms\Site\Google::body() ?>` straight after `<body>`, as a whole-page theme does. Each prints once a page, and nothing while Settings → SEO → Google is empty, so a site whose header already prints its own tags leaves it empty. `head()` takes the page's nonce when the site's Content-Security-Policy asks for one. A thank-you page of the site's own can ask `\Cms\Site\Google::conversion()` for the conversion a form's redirect left, before the page's first byte: it returns the event, the form's ID and the stored submission's ID, once, and null to a reload, another tab or a direct visit.
 
@@ -117,6 +132,24 @@ A site whose theme loads an icon font keeps the icons written into an entry's te
 
 A template that draws its own `<img>` gets any picture's address, size and alternative text, and the address of each narrower width, from `\Cms\Models\Media::image($id)`, all as paths from the site's root, so a site that answers on more than one host name loads them from itself. An entry's featured image is `Media::image($post['featured_image_id'])`.
 
+## A site's own admin theme
+
+The admin comes in three themes: Tuxedo, the default, and Midnight and Pearl, its dark and light versions. Each user chooses theirs on their own account, and an administrator can set anyone's.
+
+A site adds its own as one stylesheet, `www/site/admin-themes/<key>.css`, where `<key>` is lower-case letters, digits and dashes. Updates never touch it. Write it the way Tuxedo's blocks are written in `www/admin/assets/css/tokens/signature-styles.css`: a `:root[data-theme="<key>"]` block with every token, and a comment line `Name: <name>`. For a top bar and sidebar of their own colours, add a block scoped to `.nav-top` and one scoped to `.nav-rail`, `.sb`, `.entity-rail-col` and `.nav-drawer`, each setting every token Tuxedo's do. A font or picture it uses goes beside it, named by a relative path. Then check it:
+
+```
+php admin/bin/admin-theme.php check www/site/admin-themes/<key>.css
+```
+
+It must say READY. It then appears on every account's Admin theme, and on Settings → Branding, which also sets the site's logo (a version for light backgrounds and one for dark) for the admin's top bar and its sign-in pages.
+
+A site that offers only some of the themes names them in `config.php`, in the order the lists show them: `'admin_themes' => ['clientname', 'tuxedo']`. The first is the theme of every account that has not chosen one, and of any account whose choice is no longer offered. `php admin/bin/admin-theme.php list` shows which are offered.
+
+## Issues
+
+Report a problem or ask for a change by opening an issue. Pull requests aren't taken for now.
+
 ## Reporting a security problem
 
 Email support@silverservers.com rather than opening a public issue. Say which release you found it in and how to reproduce it.
@@ -129,4 +162,8 @@ Email support@silverservers.com rather than opening a public issue. Say which re
 
 ## Licence
 
-All rights reserved. The third-party components above keep their own licences.
+Soba CMS is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. Its full text is in `LICENSE`, and in every installation at `admin/LICENSE`.
+
+Copyright (C) 2026 SilverServers. The third-party components above keep their own licences.

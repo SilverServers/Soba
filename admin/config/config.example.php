@@ -28,26 +28,6 @@ return [
     // Admin session lifetime in seconds. Default 7200 (2h).
     'session_lifetime' => 7200,
 
-
-    // ----------------------------------------------------------------
-    // CMS Assistant (optional)
-    //
-    // Without a key the assistant runs against a stub transport: it can read
-    // content and report what it found, but will not propose changes. Get a key
-    // at https://console.anthropic.com/settings/keys
-    //
-    // Spending is capped by the monthly limit in Settings → General (default $25),
-    // which is checked before every request.
-    // ----------------------------------------------------------------
-    // 'anthropic_effort' sets how hard the model thinks: low, medium, high,
-    // xhigh or max. Default 'medium', which suits routine content edits and keeps
-    // turns short — raise it if the assistant is misreading complicated requests.
-    // ----------------------------------------------------------------
-    // 'anthropic_api_key'    => 'sk-ant-...',
-    // 'anthropic_model'      => 'claude-opus-5',
-    // 'anthropic_max_tokens' => 16000,
-    // 'anthropic_effort'     => 'medium',
-
     // ----------------------------------------------------------------
     // Mail through Brevo (optional)
     //
@@ -88,6 +68,16 @@ return [
     // 'paging_parameter' => 'p',
 
     // ----------------------------------------------------------------
+    // The admin themes the site offers (optional)
+    //
+    // Every theme is offered, Tuxedo the default, unless they are named
+    // here: then those alone, in this order, and the first is the theme of
+    // every account that has not chosen one. A site's own theme is its file
+    // name in www/site/admin-themes/, without .css.
+    // ----------------------------------------------------------------
+    // 'admin_themes' => ['clientname', 'tuxedo'],
+
+    // ----------------------------------------------------------------
     // Icons in an entry's text (optional)
     //
     // A site whose theme loads an icon font writes an icon as an empty <i>
@@ -110,21 +100,8 @@ return [
     //     'search'       => false,   // the public /search
     //     'commerce'     => false,   // the shop: cart, checkout, orders, discount codes
     //     'appointments' => false,   // the Appointment field in the form builder
-    //     'assistant'    => false,   // the Assistant and its spend limit
     //     'forms'        => false,   // forms, their inbox and the public submit address
     // ],
-
-    // ----------------------------------------------------------------
-    // The old class names (optional)
-    //
-    // Before 0.7.0 the CMS drew its forms, galleries and alerts with other
-    // class names, and until 0.8.0 it writes them beside the new ones, so a
-    // site stylesheet or script aimed at them keeps working. A site whose
-    // own files use none of them turns them off here, and then nothing a
-    // visitor is sent names them: not a page, not the CMS's stylesheets and
-    // scripts. `update.php check` names any of the site's files that still do.
-    // ----------------------------------------------------------------
-    // 'old_class_names' => false,
 
     // ----------------------------------------------------------------
     // Database (MySQL / MariaDB)

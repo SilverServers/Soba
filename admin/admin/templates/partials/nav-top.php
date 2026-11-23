@@ -94,13 +94,12 @@ $navRow = function (array $it, int $depth = 0) use (&$navRow): void {
           // spend a slot in the drop cascade on the one destination every admin
           // already knows how to reach. ?>
     <a class="nav-top__brand" href="<?= h(Url::admin()) ?>">
-        <?php // The CMS in the site's own name and mark (Appearance → Branding). ?>
-        <?php if (\Cms\Ui\Brand::logoUrl() !== ''): ?>
-            <?php // The design language's mark: 28px high, and the one thing
-                  // left of the brand below 560px (nav.css §2 and nav.css §6). ?>
-            <img class="nav-top__brand-mark" src="<?= h(\Cms\Ui\Brand::logoUrl()) ?>" alt="">
+        <?php // The site's logo (Settings → Branding), in the version for this
+              // bar's colour under the viewer's theme, and its Site title. ?>
+        <?php if (($barLogo = \Cms\Ui\Branding::barLogo(\Cms\Ui\Theme::resolve($user ?? null))) !== ''): ?>
+            <img class="nav-top__brand-mark" src="<?= h($barLogo) ?>" alt="">
         <?php endif; ?>
-        <span><?= h(\Cms\Ui\Brand::name()) ?></span>
+        <span><?= h((string) \Cms\SEO\Head::globalTokens()['site_name']) ?></span>
         <?php if ($env !== ''): ?>
             <?php // NEUTRAL chip — the TEXT carries the meaning. Alert colours
                   // are a standalone surface and never sit inside themed chrome. ?>

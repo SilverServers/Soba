@@ -73,4 +73,13 @@ class DashboardController
 
         require ROOT_PATH . '/admin/templates/dashboard.php';
     }
+
+    /** A new site's next steps (`Ui\Welcome`), hidden for good. */
+    public function hideWelcome(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        \Cms\Ui\Welcome::hide();
+        header('Location: ' . ADMIN_URL, true, 303);
+        exit;
+    }
 }

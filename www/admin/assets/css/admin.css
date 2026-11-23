@@ -75,9 +75,9 @@
 .auth__ways { gap: var(--sp-2); }
 .auth__ways .btn { width: 100%; }
 
-/* The owner's logo in place of the wordmark (`SignInPage`): its width
-   is the attribute the owner chose; never wider than the card. */
-.auth__logo { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+/* The site's logo in place of its name (Settings → Branding, `Ui\Branding`):
+   no taller than a line and a half of the heading, never wider than the card. */
+.auth__logo { display: block; max-width: 100%; max-height: 4rem; width: auto; height: auto; margin: 0 auto; }
 
 
 /* ═══ 2. THE BRAND AT sm ══════════════════════════════════════════════════ */
@@ -2280,32 +2280,6 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
    writing surface. */
 .page--editor .form-main { display: flex; flex-direction: column; min-height: 0; }
 
-/* ── APPEARANCE → CUSTOMIZER ────────────────────────────────────────────────
-   The controls in a column of their own and the home page beside them, as
-   tall as the window allows and staying in view as the controls scroll, so a
-   choice and what it does are seen together. Narrower, the page goes under
-   the controls. */
-.customizer {
-  display: grid;
-  grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
-  gap: var(--sp-5);
-  align-items: start;
-}
-.customizer__preview { position: sticky; top: var(--sp-4); }
-.customizer__frame {
-  display: block;
-  width: 100%;
-  height: calc(100vh - 8rem);
-  min-height: 32rem;
-  border: 1px solid var(--border);
-  border-radius: var(--r-none);
-  background: var(--surface);
-}
-@media (max-width: 1080px) {
-  .customizer { grid-template-columns: minmax(0, 1fr); }
-  .customizer__preview { position: static; }
-  .customizer__frame { height: 36rem; }
-}
 /* NOT `.form-main > .form-card` — the title card is a `.form-card` too and a
    direct child, so the unqualified selector would stretch the TITLE to full
    height and leave the body field at 410px. Exactly backwards. */

@@ -28,7 +28,7 @@ use Cms\Security\Passwordless;
  */
 
 $site      = \Cms\SEO\Head::globalTokens()['site_name'];
-$pageTitle = 'Sign in · ' . \Cms\Ui\Brand::name();
+$pageTitle = 'Sign in · ' . (string) \Cms\SEO\Head::globalTokens()['site_name'];
 $hasRail   = false;
 $user      = null;
 $glyph     = $method === 'code' ? 'signin-code' : 'signin-link';
@@ -36,14 +36,14 @@ $glyph     = $method === 'code' ? 'signin-code' : 'signin-link';
 // never the raw request URI.
 $self      = $signIn . '?action=' . ($state === 'button' ? 'signin&key=' . rawurlencode($key) : $method);
 
-// At the sign-in address: its logo, background and CSS (`SignInPage`).
+// At the sign-in address: Settings → Branding's theme and logo (`Ui\Branding`).
 $signInPage = true;
 require ROOT_PATH . '/admin/templates/partials/head.php';
 ?>
 <body>
 <main class="auth">
     <div class="auth__inner">
-        <?= \Cms\Security\SignInPage::brand(\Cms\Ui\Brand::name()) ?>
+        <?= \Cms\Ui\Branding::signInBrand() ?>
 
         <?php if ($errors !== []): ?>
             <div class="alert alert--danger" role="alert">

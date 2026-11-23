@@ -25,6 +25,10 @@ use Cms\Ui\Status;
  * know. The h1 is the SITE'S NAME, which answers a question they may genuinely
  * have — *which* site am I editing — and which "Dashboard" does not.
  *
+ * A NEW SITE'S NEXT STEPS are not a greeting (`Ui\Welcome`): on a site just
+ * set up, each is a link to where that step is done, as the cards below are,
+ * until an administrator hides them for good.
+ *
  * The counts are not bars. A bar is for a number you compare, and "5 News
  * against 3 Events" is not a comparison anyone makes; the number is the fact.
  * Recent activity reuses the entry list's exact row vocabulary, so the two
@@ -80,6 +84,32 @@ ob_start();
                 <div class="alert__actions">
                     <a class="btn btn--sm" href="<?= h(Url::admin('forms/submissions')) ?>">Open the inbox</a>
                 </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php // ── A NEW SITE'S NEXT STEPS (`Ui\Welcome`) ─────────────────────────
+          // Each a whole-card link, as the cards below are; an administrator
+          // hides them for good. ?>
+    <?php if (\Cms\Ui\Welcome::shown($user)): ?>
+        <div class="panel__section" data-welcome>
+            <div class="panel__heading">
+                <h3>Next steps</h3>
+                <form method="post" action="<?= h(Url::admin('welcome/hide')) ?>">
+                    <?= \Cms\Security\Csrf::field() ?>
+                    <button class="btn btn--sm" type="submit">Hide these</button>
+                </form>
+            </div>
+            <div class="card-grid card-grid--stats">
+                <?php foreach (\Cms\Ui\Welcome::steps() as $step): ?>
+                    <a class="card stat" href="<?= h($step['href']) ?>">
+                        <div class="card__head">
+                            <?= icon($step['icon'], 'card__glyph icon icon--lg') ?>
+                            <strong><?= h($step['label']) ?></strong>
+                        </div>
+                        <p class="card__text"><?= h($step['text']) ?></p>
+                    </a>
+                <?php endforeach; ?>
             </div>
         </div>
     <?php endif; ?>

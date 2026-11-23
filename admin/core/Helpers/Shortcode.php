@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Cms\Helpers;
 
-use Cms\Compat\OldNames;
 use Cms\Forms\Captcha;
 use Cms\Forms\Appointments;
 use Cms\Forms\Embed;
@@ -50,19 +49,17 @@ class Shortcode
      */
     public static function process(string $content): string
     {
-        // [gallery id="N"] — and each also carries the CMS's old class names,
-        // unless the site has turned them off (`Compat\OldNames::markup()`,
-        // through 0.7.x).
+        // [gallery id="N"]
         $content = preg_replace_callback(
             '/\[gallery\s+id=["\']?(\d+)["\']?\s*\]/i',
-            static fn (array $m): string => OldNames::markup(self::renderGallery($m)),
+            static fn (array $m): string => self::renderGallery($m),
             $content
         );
 
         // [form id="N"]
         $content = preg_replace_callback(
             '/\[form\s+id=["\']?(\d+)["\']?\s*\]/i',
-            static fn (array $m): string => OldNames::markup(self::renderForm($m)),
+            static fn (array $m): string => self::renderForm($m),
             $content
         );
 
@@ -1243,13 +1240,6 @@ class Shortcode
         }
 
         $html .= '</div>'; // .cms-form
-
-        // A SITE STILL ON THE OLD CLASS NAMES (`Compat\OldNames`): what the
-        // scripts below draw gets its old name beside the new from one file,
-        // loaded first and only then, so the others name only the new.
-        if (OldNames::keepsOldClasses()) {
-            $html .= '<script src="' . htmlspecialchars(Asset::sitePath('assets/js/old-names.js')) . '"></script>';
-        }
 
         // logic.js ONLY WHEN A FIELD USES IT. A form with no conditional field
         // has nothing for it to do, and a script tag on every page carrying any

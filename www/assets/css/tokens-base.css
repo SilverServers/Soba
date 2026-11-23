@@ -7,13 +7,12 @@
      tokens-base.css              ← THIS FILE: theme-agnostic tokens + the bare
                                      :root default-paint alias (the default
                                      theme's values). ALWAYS loads before the
-                                     family files.
+                                     family file.
      tokens/signature-styles.css  ← Signature themes
-     tokens/legacy-styles.css     ← Legacy themes
      core.css                     ← the component vocabulary
 
-   The family files define ONLY `:root[data-theme="<key>"]` selectors (disjoint
-   by key), so their relative order does not matter. tokens-base must load first
+   The family file defines ONLY `:root[data-theme="<key>"]` selectors. tokens-base
+   must load first
    so the shared tokens and the default-paint alias exist before any override.
 
    The bare :root below carries (a) the shared theme-agnostic tokens and (b) a
@@ -25,9 +24,9 @@
 
    ADDING A THEME:
      1) Register it in themes_definitions() (php/lib/themes.php) with a `family`
-        of 'signature' or 'legacy', plus `bg` and `chrome` — these feed the
+        of 'signature', plus `bg` and `chrome` — these feed the
         first-paint skeleton, so set them to the colours the CSS block resolves to.
-     2) Add a :root[data-theme="<key>"] block to the matching family file,
+     2) Add a :root[data-theme="<key>"] block to the family file,
         mirroring the FULL variable set. A theme that omits a token inherits the
         default theme's value for it, which is how a "mostly right" theme ships
         with one wrong colour nobody can find.

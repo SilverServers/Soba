@@ -67,13 +67,6 @@ class AuthController
     public function showLogin(array $vars = []): void
     {
         if (Auth::check()) {
-            // AN ADMINISTRATOR LOOKING at the sign-in page's look (Appearance →
-            // Branding, Sign-in tab): shown as a visitor sees it, not sent
-            // past it. Only the page itself; signing in from it does nothing.
-            if (($_GET['preview'] ?? '') === '1' && !isset($_GET['action']) && (Auth::user()['role'] ?? '') === 'admin') {
-                $this->render();
-                return;
-            }
             header('Location: ' . ADMIN_URL);
             exit;
         }

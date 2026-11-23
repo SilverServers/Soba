@@ -234,12 +234,19 @@ class UserController
         $isSelf  = $user['id'] === $targetId;
         $errors  = [];
 
-        // Theme preset (always available)
-        $themePreset = '';
-        if (false) {   // appearance prefs are rebuilt with the appearance pane
-            User::update($targetId, ['theme_preset' => $themePreset]);
-            if ($isSelf) {
-                Auth::refreshSessionField('theme_preset', $themePreset);
+        // THE ADMIN THEME (`Ui\Theme`): the account's own, set by the user or
+        // by an administrator. The default is kept as NULL (migration 070), so
+        // the account follows whatever the default is.
+        if (isset($_POST['theme_preset'])) {
+            $themePreset = (string) $_POST['theme_preset'];
+            if (!\Cms\Ui\Theme::offers($themePreset)) {
+                $errors[] = 'Choose an admin theme from the list.';
+            } else {
+                $stored = $themePreset === \Cms\Ui\Theme::defaultKey() ? null : $themePreset;
+                User::update($targetId, ['theme_preset' => $stored]);
+                if ($isSelf) {
+                    Auth::refreshSessionField('theme_preset', $stored);
+                }
             }
         }
 

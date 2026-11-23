@@ -43,7 +43,13 @@ $description = trim((string) ($term['description'] ?? ''));
           // term exists and has not been used yet, and a visitor who reads
           // "no results" assumes they mistyped something. ?>
     <?php // audit-ok ?>
-    <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('empty_term')) ?></p>
+    <?php // AND THE WAY TO FILL IT, in the same line, for someone signed in who
+          // can (`Site\FirstStep`): an entry of the taxonomy's first type, filed
+          // under this on its form. Never a visitor. audit-ok: an editor's
+          // link, not the site's words. ?>
+    <?php $termTypes = array_slice(array_map('strval', (array) ($taxonomy['content_types'] ?? [])), 0, 1); ?>
+    <p class="post-list-empty"><?= htmlspecialchars(\Cms\Site\Words::of('empty_term')) ?>
+        <?php if ($termTypes !== [] && ($first = \Cms\Site\FirstStep::forList($termTypes)) !== null): ?><a href="<?= htmlspecialchars($first['href']) ?>"><?= htmlspecialchars($first['label']) ?></a><?php endif; ?></p>
 
 <?php else: ?>
 

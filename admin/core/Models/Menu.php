@@ -14,7 +14,7 @@ use PDO;
  * Migration 049 moved them. `menus.location_slug` was one varchar with a UNIQUE
  * index, which enforced both "one menu per location" (true) and "one location per
  * menu" (invented). Putting the same menu in the header and the footer — the
- * commonest thing anybody does with a small site's navigation — silently emptied
+ * commonest thing anybody does with a site's navigation — silently emptied
  * the header.
  *
  * Every read of a menu's locations goes through `locationsFor()` or arrives on the

@@ -825,9 +825,6 @@
             mediaOpen(onChosen);
         }
     };
-    // The same picker under the CMS's old name, for a site's own admin
-    // scripts — kept through 0.7.x (Cms\Compat\OldNames).
-    window.ImprintMedia = window.CmsMedia;
 
     // ENTER ADDS, and does not submit the entry. Without this the key that
     // obviously means "add this term" saves the whole post instead — with the

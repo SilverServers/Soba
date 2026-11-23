@@ -27,21 +27,21 @@ use Cms\Security\Csrf;
  */
 
 $site      = \Cms\SEO\Head::globalTokens()['site_name'];
-$pageTitle = ($state === 'choose' ? 'Choose a new password' : 'Lost password') . ' · ' . \Cms\Ui\Brand::name();
+$pageTitle = ($state === 'choose' ? 'Choose a new password' : 'Lost password') . ' · ' . (string) \Cms\SEO\Head::globalTokens()['site_name'];
 $hasRail   = false;
 $user      = null;
 // The choose form posts back to its own link — rebuilt from the sign-in
 // address and the one key it needs, never the raw request URI.
 $self      = $signIn . '?action=resetpass&key=' . rawurlencode((string) ($_GET['key'] ?? ''));
 
-// At the sign-in address: its logo, background and CSS (`SignInPage`).
+// At the sign-in address: Settings → Branding's theme and logo (`Ui\Branding`).
 $signInPage = true;
 require ROOT_PATH . '/admin/templates/partials/head.php';
 ?>
 <body>
 <main class="auth">
     <div class="auth__inner">
-        <?= \Cms\Security\SignInPage::brand(\Cms\Ui\Brand::name()) ?>
+        <?= \Cms\Ui\Branding::signInBrand() ?>
 
         <?php if ($errors !== []): ?>
             <div class="alert alert--danger" role="alert">

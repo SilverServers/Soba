@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Cms\Content;
 
-use Cms\Compat\OldNames;
 use Cms\ContentType\Registry;
 use Cms\Database\Database;
 use Cms\Models\Media;
@@ -809,13 +808,10 @@ final class Import
     }
 
     /** @return list<array<string, mixed>> */
-    /**
-     * Is this an export? It says `cms_export`, or — made before 0.7.0 —
-     * the marker it had then (Compat\OldNames::EXPORT_MARKER), accepted for good.
-     */
+    /** Is this an export? It says `cms_export`. */
     private static function marked(array $data): bool
     {
-        return ($data['cms_export'] ?? false) === true || ($data[OldNames::EXPORT_MARKER] ?? false) === true;
+        return ($data['cms_export'] ?? false) === true;
     }
 
     private static function rowsOf(array $data, string $key): array

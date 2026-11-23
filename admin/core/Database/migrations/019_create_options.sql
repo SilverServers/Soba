@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS options (
 
 -- Seed default settings
 INSERT INTO options (option_key, option_value) VALUES
-    ('site_name',    'Imprint'),
+    ('site_name',    ''),
     ('site_tagline', ''),
     ('admin_email',  ''),
     ('timezone',     'America/Vancouver'),

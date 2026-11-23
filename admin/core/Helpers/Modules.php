@@ -7,14 +7,16 @@ namespace Cms\Helpers;
 /**
  * MODULE SWITCHES — which optional parts of the CMS this install runs.
  * Set in config.php, every key optional,
- * every module ON unless switched off:
+ * every module ON unless switched off, but the assistant, which is OFF unless
+ * switched on (`OFF_UNLESS_ON`):
  *
  *     'modules' => ['pages' => false, 'commerce' => false, …],
  *
  * A switch is read as yes or no (`reading()`): false, 0, and "false", "no",
  * "off", "0" or "" in any case switch a module off; true, 1, "true", "yes",
- * "on" and "1" leave it on. Anything else leaves it on, and System health and
- * an update's check say which (`notes()`).
+ * "on" and "1" switch it on. Anything else leaves the module as it is with no
+ * switch written, and System health and an update's check say which
+ * (`notes()`).
  *
  * A switched-off module is switched off, not deleted. It registers no routes
  * (its addresses answer 404, never 405 or a screen), and it shows nowhere in
@@ -22,8 +24,8 @@ namespace Cms\Helpers;
  * field type in the form builder. Its tables and data stay where they are, so
  * switching it back on restores it as it was.
  *
- * Appearance itself is not a module: Themes and Branding are the CMS's own and
- * stay. `menus` takes Menus.
+ * Appearance holds Menus alone, so switching `menus` off takes the whole
+ * group.
  */
 final class Modules
 {
@@ -38,6 +40,9 @@ final class Modules
         'forms'        => 'forms: their admin screens, the inbox and the public submission address',
     ];
 
+    /** @var list<string> the modules that are off until config.php switches them on */
+    public const OFF_UNLESS_ON = ['assistant'];
+
     /** @var array<string, bool>|null */
     private static ?array $switches = null;
 
@@ -46,8 +51,15 @@ final class Modules
     {
         self::$switches = [];
         foreach (array_keys(self::ALL) as $module) {
-            self::$switches[$module] = self::reading($switches[$module] ?? true) ?? true;
+            $unwritten = self::unwritten($module);
+            self::$switches[$module] = self::reading($switches[$module] ?? $unwritten) ?? $unwritten;
         }
+    }
+
+    /** Whether a module is on where config.php writes no switch for it. */
+    private static function unwritten(string $module): bool
+    {
+        return !in_array($module, self::OFF_UNLESS_ON, true);
     }
 
     /**
@@ -85,7 +97,7 @@ final class Modules
             $written = "'modules' => ['{$module}' => " . (is_scalar($value) ? var_export($value, true) : gettype($value)) . ']';
             $reading = self::reading($value);
             if ($reading === null) {
-                $notes[] = "{$written} is neither yes nor no, so {$module} stays on: write true or false.";
+                $notes[] = "{$written} is neither yes nor no, so {$module} stays " . (self::unwritten($module) ? 'on' : 'off') . ': write true or false.';
             } elseif ($sinceCast && $reading === false && (bool) $value) {
                 $notes[] = "{$written} switches {$module} off from this release; until now any text there left it on.";
             }
@@ -162,8 +174,7 @@ final class Modules
     public static function allowsRoute(string $pattern, array $handler): bool
     {
         $owners = [];
-        // A site's route may still name its handler by the old namespace.
-        $class  = \Cms\Compat\OldNames::className((string) ($handler[0] ?? ''));
+        $class  = ltrim((string) ($handler[0] ?? ''), '\\');
         if (isset(self::ROUTE_HANDLERS[$class])) {
             $owners[] = self::ROUTE_HANDLERS[$class];
         }

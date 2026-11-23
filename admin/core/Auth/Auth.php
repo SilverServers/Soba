@@ -275,9 +275,6 @@ class Auth
         if (self::$checked !== null) {
             return self::$checked;
         }
-        // A session from before 0.7.0, opened by a site's own session_start().
-        \Cms\Compat\OldNames::carrySession();
-
         if (!isset($_SESSION[self::SESSION_KEY]) || !is_array($_SESSION[self::SESSION_KEY])) {
             return self::$checked = false;
         }

@@ -312,6 +312,23 @@ ob_start();
                 <?php endif; ?>
             </div>
 
+            <?php // THE ADMIN THEME, the account's own (`Ui\Theme`): the user sets
+                  // it here, and an administrator can set anyone's. On one's own
+                  // account the page repaints as a theme is chosen
+                  // (`appearance.js`); Save keeps it. ?>
+            <div class="form-card__section">
+                <?= panel_title('Admin theme', 'admin-theme') ?>
+                <div class="field">
+                    <label class="label" for="f-admin-theme">Admin theme</label>
+                    <select class="select" id="f-admin-theme" name="theme_preset"<?= $isSelf ? ' data-appearance="theme"' : '' ?>>
+                        <?php $themeNow = \Cms\Ui\Theme::resolve($profile); ?>
+                        <?php foreach (\Cms\Ui\Theme::offered() as $t): ?>
+                            <option value="<?= h($t['key']) ?>"<?= $t['key'] === $themeNow ? ' selected' : '' ?>><?= h($t['label']) ?><?= $t['key'] === \Cms\Ui\Theme::defaultKey() ? ' (default)' : '' ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+
             <?php if ($temporary !== null): ?>
             <div class="form-card__section">
                 <?= panel_title('Password', 'password') ?>

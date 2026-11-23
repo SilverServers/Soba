@@ -47,10 +47,12 @@ use Cms\Ui\Theme;
  */
 
 $user      = $user      ?? null;
-$pageTitle = $pageTitle ?? \Cms\Ui\Brand::name();
+$pageTitle = $pageTitle ?? (string) \Cms\SEO\Head::globalTokens()['site_name'];
 $hasRail   = $hasRail   ?? true;
 
-$theme  = Theme::resolve($user);
+// THE PAGES AT THE SIGN-IN ADDRESS wear Settings → Branding's theme
+// (`Ui\Branding`); every other page its viewer's own (`Ui\Theme`).
+$theme  = !empty($signInPage) ? \Cms\Ui\Branding::signInTheme() : Theme::resolve($user);
 $radius = Theme::resolveRadius($user);
 $scheme = Theme::scheme($theme);
 $paint  = Theme::paint($theme);
@@ -88,8 +90,6 @@ $fontUrl = static fn (string $file): string => Url::admin('assets/fonts/' . $fil
     <?php // The admin is never a search result. ?>
     <meta name="robots" content="noindex, nofollow">
     <title><?= h($pageTitle) ?></title>
-    <?php // The site icon (Appearance → Branding); nothing when there is none. ?>
-    <?= \Cms\Ui\Brand::iconTags() ?>
 
     <style>
       /* FIRST-PAINT SKELETON — see the header note. The literal fallbacks are
@@ -120,25 +120,18 @@ $fontUrl = static fn (string $file): string => Url::admin('assets/fonts/' . $fil
     <link rel="stylesheet" href="<?= h(Asset::admin('css/reset.css')) ?>">
     <link rel="stylesheet" href="<?= h(Asset::admin('css/tokens-base.css')) ?>">
     <link rel="stylesheet" href="<?= h(Asset::admin('css/tokens/signature-styles.css')) ?>">
-    <link rel="stylesheet" href="<?= h(Asset::admin('css/tokens/legacy-styles.css')) ?>">
     <link rel="stylesheet" href="<?= h(Asset::admin('css/core.css')) ?>">
     <link rel="stylesheet" href="<?= h(Asset::admin('css/shell.css')) ?>">
     <link rel="stylesheet" href="<?= h(Asset::admin('css/nav.css')) ?>">
     <?php // LAST: the CMS's own thin layer, for the surfaces the package does
           // not cover. See its header for what is allowed to live there. ?>
     <link rel="stylesheet" href="<?= h(Asset::admin('css/admin.css')) ?>">
-<?php // A site's own admin palette, after everything so it wins: token
-      // values only — change the tokens, not the components.
-      // www/site/ is the site's; no package ships it, no update touches it.
-if (is_file(PUBLIC_PATH . '/site/admin.css')): ?>
-    <link rel="stylesheet" href="<?= h(Asset::site('site/admin.css')) ?>">
+<?php // A SITE'S OWN ADMIN THEME (`Ui\Theme`): its stylesheet, last, so its
+      // tokens win. www/site/ is the site's; no package ships it, no update
+      // touches it.
+if (($_themeCss = Theme::stylesheet($theme)) !== null): ?>
+    <link rel="stylesheet" href="<?= h($_themeCss) ?>">
 <?php endif; ?>
-
-    <?php // THE SIGN-IN PAGE'S LOOK: its background and the owner's CSS, last,
-          // on the pages at the sign-in address only. ?>
-    <?php if (!empty($signInPage)): ?>
-    <?= \Cms\Security\SignInPage::style() ?>
-    <?php endif; ?>
 
     <?php // admin.js in <head>: page templates emit their own <script> tags
           // inside $pageContent, which the layout prints ABOVE its own. Anything

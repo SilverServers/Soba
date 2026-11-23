@@ -41,14 +41,14 @@
    matches Shortcode::renderGallery()'s own default, so a gallery saved before
    that setting existed still lays out.                                        */
 
-.cms-gallery, .imprint-gallery { margin: var(--sp-5) 0; }
+.cms-gallery { margin: var(--sp-5) 0; }
 
-.cms-gallery--grid, .imprint-gallery--grid {
+.cms-gallery--grid {
   display: grid;
   grid-template-columns: repeat(var(--gallery-columns, 3), minmax(0, 1fr));
   gap: var(--sp-3);
 }
-.cms-gallery--grid .cms-gallery__item img, .imprint-gallery--grid .imprint-gallery__item img {
+.cms-gallery--grid .cms-gallery__item img {
   width: 100%;
   /* AUTO, NOT 100%. The tile is a grid item stretched to its row, so 100% was
      the whole tile: once an item had a caption (migration 091) its picture took
@@ -60,16 +60,16 @@
   object-fit: cover;
 }
 
-.cms-gallery--masonry, .imprint-gallery--masonry {
+.cms-gallery--masonry {
   columns: var(--gallery-columns, 3);
   column-gap: var(--sp-3);
 }
-.cms-gallery--masonry .cms-gallery__item, .imprint-gallery--masonry .imprint-gallery__item {
+.cms-gallery--masonry .cms-gallery__item {
   break-inside: avoid;
   margin-bottom: var(--sp-3);
 }
 
-.cms-gallery__item img, .imprint-gallery__item img {
+.cms-gallery__item img {
   width: 100%;
   border-radius: var(--r-none);
   background: var(--surface-2);
@@ -78,7 +78,7 @@
 /* The lightbox setting wraps each image in a link to the full-size file — that
    is exactly what its label in the gallery editor promises and all it does.
    There is no modal viewer in this package; the link navigates. */
-.cms-gallery__item a, .imprint-gallery__item a { display: block; }
+.cms-gallery__item a { display: block; }
 
 /* AN ITEM'S CAPTION (migration 091). Under
    its picture, as words — on the page and in the editor's preview alike,
@@ -88,26 +88,26 @@
    has none of this one's type tokens. That keeps a site's existing look, so
    an update does not restyle its galleries. With the lightbox on the caption
    carries the item's link, so a link inside it is text, not a block. */
-.cms-gallery__caption, .imprint-gallery__caption {
+.cms-gallery__caption {
   margin-top: var(--sp-2);
   font-size: 0.875em;
   line-height: 1.4;
 }
-.cms-gallery__caption a, .imprint-gallery__caption a { display: inline; text-decoration: underline; }
-.cms-gallery__item a:hover img, .imprint-gallery__item a:hover img { opacity: 0.9; }
+.cms-gallery__caption a { display: inline; text-decoration: underline; }
+.cms-gallery__item a:hover img { opacity: 0.9; }
 
 /* Two columns is the widest a gallery reads at this width whatever the owner
    picked, so the setting is clamped rather than overridden — it is a ceiling,
    not an override. Both breakpoints are on the sanctioned four (560 / 720 /
    1080 / 1280). */
 @media (max-width: 720px) {
-  .cms-gallery--grid, .imprint-gallery--grid {
+  .cms-gallery--grid {
     grid-template-columns: repeat(min(var(--gallery-columns, 3), 2), minmax(0, 1fr));
   }
-  .cms-gallery--masonry, .imprint-gallery--masonry { columns: min(var(--gallery-columns, 3), 2); }
+  .cms-gallery--masonry { columns: min(var(--gallery-columns, 3), 2); }
 }
 
 @media (max-width: 560px) {
-  .cms-gallery--grid, .imprint-gallery--grid { grid-template-columns: minmax(0, 1fr); }
-  .cms-gallery--masonry, .imprint-gallery--masonry { columns: 1; }
+  .cms-gallery--grid { grid-template-columns: minmax(0, 1fr); }
+  .cms-gallery--masonry { columns: 1; }
 }

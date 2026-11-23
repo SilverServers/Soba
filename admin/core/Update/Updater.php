@@ -103,9 +103,7 @@ final class Updater
      */
     private function ownership(string $layout): Ownership
     {
-        $routerFront = $layout === 'router' ? (string) ($this->ownershipData['layouts']['router']['@front'] ?? '') : null;
-
-        return Ownership::fromArray($layout, $this->ownershipData, Ownership::installNames($this->config(), $this->site, $routerFront));
+        return Ownership::fromArray($layout, $this->ownershipData, Ownership::installNames($this->config(), $this->site));
     }
 
     /** The list as a PACKAGE reads it: the canonical names it was built with. */
@@ -122,7 +120,7 @@ final class Updater
     public static function preload(): void
     {
         foreach ([Ownership::class, Manifest::class, DbSnapshot::class, \Cms\Database\Migrator::class, \JsonException::class,
-                  \Cms\Helpers\Slug::class, \Cms\Compat\OldNames::class] as $class) {
+                  \Cms\Helpers\Slug::class] as $class) {
             class_exists($class);
         }
     }
@@ -163,8 +161,8 @@ final class Updater
             $this->out("\nNOT UPDATED. This site has changed " . count($local) . " of the CMS's files (listed above).");
             $this->out("Copies of them, and a list, are in {$this->rel($bundle)}.");
             $this->out('Each change belongs in the CMS itself (send it back to be built in) or in the site\'s own');
-            $this->out('theme: admin/site/templates/ for a template, www/site/theme.css or www/site/admin.css for');
-            $this->out('styles. Once they are moved, run `apply` again. `--discard-local-changes` updates anyway,');
+            $this->out('theme: admin/site/templates/ for a template, www/site/theme.css for the public pages\' styles,');
+            $this->out('www/site/admin-themes/ for the admin\'s. Once they are moved, run `apply` again. `--discard-local-changes` updates anyway,');
             $this->out('keeping the changed files in the backup. Nothing was changed.');
             return self::EXIT_LOCAL_CHANGES;
         }
@@ -398,10 +396,6 @@ final class Updater
             $plan['warnings'][] = 'admin/config/config.php: ' . $note;
         }
 
-        // The site's own files that still use the CMS's old names: they keep
-        // working through 0.7.x, and 0.8.0 will need them changed.
-        $plan['old_names'] = \Cms\Compat\OldNames::inSiteFiles($this->site, $ownership);
-
         $old = $installed->files();
         $new = $package->files();
         $plan['added']   = array_values(array_diff(array_keys($new), array_keys($old)));
@@ -483,12 +477,9 @@ final class Updater
      */
     private function identify(Manifest $package, array &$plan): array
     {
-        // Written before 0.7.0, a manifest or baseline may name the router
-        // layout's front controller as it was then (Compat\OldNames::manifest()).
-        $now = fn (Manifest $m): Manifest => \Cms\Compat\OldNames::manifest($m, (string) ($this->ownershipData['layouts'][$m->layout()]['@front'] ?? ''));
         $manifest = Manifest::read($this->site . '/' . Manifest::FILE);
         if ($manifest !== null) {
-            return [$now($manifest), 'manifest'];
+            return [$manifest, 'manifest'];
         }
 
         $best = null;
@@ -498,7 +489,6 @@ final class Updater
             if ($baseline === null) {
                 continue;
             }
-            $baseline = $now($baseline);
             $diff  = $baseline->diffTree($this->site, $this->ownership($baseline->layout()));
             $score = $diff['same'] / max(1, count($baseline->files()));
             $plan['warnings'][] = sprintf('baseline %s matches %.1f%% of its files', $baseline->version(), 100 * $score);
@@ -586,14 +576,6 @@ final class Updater
             foreach ($local as $line) {
                 $this->out('    ' . $line);
             }
-        }
-        if (($plan['old_names'] ?? []) !== []) {
-            $this->out("\n  OLD NAMES in " . count($plan['old_names']) . " of the site's own files (Imprint\\…, imprint-*, ImprintMedia).");
-            $this->out('  They keep working through 0.7.x. Change them to Cms\\…, cms-*, CmsMedia before 0.8.0:');
-            foreach ($plan['old_names'] as $file) {
-                $this->out('    ' . $file);
-            }
-            $this->out("  The CMS writes its old class names beside the new until config.php says 'old_class_names' => false.");
         }
         if ($plan['notes'] !== []) {
             $this->out("\n  Not the CMS's, and not touched: " . implode(', ', $plan['notes']) . '.');

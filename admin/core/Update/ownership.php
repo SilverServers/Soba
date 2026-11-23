@@ -39,10 +39,7 @@ declare(strict_types=1);
  *               front controller ships as `www/cms.php`; the site's own
  *               `www/index.php` and `www/.htaccess` are never shipped or
  *               touched, and the site's `.htaccess` carries a rewrite block
- *               handing the CMS's paths to `cms.php` instead. (Before 0.7.0
- *               it shipped under its old name (Compat\OldNames::ROUTER_FRONT); an install that still has
- *               that file, and no `front_controller` of its own, keeps it
- *               there — Compat\OldNames::routerFront().)
+ *               handing the CMS's paths to `cms.php` instead.
  *
  * AND ON EACH INSTALL, ITS OWN NAME FOR ONE OF THEM (`Ownership::installNames()`):
  * the front controller is `www/{front_controller}` when the site named it
@@ -62,6 +59,10 @@ return [
         'admin/composer.json',
         'admin/composer.lock',
         'admin/VERSION',
+        // The licence, GPL-3.0-or-later: every copy handed out carries it,
+        // with the notice that says whose it is and what else is inside.
+        'admin/LICENSE',
+        'admin/NOTICE',
         'admin/manifest.json',
         'admin/config/config.example.php',
         // The operator scripts, by name: nothing else in admin/bin/ ships.
@@ -75,6 +76,7 @@ return [
         // above all. form-numbers.php sets the number the next form
         // submission takes. media-site-files.php puts files the site already
         // has under its web root into the library where they are.
+        // admin-theme.php lists the admin's themes and checks a site's own.
         'admin/bin/migrate.php',
         'admin/bin/update.php',
         'admin/bin/security.php',
@@ -86,6 +88,7 @@ return [
         'admin/bin/config.php',
         'admin/bin/form-numbers.php',
         'admin/bin/media-site-files.php',
+        'admin/bin/admin-theme.php',
         '@admin',
         'www/assets/',
         'www/uploads/.htaccess',
@@ -117,8 +120,9 @@ return [
         'admin/imports/',
         'admin/logs/',
         'www/uploads/',
-        // The site's public files. www/site/theme.css and www/site/admin.css
-        // load after the CMS's own stylesheets when they exist.
+        // The site's public files. www/site/theme.css loads after the CMS's
+        // own stylesheets on the public pages when it exists, and each
+        // stylesheet in www/site/admin-themes/ is an admin theme (`Ui\Theme`).
         'www/site/',
     ],
 

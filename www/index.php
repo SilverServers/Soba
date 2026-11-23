@@ -91,10 +91,14 @@ require_once ROOT_PATH . '/core/Helpers/Url.php';
 // Load environment config.
 $configPath = ROOT_PATH . '/config/config.php';
 if (!file_exists($configPath)) {
-    // THE VISITOR GETS A BARE 500: the file's
-    // path and the fix go to the error log, where whoever is installing
-    // looks — not to every visitor of a site that lost its config. It names
-    // no product: the CMS is white-labelled per install.
+    // A SITE NEVER SET UP opens the set-up at /install (`Install\Installer`).
+    if (\Cms\Install\Installer::neverSetUp()) {
+        \Cms\Install\Installer::handle();
+    }
+    // ONE THAT LOST ITS config.php GETS A BARE 500: the file's path and the
+    // fix go to the error log, where whoever runs it looks — not to every
+    // visitor, and never a way to point the site at another database. It
+    // names no product: the CMS is white-labelled per install.
     error_log('CMS: ' . $configPath . ' not found. Copy config.example.php beside it and fill in values.');
     http_response_code(500);
     exit('Not configured.');
@@ -102,6 +106,9 @@ if (!file_exists($configPath)) {
 // READ QUIETLY (`Site\ConfigFile::read()`): a blank line or a byte-order
 // mark before its `<?php` is dropped, not printed ahead of the page's headers.
 $config = \Cms\Site\ConfigFile::read($configPath);
+// A site that has run with a config.php is never offered the set-up again,
+// should it lose that file (`Install\Installer::markSetUp()`).
+\Cms\Install\Installer::markSetUp();
 
 // MODULE SWITCHES: which optional parts of the CMS this install runs, from
 // config.php's `modules` — every one on unless switched off. A switched-off
@@ -308,6 +315,7 @@ $router->addRoute('GET',  '/order/{key:[a-f0-9]+}',   [ShopController::class, 'o
 // Content Type route, so nothing generated can shadow it.
 // -----------------------------------------------------------------------
 $router->addRoute('GET',  '/admin',        [DashboardController::class, 'index']);
+$router->addRoute('POST', '/admin/welcome/hide', [DashboardController::class, 'hideWelcome']);
 $router->addRoute('GET',  '/admin/login',  [AuthController::class,      'legacyLogin']);
 $router->addRoute('POST', '/admin/login',  [AuthController::class,      'legacyLogin']);
 if (\Cms\Security\LoginUrl::enabled()) {
@@ -468,24 +476,6 @@ $router->addRoute('POST', '/admin/forms/{id:\d+}/mark-all-read',              [A
 // -----------------------------------------------------------------------
 // Admin — Appearance
 // -----------------------------------------------------------------------
-// THEMES (Helpers\Theme): the list, the switch, and a theme's screenshot for
-// its card. `/admin/appearance` itself sends you to the section's first row,
-// Themes.
-use Cms\Controllers\Admin\ThemeController;
-$router->addRoute('GET',  '/admin/appearance',                        [ThemeController::class, 'section']);
-$router->addRoute('GET',  '/admin/appearance/themes',                 [ThemeController::class, 'index']);
-$router->addRoute('POST', '/admin/appearance/themes/activate',        [ThemeController::class, 'activate']);
-$router->addRoute('POST', '/admin/appearance/themes/delete',          [ThemeController::class, 'delete']);
-$router->addRoute('GET',  '/admin/appearance/themes/{key:[a-z0-9][a-z0-9_-]*}/screenshot', [ThemeController::class, 'screenshot']);
-// BRANDING (Ui\Brand, Security\SignInPage): the Admin tab and the Sign-in tab,
-// one form each.
-use Cms\Controllers\Admin\BrandingController;
-$router->addRoute('GET',  '/admin/appearance/branding',               [BrandingController::class, 'show']);
-$router->addRoute('POST', '/admin/appearance/branding',               [BrandingController::class, 'saveAdmin']);
-$router->addRoute('POST', '/admin/appearance/branding/sign-in',       [BrandingController::class, 'saveSignIn']);
-// The public site's own look (`Site\Look`), with its home page beside the controls.
-$router->addRoute('GET',  '/admin/appearance/customizer',             [\Cms\Controllers\Admin\CustomizerController::class, 'show']);
-$router->addRoute('POST', '/admin/appearance/customizer',             [\Cms\Controllers\Admin\CustomizerController::class, 'save']);
 $router->addRoute('GET',  '/admin/appearance/menus',                  [AdminMenuController::class, 'index']);
 // MANAGE LOCATIONS — the second tab. Registered BEFORE the `{id:\d+}` routes
 // only for readability; `locations` cannot match `\d+`, so the order is not
@@ -629,6 +619,8 @@ $router->addRoute('GET',  '/admin/settings/permalinks', [SettingsController::cla
 // one. The slash has readers: `Url::page()`, and the 301 in `Url::settle()`.
 $router->addRoute('POST', '/admin/settings/permalinks', [SettingsController::class, 'handlePermalinks']);
 // THE THEME'S OWN WORDS, in each language the site has (`Site\Words`).
+$router->addRoute('GET',  '/admin/settings/branding',   [SettingsController::class, 'showBranding']);
+$router->addRoute('POST', '/admin/settings/branding',   [SettingsController::class, 'handleBranding']);
 $router->addRoute('GET',  '/admin/settings/words',      [SettingsController::class, 'showWords']);
 $router->addRoute('POST', '/admin/settings/words',      [SettingsController::class, 'handleWords']);
 $router->addRoute('GET',  '/admin/settings/email',      [SettingsController::class, 'showEmail']);
@@ -1071,7 +1063,7 @@ switch ($result[0]) {
         // THE LANGUAGE THE PAGE IS DRAWN IN (`Site\Language`): the site's own,
         // unless the route is the second language's.
         \Cms\Site\Language::draw((string) ($handler[3] ?? ''),
-            str_starts_with(\Cms\Compat\OldNames::className((string) $controllerClass), 'Cms\\Controllers\\Public\\'));
+            str_starts_with(ltrim((string) $controllerClass, '\\'), 'Cms\\Controllers\\Public\\'));
 
         $controller = $contentTypeKey !== null
             ? new $controllerClass($contentTypeKey)

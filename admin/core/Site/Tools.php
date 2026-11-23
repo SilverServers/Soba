@@ -179,7 +179,6 @@ final class Tools
         if ($asset) {
             if (isset($_COOKIE[session_name()])) {
                 session_start(['read_and_close' => true]);
-                \Cms\Compat\OldNames::carrySession();
             }
             if (!Auth::check() || !Auth::hasRole($tool['role'])) {
                 self::notFound();

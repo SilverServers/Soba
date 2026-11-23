@@ -73,8 +73,7 @@ final class FileCheck
         // (`Ownership::installNames()`), or that file would be "missing" and
         // the renamed one "unknown".
         $config = \Cms\Site\ConfigFile::read($site . '/admin/config/config.php');
-        $rules  = Ownership::load($manifest->layout(), $site . '/admin/core/Update/ownership.php');
-        $names  = is_array($config) ? Ownership::installNames($config, $site, $manifest->layout() === 'router' ? $rules->front() : null) : [];
+        $names  = is_array($config) ? Ownership::installNames($config, $site) : [];
         $diff   = $manifest->diffTree($site, Ownership::load($manifest->layout(), $site . '/admin/core/Update/ownership.php', $names));
 
         return ['version' => $manifest->version(), 'site' => $site] + $diff;

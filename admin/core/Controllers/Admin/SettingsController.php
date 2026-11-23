@@ -292,6 +292,68 @@ class SettingsController
      * saved.
      */
     /**
+     * SETTINGS → BRANDING (`Ui\Branding`): the site's logo, in a version for
+     * light backgrounds and one for dark, and the sign-in pages' theme.
+     */
+    public function showBranding(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        $s = \Cms\Ui\Branding::settings();
+        $this->renderBranding([], isset($_GET['saved']), [
+            'logo_light' => $s['logo_light'], 'logo_dark' => $s['logo_dark'], 'signin_theme' => $s['signin_theme'],
+        ]);
+    }
+
+    /** Keep the sheet; on a refusal nothing is written, and the sheet comes back as chosen. */
+    public function handleBranding(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        $posted = [
+            'logo_light'   => max(0, (int) ($_POST['logo_light'] ?? 0)),
+            'logo_dark'    => max(0, (int) ($_POST['logo_dark'] ?? 0)),
+            'signin_theme' => (string) ($_POST['signin_theme'] ?? ''),
+        ];
+        $errors = [];
+        foreach (['logo_light' => 'The logo for light backgrounds', 'logo_dark' => 'The logo for dark backgrounds'] as $key => $what) {
+            $problem = \Cms\Ui\Branding::pictureProblem($posted[$key]);
+            if ($problem !== null) {
+                $errors[] = $what . ': ' . lcfirst($problem);
+            }
+        }
+        if (!\Cms\Ui\Theme::offers($posted['signin_theme'])) {
+            $errors[] = 'Choose the sign-in page\'s theme from the list.';
+        }
+        if ($errors !== []) {
+            $this->renderBranding($errors, false, $posted);
+            return;
+        }
+        Option::setMany([
+            \Cms\Ui\Branding::LOGO_LIGHT_KEY   => (string) $posted['logo_light'],
+            \Cms\Ui\Branding::LOGO_DARK_KEY    => (string) $posted['logo_dark'],
+            \Cms\Ui\Branding::SIGNIN_THEME_KEY => $posted['signin_theme'],
+        ]);
+        \Cms\Ui\Branding::reset();
+        header('Location: ' . ADMIN_URL . '/settings/branding?saved=1', true, 303);
+        exit;
+    }
+
+    /**
+     * @param list<string>         $errors
+     * @param array<string, mixed> $form
+     */
+    private function renderBranding(array $errors, bool $saved, array $form): void
+    {
+        $user        = Auth::user();
+        $pageTitle   = 'Branding';
+        $currentPage = 'settings-branding';
+
+        ob_start();
+        require ROOT_PATH . '/admin/templates/settings/branding.php';
+        $pageContent = ob_get_clean();
+        require ROOT_PATH . '/admin/templates/layout.php';
+    }
+
+    /**
      * SETTINGS → WORDS: the theme's own words (`Site\Words`), the owner's for
      * the site's language and for its second.
      */

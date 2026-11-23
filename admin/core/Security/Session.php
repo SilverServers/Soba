@@ -42,7 +42,6 @@ final class Session
         if (!session_start()) {
             return false;
         }
-        \Cms\Compat\OldNames::carrySession();
 
         return true;
     }

@@ -223,13 +223,6 @@ final class Sidebar
             'galleries'      => 'table-cells-large',
 
             // Appearance
-            // Two windows, one in front of the other: one site, a choice of
-            // looks. Its own mark — `layer-group` is Content types, below.
-            'themes'         => 'window-restore',
-            // The site's own mark on the CMS (`Ui\Brand`).
-            'branding'       => 'star',
-            // The public site's look: its dials (`Site\Look`).
-            'customizer'     => 'sliders',
             'menus'          => 'list-ul',
 
             // Structure
@@ -313,6 +306,8 @@ final class Sidebar
             'seo'            => 'magnifying-glass',
             'permalinks'     => 'link',
             'words'          => 'quote-left',
+            // Settings → Branding: the site's own mark on the admin.
+            'branding'       => 'star',
             'email'          => 'mail',
 
             // ── Content Type menu_icon values ───────────────────────────────

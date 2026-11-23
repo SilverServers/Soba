@@ -27,7 +27,7 @@ use Cms\Security\Factors;
  */
 
 $site      = \Cms\SEO\Head::globalTokens()['site_name'];
-$pageTitle = 'Two-step sign-in · ' . \Cms\Ui\Brand::name();
+$pageTitle = 'Two-step sign-in · ' . (string) \Cms\SEO\Head::globalTokens()['site_name'];
 $hasRail   = false;
 $user      = null;
 
@@ -37,14 +37,14 @@ $ask = match ($method) {
     default         => 'Type the 6-digit code your authenticator app shows for ' . $site . '.',
 };
 
-// At the sign-in address: its logo, background and CSS (`SignInPage`).
+// At the sign-in address: Settings → Branding's theme and logo (`Ui\Branding`).
 $signInPage = true;
 require ROOT_PATH . '/admin/templates/partials/head.php';
 ?>
 <body>
 <main class="auth">
     <div class="auth__inner">
-        <?= \Cms\Security\SignInPage::brand(\Cms\Ui\Brand::name()) ?>
+        <?= \Cms\Ui\Branding::signInBrand() ?>
 
         <?php if ($error !== null): ?>
             <div class="alert alert--danger" role="alert">

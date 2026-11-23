@@ -66,6 +66,10 @@ final class Slug
         return array_values(array_unique($reserved));
     }
 
-    /** The site's own first segments: fixed public routes, and the folders under www/. */
-    public const PUBLIC_SEGMENTS = ['api', 'assets', 'uploads', 'account', 'cart', 'checkout', 'files', 'forms', 'order', 'search'];
+    /**
+     * The site's own first segments: fixed public routes, and the folders under
+     * www/ — `site` among them, the site's own folder, where its admin themes
+     * live (`Ui\Theme::SITE_DIR`).
+     */
+    public const PUBLIC_SEGMENTS = ['api', 'assets', 'uploads', 'account', 'cart', 'checkout', 'files', 'forms', 'order', 'search', 'site'];
 }

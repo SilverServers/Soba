@@ -9,7 +9,7 @@ namespace Cms\Ui;
  *
  * Never a per-state hue and never an alert-colour tint. The state reads from the
  * GLYPH, not from the colour. That is not minimalism, it is what makes the chip
- * survive 21 themes: amber and red are plausible ACCENT colours, so the moment a
+ * survive every theme: amber and red are plausible ACCENT colours, so the moment a
  * theme's accent is orange, a "warning" chip and a "brand" chip are the same
  * colour and the alarm stops meaning anything.
  *
