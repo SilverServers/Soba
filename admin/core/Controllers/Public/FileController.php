@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Public;
 
 use Cms\Auth\Auth;
+use Cms\Http\Cache;
 use Cms\Models\Media;
 
 /**
@@ -53,9 +54,9 @@ class FileController
         header('Content-Disposition: inline; filename="' . addslashes($attachment['original_name']) . '"');
 
         if ($visibility === 'private') {
-            header('Cache-Control: no-store, private');
+            Cache::noStore(private: true);
         } else {
-            header('Cache-Control: public, max-age=86400');
+            Cache::publicFor(86400);
         }
 
         readfile($filePath);

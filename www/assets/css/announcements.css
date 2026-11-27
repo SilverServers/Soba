@@ -1,0 +1,116 @@
+/* ANNOUNCEMENTS (`Site\Announcements`, `announcements.js`): a banner across
+   the top of the page, a pop-up over it, a slide-in at its corner, or a place
+   the theme has. Linked beside them wherever they print, so a theme that
+   loads none of this site's stylesheets still has them, and a theme restyles
+   any of it by these classes. In the page's own type, with the theme's
+   colours where it has them and the browser's own otherwise. A tone is the
+   surface it sits on, tinted over the page's own so a pop-up stays opaque;
+   the words stay the page's ink. */
+.cms-announcement {
+  --cms-announcement-tint: transparent;
+  box-sizing: border-box;
+  color: var(--ink, CanvasText);
+  background-color: var(--surface, Canvas);
+  background-image: linear-gradient(var(--cms-announcement-tint), var(--cms-announcement-tint));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+.cms-announcement[hidden] { display: none; }
+.cms-announcement--success { --cms-announcement-tint: var(--accent-soft, transparent); }
+.cms-announcement--warning { --cms-announcement-tint: var(--warning-soft, transparent); }
+.cms-announcement--alert   { --cms-announcement-tint: var(--danger-soft, transparent); }
+
+.cms-announcement__body { flex: 1; min-width: 0; }
+.cms-announcement__title { margin: 0; font-size: 1em; font-weight: 700; line-height: 1.4; }
+.cms-announcement__message > :first-child { margin-top: 0.25rem; }
+.cms-announcement__message > :last-child { margin-bottom: 0; }
+.cms-announcement__action { margin: 0.625rem 0 0; }
+.cms-announcement__link {
+  display: inline-block;
+  padding: 0.375rem 0.875rem;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid currentColor;
+  border-radius: var(--r, 0);
+}
+.cms-announcement__link:hover,
+.cms-announcement__link:focus-visible { text-decoration: underline; }
+.cms-announcement__close {
+  flex: none;
+  align-self: flex-start;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -0.375rem -0.5rem 0 0;
+  padding: 0;
+  font: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r, 0);
+  cursor: pointer;
+}
+.cms-announcement__close:hover,
+.cms-announcement__close:focus-visible { border-color: currentColor; }
+
+/* A BANNER: across the top, part of the page, its words on the site's own
+   gutter where the theme has one (`--site-pad`). */
+.cms-announcement--banner {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.75rem var(--site-pad, 1.25rem);
+  border-bottom: 1px solid var(--border-strong, GrayText);
+}
+
+/* A POP-UP: the browser's own dialog, in the middle of the window. */
+.cms-announcement--modal {
+  width: min(32rem, calc(100% - 2rem));
+  max-height: calc(100% - 2rem);
+  overflow: auto;
+  padding: 1.25rem 1.25rem 1.5rem;
+  border: 0;
+  border-radius: var(--r-lg, 0);
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.25);
+}
+.cms-announcement--modal[open] { display: flex; gap: 1rem; align-items: flex-start; }
+.cms-announcement--modal::backdrop { background: rgb(0 0 0 / 0.45); }
+.cms-announcement--modal .cms-announcement__title { font-size: 1.25em; }
+
+/* A SLIDE-IN: at the corner, over the page but not holding it. Below the
+   consent banner, which it waits for anyway. */
+.cms-announcement--slidein {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2147482000;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  width: min(22rem, calc(100% - 2rem));
+  max-height: calc(100% - 2rem);
+  overflow: auto;
+  padding: 1rem 1rem 1.125rem;
+  border: 1px solid var(--border-strong, GrayText);
+  border-radius: var(--r-lg, 0);
+  box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 0.2);
+}
+
+/* A PLACE THE THEME HAS: where the template put it. */
+.cms-announcement--slot {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1rem;
+  border: 1px solid var(--border-strong, GrayText);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cms-announcement--slidein:not([hidden]) { animation: cms-announcement-in 200ms ease-out; }
+}
+@keyframes cms-announcement-in {
+  from { opacity: 0; transform: translateY(0.75rem); }
+  to   { opacity: 1; transform: none; }
+}

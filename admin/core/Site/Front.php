@@ -141,7 +141,7 @@ final class Front
                 if ($own !== $path && !\Cms\Content\Translation::translates((string) $key)) {
                     continue;
                 }
-                $at = trim((string) ($type['public_slug'] ?? ''), '/');
+                $at = trim((string) Registry::publicSlug((string) $key), '/');
                 if ($at !== '' && ($own === '/' . $at || str_starts_with($own, '/' . $at . '/'))) {
                     return true;
                 }

@@ -7,6 +7,7 @@ namespace Cms\Controllers\Admin;
 use Cms\Auth\Auth;
 use Cms\Content\MarkdownImport;
 use Cms\Html\Sanitizer;
+use Cms\Http\Cache;
 
 /**
  * IMPORT MARKDOWN — the editor's button posts a document here and gets back
@@ -49,7 +50,7 @@ final class MarkdownController
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 }

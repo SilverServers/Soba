@@ -119,12 +119,11 @@ class MenuItem
                 if (!empty($item['target_id'])) {
                     $post = Post::find((int) $item['target_id']);
                     if ($post !== null) {
-                        $type = Registry::get((string) $post['post_type']);
-                        $tp   = (string) ($type['public_slug'] ?? '');
+                        $tp   = (string) Registry::publicSlug((string) $post['post_type']);
 
-                        // NO PUBLIC ARCHIVE, NO ENTRY PAGE. A type with a blank
-                        // public slug gets no public routes at all in
-                        // `www/index.php`, so an address built here would 404.
+                        // NO PAGES, NO ENTRY PAGE (`Registry::hasPages()`): such
+                        // a type gets no public routes at all in `www/index.php`,
+                        // so an address built here would 404.
                         if ($tp !== '') {
                             return \Cms\Helpers\Url::entry($post, $tp);
                         }
@@ -262,6 +261,110 @@ class MenuItem
 
             $newIds[$index] = (int) $pdo->lastInsertId();
         }
+    }
+
+    /** What `update()` changes: an item's words, its address, and whether it opens in a new tab. */
+    public const UPDATABLE = ['label', 'url', 'target_blank'];
+
+    /**
+     * ONE ITEM CHANGED FROM A SITE'S CODE, the rest of its menu as it is:
+     * `MenuItem::update($id, ['url' => $stream, 'label' => 'Watch live',
+     * 'target_blank' => true])`, where the menu editor writes a menu whole
+     * (`replaceAll()`).
+     *
+     * An address given makes the item a link to that address, since an item
+     * that follows a page, an entry or a term would show the thing's own
+     * address and never the one given. An address is a path on the site
+     * (`/events`), `#` or `?` on the page, or an `http`, `https`, `mailto` or
+     * `tel` address; a label is never empty. A key it does not take, an empty
+     * label or an address that is not one is refused, with nothing written, so
+     * a typo never fails silently. True when there is such an item, false when
+     * there is none.
+     *
+     * @param array{label?: string, url?: string, target_blank?: bool} $data
+     * @throws \InvalidArgumentException
+     */
+    public static function update(int $id, array $data): bool
+    {
+        $unknown = array_diff(array_keys($data), self::UPDATABLE);
+        if ($unknown !== []) {
+            throw new \InvalidArgumentException('MenuItem::update() changes ' . implode(', ', self::UPDATABLE)
+                . ', not "' . implode('", "', array_map('strval', $unknown)) . '"');
+        }
+        $sets   = [];
+        $params = [':id' => $id];
+        if (array_key_exists('label', $data)) {
+            $label = is_string($data['label']) ? trim($data['label']) : '';
+            if ($label === '') {
+                throw new \InvalidArgumentException('MenuItem::update() gives an item words: its label is empty');
+            }
+            $sets[]           = 'label = :label';
+            $params[':label'] = mb_substr($label, 0, 200);
+        }
+        if (array_key_exists('url', $data)) {
+            $url = is_string($data['url']) ? trim($data['url']) : '';
+            if (!self::isAddress($url)) {
+                throw new \InvalidArgumentException('MenuItem::update(): "' . $url . '" is not an address: a path on the site, # or ?, or an http, https, mailto or tel address');
+            }
+            $sets[]         = "url = :url, type = 'custom', target_id = NULL";
+            $params[':url'] = $url;
+        }
+        if (array_key_exists('target_blank', $data)) {
+            $sets[]           = 'target_blank = :blank';
+            $params[':blank'] = !empty($data['target_blank']) ? 1 : 0;
+        }
+
+        $pdo    = Database::getInstance();
+        $exists = $pdo->prepare('SELECT COUNT(*) FROM menu_items WHERE id = :id');
+        $exists->execute([':id' => $id]);
+        if ((int) $exists->fetchColumn() === 0) {
+            return false;
+        }
+        if ($sets !== []) {
+            $pdo->prepare('UPDATE menu_items SET ' . implode(', ', $sets) . ' WHERE id = :id')->execute($params);
+        }
+
+        return true;
+    }
+
+    /**
+     * THE ITEMS POINTING AT AN ADDRESS, in every menu: those that link to it
+     * and those that follow a page, an entry or a term now at it
+     * (`resolveUrl()`), the site's own address and its path read as one
+     * (`https://example.com/about` and `/about`), and a trailing slash as none.
+     * Each is its row, with `menu_id`, in each menu's order.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function findByUrl(string $url): array
+    {
+        $want = self::comparable($url);
+        if ($want === '') {
+            return [];
+        }
+        $rows = Database::getInstance()->query('SELECT * FROM menu_items ORDER BY menu_id ASC, position ASC')->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_values(array_filter($rows, static fn (array $item): bool =>
+            self::comparable((string) ($item['url'] ?? '')) === $want || self::comparable(self::resolveUrl($item)) === $want));
+    }
+
+    /** An address as `findByUrl()` compares it: the site's own as its path, with no trailing slash. */
+    private static function comparable(string $url): string
+    {
+        $url  = trim($url);
+        $base = defined('BASE_URL') ? rtrim((string) BASE_URL, '/') : '';
+        if ($base !== '' && ($url === $base || str_starts_with($url, $base . '/') || str_starts_with($url, $base . '?') || str_starts_with($url, $base . '#'))) {
+            $url = '/' . ltrim(substr($url, strlen($base)), '/');
+        }
+
+        return $url === '' || $url === '#' ? '' : ($url === '/' ? '/' : rtrim($url, '/'));
+    }
+
+    /** A path on the site, `#` or `?` on the page, or an http, https, mailto or tel address. */
+    private static function isAddress(string $url): bool
+    {
+        return $url !== '' && preg_match('~\s~', $url) !== 1
+            && (preg_match('~^(?:/(?!/)|#|\?)~', $url) === 1 || preg_match('~^(?:https?://[^/\s]+|mailto:[^\s]+|tel:[+0-9][0-9 ().-]*$)~i', $url) === 1);
     }
 
     /**

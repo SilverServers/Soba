@@ -226,9 +226,10 @@ function initSidebar() {
     //     apart, in two different surfaces;
     //   · a row inside a `.sb__sec-body` — those keep their visible labels in
     //     the flyout, so they are never glyph-only at all.
-    // Dashboard, Assistant and Pages are the only rows that genuinely lose
-    // their label to the rail.
-    sb.querySelectorAll('.sb__sec--lead .sb__item').forEach((it) => {
+    // Dashboard, Assistant and Pages, and the rows under a heading in a column
+    // the site arranges, are the only rows that genuinely lose their label to
+    // the rail.
+    sb.querySelectorAll('.sb__sec--lead .sb__item, .sb__sec--rows .sb__item').forEach((it) => {
       if (railed) it.setAttribute('data-tip', it.dataset.label || '');
       else it.removeAttribute('data-tip');
     });

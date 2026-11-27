@@ -20,6 +20,7 @@ use Cms\Models\AssistantSession;
 use Cms\Models\Meta;
 use Cms\Models\Post;
 use Cms\Models\Revision;
+use Cms\Http\Cache;
 
 /**
  * The CMS Assistant — a chat surface over the read-only tool layer.
@@ -510,7 +511,7 @@ class AssistantController
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 

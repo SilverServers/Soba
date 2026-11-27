@@ -98,7 +98,7 @@ class TaxonomyController
             return;
         }
 
-        Taxonomy::create($data);
+        Taxonomy::setAddTerms(Taxonomy::create($data), self::addTerms($_POST));
 
         header('Location: ' . ADMIN_URL . '/taxonomies');
         exit;
@@ -183,6 +183,7 @@ class TaxonomyController
         }
 
         Taxonomy::update((int) $vars['id'], $data);
+        Taxonomy::setAddTerms((int) $vars['id'], self::addTerms($_POST));
 
         $taxonomy    = Taxonomy::find((int) $vars['id']);
         $formData    = [];
@@ -225,6 +226,19 @@ class TaxonomyController
      *
      * @return array{0: array<string, string>, 1: array<string, mixed>}
      */
+    /**
+     * Who may add a term, as posted (migration 140): a role, 'none' for no one,
+     * or null for as its shape says. Anything else posted is the last.
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function addTerms(array $post): ?string
+    {
+        $value = is_string($post['add_terms'] ?? null) ? $post['add_terms'] : '';
+
+        return isset(\Cms\ContentType\StaffView::ROLE_CHOICES[$value]) ? $value : null;
+    }
+
     private function validateAndSanitize(array $post, ?int $excludeId = null, ?string $lockedKey = null): array
     {
         $errors = [];
@@ -365,7 +379,7 @@ class TaxonomyController
             }
 
             foreach (Registry::all() as $ctKey => $ct) {
-                if ((string) ($ct['public_slug'] ?? '') === $publicSlug) {
+                if ((string) Registry::publicSlug((string) $ctKey) === $publicSlug) {
                     $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug)
                         . ' already belongs to ' . htmlspecialchars((string) ($ct['label'] ?? $ctKey))
                         . '. Entries win a tie, so this taxonomy would never be reached there.';

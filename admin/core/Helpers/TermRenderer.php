@@ -33,8 +33,9 @@ class TermRenderer
      * @param array<int, array<string, mixed>> $tree        from Term::treeForTaxonomy()
      * @param int[]                            $assignedIds currently assigned term ids
      * @param string                           $taxonomyKey names the inputs
+     * @param string|null                      $postType    the entry's type, whose own rule wins (`Term::countRule()`)
      */
-    public static function checkboxTree(array $tree, array $assignedIds, string $taxonomyKey): string
+    public static function checkboxTree(array $tree, array $assignedIds, string $taxonomyKey, ?string $postType = null): string
     {
         $name  = 'taxonomy_' . $taxonomyKey . '[]';
         $empty = $tree === [];
@@ -53,12 +54,12 @@ class TermRenderer
         $tax   = TaxonomyRegistry::get($taxonomyKey) ?? [];
         $label = (string) ($tax['label_single'] ?? 'term');
 
-        // THE TAXONOMY'S RULE, drawn (migration 056). Exactly one is a single
-        // choice, so it is radios, and a term added here arrives as one. Any
-        // other limit keeps the tick boxes and says it under them; the save
-        // refuses what breaks it, in the same words.
-        $min  = (int) ($tax['min_terms'] ?? 0);
-        $max  = isset($tax['max_terms']) ? (int) $tax['max_terms'] : null;
+        // THE RULE, drawn: the entry's type's own for this taxonomy, else the
+        // taxonomy's (migration 056; 151). Exactly one is a single choice, so
+        // it is radios, and a term added here arrives as one. Any other limit
+        // keeps the tick boxes and says it under them; the save refuses what
+        // breaks it, in the same words.
+        [$min, $max] = \Cms\Models\Term::countRule($taxonomyKey, $postType);
         $type = ($min === 1 && $max === 1) ? 'radio' : 'checkbox';
         $rule = match (true) {
             $min === 1 && $max === 1 => 'Exactly one.',
@@ -93,16 +94,22 @@ class TermRenderer
         // create. Sending the author to another screen to make the first tag —
         // and then back to find their draft — is the whole cost this removes.
         $options = [];
+        $slugs   = [];
         foreach ($terms as $term) {
             $options[(int) $term['id']] = (string) $term['name'];
+            // ITS SLUG, for a logic rule naming the term by it (`tax:{key}`).
+            $slugs[(int) $term['id']]   = (string) ($term['slug'] ?? '');
         }
 
+        // The picker makes a term only for whoever may add one
+        // (`ContentType\StaffView::addsTerms()`); anyone else picks from those there are.
         return FieldRenderer::chipPicker(
             'taxonomy_' . $taxonomyKey,
             $options,
             $assignedIds,
             $termLabel,
-            $taxonomyKey
+            \Cms\ContentType\StaffView::addsTerms($taxonomyKey) ? $taxonomyKey : '',
+            $slugs
         );
     }
 

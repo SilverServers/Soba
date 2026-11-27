@@ -49,12 +49,14 @@ $trState  = static fn (array $row): string => ucfirst((string) ($row['status'] ?
                     </p>
                 <?php elseif ($trWhy === null): ?>
                     <?php
+                    // No address for an entry whose type has no pages (`Registry::hasPages()`).
                     $trAt = $trTable === 'pages'
                         ? Url::pageOfPath(['slug' => $trRow['slug'], 'lang' => $trSecond])
-                        : Url::entryPath(['post_type' => $trRow['post_type'], 'slug' => $trRow['slug'], 'lang' => $trSecond]);
+                        : (\Cms\ContentType\Registry::hasPages((string) $trRow['post_type'])
+                            ? Url::entryPath(['post_type' => $trRow['post_type'], 'slug' => $trRow['slug'], 'lang' => $trSecond]) : '');
                     ?>
                     <button type="submit" class="btn btn--sm" form="<?= h($trForm) ?>">Translate into <?= h($trName) ?></button>
-                    <p class="form-help">Makes a Private copy at <?= h($trAt) ?>, with these words, picture and settings, to write in <?= h($trName) ?> and then publish.</p>
+                    <p class="form-help">Makes a Private copy<?= $trAt !== '' ? ' at ' . h($trAt) : '' ?>, with these words, picture and settings, to write in <?= h($trName) ?> and then publish.</p>
                 <?php else: ?>
                     <p class="form-help"><?= h($trWhy) ?></p>
                 <?php endif; ?>

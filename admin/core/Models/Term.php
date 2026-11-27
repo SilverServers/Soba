@@ -184,6 +184,43 @@ class Term
     }
 
     /**
+     * A TERM'S OWN FIELDS (`ContentType\TermFields`), each value by its key as
+     * the field keeps it on an entry: plain text, a picture's id, a list as
+     * JSON. A theme prints one with `FieldDisplay::html()` or reads it as it
+     * reads an entry's. [] for a term with none.
+     *
+     * @return array<string, string|null>
+     */
+    public static function meta(int $id): array
+    {
+        $stmt = Database::getInstance()->prepare('SELECT meta_key, meta_value FROM term_meta WHERE term_id = ?');
+        $stmt->execute([$id]);
+
+        return $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
+
+    /**
+     * A term's fields kept, each as sanitized (`FieldRenderer::sanitizeField()`):
+     * one row per key, a null value removing its row.
+     *
+     * @param array<string, mixed> $values
+     */
+    public static function setMeta(int $id, array $values): void
+    {
+        $db   = Database::getInstance();
+        $put  = $db->prepare('INSERT INTO term_meta (term_id, meta_key, meta_value) VALUES (?, ?, ?)
+                              ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)');
+        $drop = $db->prepare('DELETE FROM term_meta WHERE term_id = ? AND meta_key = ?');
+        foreach ($values as $key => $value) {
+            if ($value === null) {
+                $drop->execute([$id, (string) $key]);
+                continue;
+            }
+            $put->execute([$id, (string) $key, is_array($value) ? json_encode($value, JSON_UNESCAPED_UNICODE) : (string) $value]);
+        }
+    }
+
+    /**
      * Find a term by taxonomy_key + slug (for uniqueness validation).
      *
      * @return array<string, mixed>|null
@@ -416,9 +453,18 @@ class Term
      *
      * @param int[] $termIds  Pass empty array to clear all assignments for this taxonomy.
      */
-    public static function setPostTerms(int $postId, string $taxonomyKey, array $termIds): void
+    public static function setPostTerms(int $postId, string $taxonomyKey, array $termIds, ?string $postType = null): void
     {
         $db = Database::getInstance();
+
+        // THE ENTRY'S TYPE, for its own rule (`countRule()`): asked of the
+        // entry when the caller did not say it and some type has a rule of its
+        // own for this taxonomy, so every caller meets the same rule.
+        if ($postType === null && self::typesWithRule($taxonomyKey) !== []) {
+            $stmt = $db->prepare('SELECT post_type FROM posts WHERE id = ?');
+            $stmt->execute([$postId]);
+            $postType = ($found = $stmt->fetchColumn()) !== false ? (string) $found : null;
+        }
 
         // Sanitise input
         $termIds = array_values(array_unique(array_map('intval', $termIds)));
@@ -431,12 +477,13 @@ class Term
         // also refuses such a request by name.
         $termIds = array_values(array_diff($termIds, self::idsOutside($taxonomyKey, $termIds)));
 
-        // AND THE TAXONOMY'S OWN RULE — exactly one, at least one, no more than
-        // N (migration 056). Every write path comes through here:
-        // the entry form, the API, bulk filing. The form and the API ask
-        // `countViolation()` first so their refusal has words and a place on
-        // the screen; this is what stops a caller that did not ask.
-        $problem = self::countViolation($taxonomyKey, $termIds);
+        // AND THE RULE — exactly one, at least one, no more than N: the type's
+        // own for this taxonomy, else the taxonomy's (migration 056; 151).
+        // Every write path comes through here: the entry form, the API, bulk
+        // filing. The form and the API ask `countViolation()` first so their
+        // refusal has words and a place on the screen; this is what stops a
+        // caller that did not ask.
+        $problem = self::countViolation($taxonomyKey, $termIds, $postType);
         if ($problem !== null) {
             throw new \DomainException($problem);
         }
@@ -512,7 +559,7 @@ class Term
         $db  = Database::getInstance();
 
         $stmt = $db->prepare(
-            'SELECT p.id, p.title FROM post_term_relationships ptr
+            'SELECT p.id, p.title, p.post_type FROM post_term_relationships ptr
                JOIN posts p ON p.id = ptr.post_id
               WHERE ptr.term_id = ?'
         );
@@ -524,19 +571,19 @@ class Term
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $current = array_map('intval', self::getPostTermIds((int) $row['id'], $key));
             $new     = array_values(array_unique(array_merge(array_diff($current, [$fromId]), [$intoId])));
-            $problem = self::countViolation($key, $new);
+            $problem = self::countViolation($key, $new, (string) $row['post_type']);
             if ($problem !== null) {
                 $refused[] = ['title' => (string) $row['title'], 'reason' => $problem];
                 continue;
             }
-            $plans[(int) $row['id']] = $new;
+            $plans[(int) $row['id']] = [$new, (string) $row['post_type']];
         }
         if ($refused !== []) {
             return $refused;
         }
 
-        foreach ($plans as $postId => $new) {
-            self::setPostTerms($postId, $key, $new);
+        foreach ($plans as $postId => [$new, $postType]) {
+            self::setPostTerms($postId, $key, $new, $postType);
         }
 
         // ── ITS CHILDREN GO UNDER THE TERM IT BECAME ────────────────────────
@@ -559,21 +606,19 @@ class Term
     }
 
     /**
-     * What is wrong with filing an entry under `$termIds` in this taxonomy, in
-     * words — or null when nothing is.
+     * What is wrong with filing an entry of `$postType` under `$termIds` in
+     * this taxonomy, in words — or null when nothing is.
      *
-     * The rule is the taxonomy's (migration 056): none needed or at least one,
-     * and no limit or no more than N; "exactly one" is both at 1. Only this
-     * taxonomy's terms count — another's are dropped before anything is
-     * written.
+     * The rule is `countRule()`'s: none needed or at least one, and no limit
+     * or no more than N; "exactly one" is both at 1. Only this taxonomy's
+     * terms count — another's are dropped before anything is written.
      *
      * @param int[] $termIds
      */
-    public static function countViolation(string $taxonomyKey, array $termIds): ?string
+    public static function countViolation(string $taxonomyKey, array $termIds, ?string $postType = null): ?string
     {
         $tax = TaxonomyRegistry::get($taxonomyKey);
-        $min = (int) ($tax['min_terms'] ?? 0);
-        $max = isset($tax['max_terms']) ? (int) $tax['max_terms'] : null;
+        [$min, $max] = self::countRule($taxonomyKey, $postType);
         if ($tax === null || ($min === 0 && $max === null)) {
             return null;
         }
@@ -597,6 +642,101 @@ class Term
         }
 
         return null;
+    }
+
+    /**
+     * HOW MANY TERMS OF A TAXONOMY AN ENTRY OF A TYPE TAKES, as [least, most],
+     * most null for no limit: the type's own rule for the taxonomy when it
+     * gives one (`'terms' => ['location' => ['min' => 1, 'max' => 1]]` in
+     * code, or the Content Types screen, migration 151), for that type's
+     * entries alone; else the taxonomy's own (migration 056). So a location
+     * can be required on events while a contact for the whole organisation
+     * has none. A type's rule that is not one is said in the log, and the
+     * taxonomy's own is kept.
+     *
+     * @return array{0: int, 1: int|null}
+     */
+    public static function countRule(string $taxonomyKey, ?string $postType = null): array
+    {
+        $tax = TaxonomyRegistry::get($taxonomyKey);
+        $own = $postType !== null ? (\Cms\ContentType\Registry::get($postType)['terms'][$taxonomyKey] ?? null) : null;
+        if ($own !== null) {
+            $rule = self::ruleOf($own);
+            if ($rule !== null) {
+                return $rule;
+            }
+            error_log('Content types: "' . $postType . '" gives the taxonomy "' . $taxonomyKey
+                . '" a rule there is none of (its min is 0 or 1, its max 1 to 99 or none); the taxonomy\'s own is kept');
+        }
+
+        return [(int) ($tax['min_terms'] ?? 0), isset($tax['max_terms']) ? (int) $tax['max_terms'] : null];
+    }
+
+    /**
+     * A type's rule for a taxonomy as [least, most], or null when it is not
+     * one: `min` 0 or 1, 0 unless it says, and `max` 1 to 99, or none.
+     *
+     * @return array{0: int, 1: int|null}|null
+     */
+    public static function ruleOf(mixed $rule): ?array
+    {
+        if (!is_array($rule) || array_diff(array_keys($rule), ['min', 'max']) !== []) {
+            return null;
+        }
+        $whole = static fn (mixed $n): bool => is_int($n) || (is_string($n) && ctype_digit($n));
+        $min   = $rule['min'] ?? 0;
+        $max   = $rule['max'] ?? null;
+        if (!$whole($min) || (int) $min > 1 || ($max !== null && (!$whole($max) || (int) $max < 1 || (int) $max > 99))) {
+            return null;
+        }
+
+        return [(int) $min, $max === null ? null : (int) $max];
+    }
+
+    /**
+     * The types with a rule of their own for this taxonomy, by key.
+     *
+     * @return list<string>
+     */
+    public static function typesWithRule(string $taxonomyKey): array
+    {
+        $out = [];
+        foreach (\Cms\ContentType\Registry::all() as $key => $type) {
+            if (isset($type['terms'][$taxonomyKey])) {
+                $out[] = (string) $key;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The slugs of those of `$termIds` that are terms of `$taxonomyKey`, in
+     * their order: what a logic rule naming a term by its slug is asked of.
+     *
+     * @param int[] $termIds
+     * @return list<string>
+     */
+    public static function slugsOf(string $taxonomyKey, array $termIds): array
+    {
+        $termIds = array_values(array_unique(array_filter(array_map('intval', $termIds), static fn (int $id): bool => $id > 0)));
+        if ($termIds === []) {
+            return [];
+        }
+        $stmt = Database::getInstance()->prepare(
+            'SELECT id, slug FROM terms WHERE taxonomy_key = ? AND id IN ('
+            . implode(',', array_fill(0, count($termIds), '?')) . ')'
+        );
+        $stmt->execute(array_merge([$taxonomyKey], $termIds));
+        $byId = array_map('strval', $stmt->fetchAll(PDO::FETCH_KEY_PAIR));
+        $out  = [];
+        foreach ($termIds as $id) {
+            if (isset($byId[$id])) {
+                $out[] = $byId[$id];
+            }
+        }
+
+        return $out;
     }
 
     /**

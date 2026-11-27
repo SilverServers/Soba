@@ -21,6 +21,7 @@ use Cms\Models\FormSubmission;
 use Cms\Models\Option;
 use Cms\SEO\Head;
 use Cms\Security\ClientIp;
+use Cms\Http\Cache;
 
 class FormController
 {
@@ -347,7 +348,7 @@ class FormController
      */
     public function handleToken(array $vars = []): void
     {
-        header('Cache-Control: no-store');
+        Cache::noStore();
         header('Content-Type: application/json; charset=utf-8');
         $form  = Form::find((int) ($vars['id'] ?? 0));
         $fresh = $form !== null
@@ -392,6 +393,7 @@ class FormController
         if ($ajax || str_contains($accept, 'application/json')) {
             http_response_code($status);
             header('Content-Type: application/json; charset=utf-8');
+            Cache::noStore();
             $answer = ['success' => false, 'message' => $message];
             if ($plain !== []) {
                 $answer['errors'] = $plain;
@@ -412,7 +414,7 @@ class FormController
                 ? ($fix !== '' ? $fix : 'Please check the highlighted fields and try again.')
                 : html_entity_decode($message, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             if (\Cms\Models\FormReturn::keep((int) ($form['id'] ?? 0), self::typed($fields), $plain)) {
-                header('Cache-Control: no-store');
+                Cache::noStore();
                 header('Location: ' . $page . '#' . Form::elementId($form), true, 303);
                 return;
             }
@@ -668,7 +670,7 @@ class FormController
             return;
         }
 
-        header('Cache-Control: no-store');
+        Cache::noStore();
         if ($success) {
             $to = self::afterSend($form ?? [], $sourcePage);
             if ($to !== null) {
@@ -792,6 +794,7 @@ class FormController
     {
         http_response_code($httpCode);
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         $answer = [
             'success' => $success,
             'message' => $message,

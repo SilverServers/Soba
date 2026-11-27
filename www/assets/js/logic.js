@@ -129,6 +129,17 @@
                 name = name.slice(prefix.length);
             }
 
+            // A TAXONOMY PANEL'S TERMS BY THEIR SLUGS, as `tax:{key}`, beside
+            // their ids as `taxonomy_{key}`: a rule names a term by its slug,
+            // which a site's code knows, rather than an id it would look up.
+            // Each term's box carries it (`data-term-slug`); a chip is chosen.
+            var slug = el.getAttribute('data-term-slug');
+            if (slug !== null && /^taxonomy_./.test(name)) {
+                var tax = 'tax:' + name.slice('taxonomy_'.length);
+                if (!Array.isArray(out[tax])) { out[tax] = []; }
+                if ((el.type !== 'checkbox' && el.type !== 'radio') || el.checked) { out[tax].push(slug); }
+            }
+
             if (el.type === 'checkbox') {
                 var multi = /\[\]$/.test(el.name) ||
                             root.querySelectorAll('input[name="' + cssEscape(el.name) + '"]').length > 1;

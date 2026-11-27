@@ -56,8 +56,12 @@ class Schema
             '@id'   => self::id('organization'),
             'name'  => $orgName,
         ];
-        if ($opts['seo_org_url'] !== '') {
-            $org['url'] = $opts['seo_org_url'];
+        // ITS WEBSITE IS THIS SITE'S OWN ADDRESS unless Settings → SEO →
+        // Organisation names another, so it follows the site when it moves,
+        // as the WebSite node's does.
+        $orgUrl = self::orgUrl((string) $opts['seo_org_url']);
+        if ($orgUrl !== '') {
+            $org['url'] = $orgUrl;
         }
         $logo = \Cms\SEO\Head::siteImage((string) $opts['seo_org_logo']);
         if ($logo !== '') {
@@ -66,6 +70,31 @@ class Schema
         $graph[] = \Cms\Site\Business::schema($org, $org['@type'] === 'LocalBusiness');
 
         return $graph;
+    }
+
+    /**
+     * THE BUSINESS'S WEBSITE: the address Settings → SEO → Organisation names
+     * (`seo_org_url`, as stored), or, left blank, this site's own. The site's
+     * own address is never kept there, since blank means it: one found there
+     * is cleared as it is read, so a site set up at one address does not go
+     * on naming it once it has moved.
+     */
+    private static function orgUrl(string $stored): string
+    {
+        if ($stored !== '' && self::isOwnAddress($stored)) {
+            Option::set('seo_org_url', '');
+            $stored = '';
+        }
+
+        return $stored !== '' ? $stored : (defined('BASE_URL') ? BASE_URL : '');
+    }
+
+    /** Whether `$url` is this site's own address as `BASE_URL` has it, a final slash and letter case aside. */
+    public static function isOwnAddress(string $url): bool
+    {
+        $own = defined('BASE_URL') ? rtrim(BASE_URL, '/') : '';
+
+        return $own !== '' && strcasecmp(rtrim(trim($url), '/'), $own) === 0;
     }
 
     /**

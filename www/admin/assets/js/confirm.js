@@ -8,8 +8,9 @@
  * ── A BARE BUTTON WORKS TOO ─────────────────────────────────────────────────
  * For the media detail panel, whose Delete posts through `fetch` and so has
  * no form to intercept. A `<button data-confirm>` outside a
- * form gets the same dialog, and on confirmation is re-clicked with
- * `data-confirmed` set so the page's own handler runs.
+ * form, or a `type="button"` one inside it, gets the same dialog, and on
+ * confirmation is re-clicked with `data-confirmed` set so the page's own
+ * handler runs.
  *
  * IT IS HERE RATHER THAN IN THAT PANEL because a second confirmation mechanism
  * is how one of them ends up unstyled and unthemed — exactly what the note
@@ -115,7 +116,10 @@
     // question is asked.
     document.addEventListener('click', function (e) {
         var btn = e.target.closest ? e.target.closest('button[data-confirm]') : null;
-        if (!btn || btn.form) { return; }          // a form button is the case above
+        // A BUTTON THAT SUBMITS its form is the case above. One that never
+        // does (`type="button"`, such as a child's row's Trash inside its
+        // parent's form) asks here, wherever it is.
+        if (!btn || (btn.form && btn.type !== 'button')) { return; }
         if (btn.hasAttribute('data-confirmed')) { return; }
 
         e.preventDefault();

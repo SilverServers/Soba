@@ -71,10 +71,12 @@
 (function (window, document) {
     'use strict';
 
-    /** A stored variable: `{name}`, or Yoast's `%%name%%` on the way in. */
-    var TOKEN = /\{([a-z_]+)\}|%%([a-z_]+)%%/g;
+    /** A stored variable: `{name}`, or Yoast's `%%name%%` on the way in. A
+        name is a letter, then letters, digits and underscores ({phone_line_2}),
+        as `Head::buildTitle()` reads it, so "{2024}" stays text. */
+    var TOKEN = /\{([a-z][a-z0-9_]*)\}|%%([a-z_]+)%%/g;
     /** The same, braces only — the one form that can be typed, and the one we store. */
-    var BRACED = /\{([a-z_]+)\}/g;
+    var BRACED = /\{([a-z][a-z0-9_]*)\}/g;
 
     /* YOAST'S NAMES FOR OURS — for a pattern pasted in from a WordPress site
        running it. Only these: an unknown `%%name%%` stays text rather than

@@ -66,7 +66,7 @@ class RedirectsController
     /** GET /admin/tools/redirects */
     public function index(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('redirects');
 
         $editing = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
         if ($editing > 0) {
@@ -82,7 +82,7 @@ class RedirectsController
     /** POST /admin/tools/redirects — add a rule. */
     public function store(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('redirects');
 
         $from   = self::normalisePath((string) ($_POST['redirect_from'] ?? ''));
         $to     = self::normaliseTarget((string) ($_POST['redirect_to'] ?? ''));
@@ -109,7 +109,7 @@ class RedirectsController
     /** POST /admin/tools/redirects/{id} — save an edit. */
     public function update(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('redirects');
 
         $id       = (int) ($vars['id'] ?? 0);
         $existing = Redirects::find($id);
@@ -142,7 +142,7 @@ class RedirectsController
     /** POST /admin/tools/redirects/{id}/delete */
     public function delete(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('redirects');
 
         Redirects::delete((int) ($vars['id'] ?? 0));
         header('Location: ' . ADMIN_URL . '/tools/redirects');
@@ -152,7 +152,7 @@ class RedirectsController
     /** POST /admin/tools/redirects/not-found/{id}/dismiss — take one address off the list. */
     public function dismissNotFound(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('redirects');
 
         NotFound::dismiss((int) ($vars['id'] ?? 0));
         header('Location: ' . ADMIN_URL . '/tools/redirects#not-found', true, 303);
@@ -162,7 +162,7 @@ class RedirectsController
     /** POST /admin/tools/redirects/not-found/clear — empty the list. */
     public function clearNotFound(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('redirects');
 
         NotFound::clear();
         header('Location: ' . ADMIN_URL . '/tools/redirects', true, 303);

@@ -82,8 +82,9 @@ foreach ($spec['nav'] as $section) {
     $collapsed[$key] = !$hasActive && !isset($open[$key]);
 
     // The lead rows are not a group: no heading, no chevron, nothing to
-    // collapse. They must not be counted by the control that offers to.
-    if ((string) $section['label'] !== '') {
+    // collapse. They must not be counted by the control that offers to, and
+    // neither must a heading over rows, which is always open.
+    if ((string) $section['label'] !== '' && empty($section['heading'])) {
         $groupCount++;
         if (!$collapsed[$key]) {
             $openCount++;
@@ -223,6 +224,20 @@ $navRow = function (array $it, bool $inFlyout = false) use ($railed): void {
                     <div class="sb__list">
                         <?php foreach ($section['items'] as $it) { $navRow($it); } ?>
                     </div>
+                </section>
+            <?php elseif (!empty($section['heading'])): ?>
+                <?php // A HEADING OVER ROWS, in a column the site arranges
+                      // (`Ui\Sidebar::heading()`): the list's own divider label,
+                      // not a dressed-up disclosure, since there is nothing to
+                      // open; its rows always shown, drawn as the lead rows are.
+                      // With no rows, it heads the groups that follow it. ?>
+                <section class="sb__sec sb__sec--nav sb__sec--rows" data-sb-sec="<?= h($key) ?>" role="group" aria-labelledby="<?= h($bodyId) ?>-label">
+                    <div class="list__group-header" id="<?= h($bodyId) ?>-label"><?= h($label) ?></div>
+                    <?php if ($section['items'] !== []): ?>
+                        <div class="sb__list">
+                            <?php foreach ($section['items'] as $it) { $navRow($it); } ?>
+                        </div>
+                    <?php endif; ?>
                 </section>
             <?php else: ?>
                 <section class="sb__sec sb__sec--nav sb__sec--group<?= $isCollapsed ? ' is-collapsed' : '' ?><?= $hasActive ? ' is-current' : '' ?>"

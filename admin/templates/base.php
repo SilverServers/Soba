@@ -62,6 +62,10 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
       // for, not through every link of the menu again (WCAG 2.4.1). ?>
 <?php // audit-ok: the keyboard's way past the header, the admin's own words for it. ?>
 <a class="skip-link" href="#main"><?= htmlspecialchars(\Cms\Site\Words::of('skip')) ?></a>
+<?php // THE SITE'S ANNOUNCEMENTS (`Site\Announcements`), each hidden until its
+      // script shows it: a banner here, above the header, and a pop-up or a
+      // slide-in over the page. After the skip link, which stays first. ?>
+<?= \Cms\Site\Announcements::body() ?>
 
 <?php $_publicSiteName = \Cms\SEO\Head::globalTokens()['site_name']; ?>
 <header class="site-header">

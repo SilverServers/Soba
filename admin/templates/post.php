@@ -511,7 +511,7 @@ $linkText = static function (string $url): string {
         $older    = \Cms\Models\Post::adjacent($post, true);
         $newer    = \Cms\Models\Post::adjacent($post, false);
         $related  = \Cms\Models\Post::related($post, 3);
-        $typeSlug = (string) ($contentType['public_slug'] ?? '');
+        $typeSlug = (string) \Cms\ContentType\Registry::publicSlug((string) ($contentType['key'] ?? $post['post_type'] ?? ''));
         $entryUrl = static fn (array $e): string => \Cms\Helpers\Url::entry($e, $typeSlug);
     ?>
         <?php if ($older !== null || $newer !== null): ?>

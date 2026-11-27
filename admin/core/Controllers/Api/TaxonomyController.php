@@ -6,6 +6,7 @@ namespace Cms\Controllers\Api;
 
 use Cms\Auth\Auth;
 use Cms\ContentType\TaxonomyRegistry;
+use Cms\Http\Cache;
 use Cms\Models\Post;
 use Cms\Models\Term;
 
@@ -73,15 +74,18 @@ class TaxonomyController
             $this->json(['success' => false, 'error' => 'Taxonomy not found.'], 404);
         }
 
-        // A CATEGORY IS STRUCTURE; A TAG IS FILING. The line is drawn there:
-        // an author may make a tag while filing an entry, and only an
-        // editor adds a category, because a category is what the whole site
-        // is navigated by. The terms screen is editor-only, and this checks the
-        // same, or it would be the side door.
-        if (!empty($taxonomy['hierarchical']) && !Auth::hasRole('editor')) {
-            $this->json(['success' => false, 'error' => 'Only an editor can add a '
-                . strtolower((string) $taxonomy['label_single'])
-                . '. File this under one that exists, or ask an editor to add it.'], 403);
+        // A CATEGORY IS STRUCTURE; A TAG IS FILING. The line is drawn there
+        // unless the taxonomy says otherwise (`StaffView::addsTerms()`): an
+        // author may make a tag while filing an entry, and only an editor adds
+        // a category, because a category is what the whole site is navigated
+        // by. The entry's row and the terms screen ask the same, or this would
+        // be the side door.
+        if (!\Cms\ContentType\StaffView::addsTerms((string) $key)) {
+            $who = \Cms\ContentType\StaffView::addTermsRole((string) $key);
+            $this->json(['success' => false, 'error' => ($who === false
+                ? 'No ' . strtolower((string) $taxonomy['label']) . ' are added here. File this under one that exists.'
+                : 'Only ' . \Cms\ContentType\StaffView::who($who) . ' can add a ' . strtolower((string) $taxonomy['label_single'])
+                    . '. File this under one that exists, or ask ' . \Cms\ContentType\StaffView::who($who) . ' to add it.')], 403);
         }
 
         // Accept JSON or form-encoded body
@@ -222,15 +226,16 @@ class TaxonomyController
                 . '. Nothing was changed.'], 422);
         }
 
-        // THE TAXONOMY'S RULE, in its own words — asked before writing, so a
+        // THE RULE, the entry's type's or the taxonomy's, in its own words —
+        // asked before writing, so a
         // refusal is a 422 that says why rather than the model's exception
         // surfacing as a 500.
-        $problem = Term::countViolation($key, $termIds);
+        $problem = Term::countViolation($key, $termIds, (string) $post['post_type']);
         if ($problem !== null) {
             $this->json(['success' => false, 'error' => $problem], 422);
         }
 
-        Term::setPostTerms($postId, $key, $termIds);
+        Term::setPostTerms($postId, $key, $termIds, (string) $post['post_type']);
 
         $this->json(['success' => true, 'data' => null]);
     }
@@ -248,6 +253,7 @@ class TaxonomyController
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
         exit;
     }

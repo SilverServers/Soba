@@ -233,4 +233,72 @@ final class ClientIp
         return self::$config = [$proxies, $header];
     }
 
+    // ----------------------------------------------------------------
+    // A proxy nobody named
+    // ----------------------------------------------------------------
+
+    /** Where a forwarded request from an address `trusted_proxies` does not name is noted (`unnamed()`). */
+    public const UNNAMED_KEY = 'proxy_unnamed_seen';
+
+    /** The headers a proxy writes the visitor's address in, by their `$_SERVER` keys. */
+    private const FORWARDED = ['HTTP_X_FORWARDED_FOR' => 'X-Forwarded-For', 'HTTP_FORWARDED' => 'Forwarded', 'HTTP_CF_CONNECTING_IP' => 'CF-Connecting-IP'];
+
+    /**
+     * A REQUEST THAT CAME THROUGH A PROXY config.php does not name, noted for
+     * System health: one carrying a forwarded header from an address
+     * `trusted_proxies` does not list. Behind such a proxy every visitor has
+     * the proxy's address, so the sign-in limit locks everyone out at once,
+     * and nothing says why. The header is never trusted for it, only noted:
+     * each address at most once an hour, the last five kept, and on a GET
+     * only, so a form's POST is not read as that form's change (`Audit`).
+     *
+     * @param array<string, mixed> $server `$_SERVER`
+     */
+    public static function noteUnnamed(array $server): void
+    {
+        if (($server['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+            return;
+        }
+        $header = null;
+        foreach (self::FORWARDED as $key => $name) {
+            if (trim((string) ($server[$key] ?? '')) !== '') {
+                $header = $name;
+                break;
+            }
+        }
+        $remote = self::normalise((string) ($server['REMOTE_ADDR'] ?? ''));
+        [$proxies] = self::config();
+        if ($header === null || $remote === '' || ($proxies !== [] && self::inAny($remote, $proxies))) {
+            return;
+        }
+        try {
+            $seen = self::unnamed();
+            if (time() - (int) ($seen[$remote]['at'] ?? 0) < 3600) {
+                return;
+            }
+            $seen[$remote] = ['at' => time(), 'header' => $header];
+            uasort($seen, static fn (array $a, array $b): int => $b['at'] <=> $a['at']);
+            \Cms\Models\Option::set(self::UNNAMED_KEY, (string) json_encode(array_slice($seen, 0, 5, true)));
+        } catch (\Throwable $e) {
+            error_log('CMS: a forwarded request could not be noted: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * The addresses noted by `noteUnnamed()`, newest first.
+     *
+     * @return array<string, array{at: int, header: string}>
+     */
+    public static function unnamed(): array
+    {
+        $raw = json_decode((string) \Cms\Models\Option::get(self::UNNAMED_KEY, '{}'), true);
+        $out = [];
+        foreach (is_array($raw) ? $raw : [] as $ip => $row) {
+            if (is_string($ip) && is_array($row) && is_int($row['at'] ?? null)) {
+                $out[$ip] = ['at' => $row['at'], 'header' => (string) ($row['header'] ?? '')];
+            }
+        }
+
+        return $out;
+    }
 }

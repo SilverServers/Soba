@@ -11,6 +11,7 @@ use Cms\Models\Media;
 use Cms\Models\MediaRejected;
 use Cms\Models\MediaFolder;
 use Cms\Models\MediaVersion;
+use Cms\Http\Cache;
 
 class MediaController
 {
@@ -37,8 +38,11 @@ class MediaController
         // The library screen's orders (`Media::SORTS`); anything else is newest first.
         $sort       = is_string($_GET['sort'] ?? null) && isset(Media::SORTS[$_GET['sort']])
                     ? $_GET['sort'] : Media::DEFAULT_SORT;
+        // A FILE FIELD'S KINDS ("pdf, docx"), as its File types box names them
+        // (`Media::kindsFor()`): only files of those kinds. None named is any.
+        $kinds      = is_string($_GET['accept'] ?? null) ? Media::kindsFor($_GET['accept']) : [];
 
-        $result = Media::all($page, 40, $type, $folderId, $visibility, $search, $sort);
+        $result = Media::all($page, 40, $type, $folderId, $visibility, $search, $sort, $kinds !== [] ? array_keys($kinds) : null);
 
         $items = array_map(
             fn(array $a): array => $this->attachmentPayload($a),
@@ -51,6 +55,65 @@ class MediaController
             'page'        => $page,
             'total_pages' => (int) ceil($result['total'] / 40),
         ]]);
+    }
+
+    // ----------------------------------------------------------------
+    // POST /api/v1/media/upload/piece
+    // ----------------------------------------------------------------
+
+    /**
+     * ONE PIECE OF A FILE TOO LARGE FOR ONE REQUEST (`Media\Pieces`): kept in
+     * order, and the last makes it whole and puts it in the library, as an
+     * upload is, with the same folder, visibility and alt text, or, with
+     * `replace` naming a library file, in that file's place, as Replace does.
+     * The answer to a piece before the last is `{"done": false}`; to the
+     * last, the file's.
+     */
+    public function uploadPiece(array $vars = []): void
+    {
+        Auth::requireAuth();
+
+        $file = $_FILES['piece'] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $file['tmp_name'])) {
+            $this->json(['success' => false, 'error' => 'That piece did not arrive. Send the file again.'], 400);
+            return;
+        }
+        $visibility = ($_POST['visibility'] ?? 'public') === 'private' && Auth::hasRole('editor') ? 'private' : 'public';
+        $folderId   = isset($_POST['folder_id']) && is_numeric($_POST['folder_id']) ? (int) $_POST['folder_id'] : null;
+        $replacing  = isset($_POST['replace']) && ctype_digit((string) $_POST['replace']) ? $this->replaceable((int) $_POST['replace']) : null;
+        $whole      = $replacing !== null
+            ? function (string $path, string $name) use ($replacing): int {
+                $this->replaceWith($replacing, $path, $name, false);
+                return (int) $replacing['id'];
+            }
+            : static fn (string $path, string $name): int => Media::store($path, $name, [
+                'folder_id'  => $folderId,
+                'visibility' => $visibility,
+                'alt_text'   => isset($_POST['alt_text']) ? trim((string) $_POST['alt_text']) : null,
+            ]);
+
+        try {
+            $id = \Cms\Media\Pieces::keep((int) (Auth::user()['id'] ?? 0), [
+                'upload' => (string) ($_POST['upload'] ?? ''),
+                'index'  => (int) ($_POST['index'] ?? -1),
+                'count'  => (int) ($_POST['count'] ?? 0),
+                'name'   => mb_substr(trim((string) ($_POST['name'] ?? '')), 0, 255),
+                'size'   => (int) ($_POST['size'] ?? 0),
+            ], (string) $file['tmp_name'], $whole);
+        } catch (MediaRejected $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+            return;
+        } catch (\RuntimeException $e) {
+            error_log('CMS media piece: ' . $e->getMessage());
+            $this->json(['success' => false, 'error' => 'Failed to save the uploaded file.'], 500);
+            return;
+        }
+        if ($id === null) {
+            $this->json(['success' => true, 'data' => ['done' => false]]);
+            return;
+        }
+        $attachment = Media::find($id);
+        $this->json(['success' => true, 'data' => ['done' => true] + ($attachment !== null ? $this->attachmentPayload($attachment) : ['id' => $id])]);
     }
 
     // ----------------------------------------------------------------
@@ -219,19 +282,7 @@ class MediaController
     {
         Auth::requireAuth();
 
-        $id         = (int) ($vars['id'] ?? 0);
-        $attachment = Media::find($id);
-
-        if ($attachment === null) {
-            $this->json(['success' => false, 'error' => 'Attachment not found.'], 404);
-            return;
-        }
-
-        // A file the site already had keeps its own file and address (`Media::register()`).
-        if (Media::isSiteFile($attachment)) {
-            $this->json(['success' => false, 'error' => 'This is the site\'s own file, kept at its own address: it cannot be replaced here.'], 400);
-            return;
-        }
+        $attachment = $this->replaceable((int) ($vars['id'] ?? 0));
 
         if (empty($_FILES['file']) || $_FILES['file']['error'] === UPLOAD_ERR_NO_FILE) {
             $this->json(['success' => false, 'error' => 'No file provided.'], 400);
@@ -246,13 +297,58 @@ class MediaController
             return;
         }
 
-        // THE UPLOADER'S RULES, not a second copy of them (`Media::admit()`).
         try {
-            $facts = Media::admit((string) $file['tmp_name']);
+            $this->replaceWith($attachment, (string) $file['tmp_name'], (string) $file['name'], true);
         } catch (MediaRejected $e) {
             $this->json(['success' => false, 'error' => $e->getMessage()], 400);
             return;
+        } catch (\PDOException $e) {
+            // The database's, never shown: the error handler's, as it always was.
+            throw $e;
+        } catch (\RuntimeException $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+            return;
         }
+
+        $updated = Media::find((int) $attachment['id']);
+        $this->json(['success' => true, 'data' => $this->attachmentPayload((array) $updated)]);
+    }
+
+    /**
+     * The library file a replacement may take the place of: answered with a
+     * 404, or a 400 for a file the site already had, and stopped, when it may not.
+     *
+     * @return array<string, mixed>
+     */
+    private function replaceable(int $id): array
+    {
+        $attachment = Media::find($id);
+        if ($attachment === null) {
+            $this->json(['success' => false, 'error' => 'Attachment not found.'], 404);
+        }
+        // A file the site already had keeps its own file and address (`Media::register()`).
+        if (Media::isSiteFile($attachment)) {
+            $this->json(['success' => false, 'error' => 'This is the site\'s own file, kept at its own address: it cannot be replaced here.'], 400);
+        }
+
+        return $attachment;
+    }
+
+    /**
+     * A FILE IN A LIBRARY FILE'S PLACE: Replace's, whether the file came in
+     * one request (`$uploaded`, an HTTP upload's temporary file, which only
+     * `move_uploaded_file()` may move) or in pieces (copied).
+     *
+     * @param array<string, mixed> $attachment
+     * @throws MediaRejected     a refusal, in a sentence for the person who chose the file
+     * @throws \RuntimeException a failure, likewise
+     */
+    private function replaceWith(array $attachment, string $path, string $originalName, bool $uploaded): void
+    {
+        $id = (int) $attachment['id'];
+
+        // THE UPLOADER'S RULES, not a second copy of them (`Media::admit()`).
+        $facts    = Media::admit($path);
         $mimeType = $facts['mime_type'];
 
         // ── THE ADDRESS MUST NOT CHANGE. THAT IS THE WHOLE FEATURE. ─────────
@@ -281,15 +377,11 @@ class MediaController
         // (`Optimizer`), under the same .webp name. An older JPEG or PNG keeps
         // its type, and so its address.
         $oldExt = strtolower((string) pathinfo($storedFilename, PATHINFO_EXTENSION));
-        $webp   = $oldExt === 'webp' ? Optimizer::webp((string) $file['tmp_name'], $mimeType) : null;
-        $newExt = $webp !== null ? 'webp' : strtolower((string) pathinfo((string) $file['name'], PATHINFO_EXTENSION));
+        $webp   = $oldExt === 'webp' ? Optimizer::webp($path, $mimeType) : null;
+        $newExt = $webp !== null ? 'webp' : strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
         if ($oldExt !== '' && $newExt !== $oldExt) {
-            $this->json([
-                'success' => false,
-                'error'   => 'A replacement has to be the same file type (.' . $oldExt . '), '
-                           . 'because the address stays the same. Upload it as a new file instead.',
-            ], 400);
-            return;
+            throw new MediaRejected('A replacement has to be the same file type (.' . $oldExt . '), '
+                . 'because the address stays the same. Upload it as a new file instead.');
         }
 
         // COPY THE OUTGOING BYTES ASIDE BEFORE OVERWRITING. The bytes are
@@ -303,8 +395,7 @@ class MediaController
             @mkdir($versionsDir, 0755, true);
         }
         if (is_file($destPath) && !@copy($destPath, $versionsDir . '/' . $versionFilename)) {
-            $this->json(['success' => false, 'error' => 'Could not archive the current file.'], 500);
-            return;
+            throw new \RuntimeException('Could not archive the current file.');
         }
 
         MediaVersion::create([
@@ -317,14 +408,11 @@ class MediaController
             'height'        => $attachment['height'],
         ]);
 
-        $originalName = $file['name'];
-
         $saved = $webp !== null
             ? @file_put_contents($destPath, $webp['bytes']) === strlen($webp['bytes'])
-            : move_uploaded_file($file['tmp_name'], $destPath);
+            : ($uploaded ? move_uploaded_file($path, $destPath) : @copy($path, $destPath));
         if (!$saved) {
-            $this->json(['success' => false, 'error' => 'Failed to save the uploaded file.'], 500);
-            return;
+            throw new \RuntimeException('Failed to save the uploaded file.');
         }
         if ($webp !== null) {
             $mimeType = 'image/webp';
@@ -342,9 +430,6 @@ class MediaController
         ]);
         // Its smaller widths, made again from the new file.
         \Cms\Media\Sizes::make((array) Media::find($id));
-
-        $updated = Media::find($id);
-        $this->json(['success' => true, 'data' => $this->attachmentPayload($updated)]);
     }
 
     // ----------------------------------------------------------------
@@ -455,6 +540,8 @@ class MediaController
             'original_name' => $attachment['original_name'],
             'mime_type'     => $attachment['mime_type'],
             'file_size'     => (int) $attachment['file_size'],
+            // "2.4 MB", as `Media::file()` and a file field say it.
+            'size_words'    => Media::sizeInWords((int) $attachment['file_size']),
             'width'         => $attachment['width'] !== null ? (int) $attachment['width'] : null,
             'height'        => $attachment['height'] !== null ? (int) $attachment['height'] : null,
             'alt_text'      => $attachment['alt_text'] ?? '',
@@ -487,6 +574,7 @@ class MediaController
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
         exit;
     }

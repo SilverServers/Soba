@@ -48,6 +48,8 @@ use Cms\Ui\Sidebar;
  * @var array<string, mixed>       $contentType
  * @var list<array<string, mixed>> $posts        from Post::allTrashed()
  * @var array<string, mixed>|null  $bulkReport   what the last bulk action did
+ * @var bool                       $showAddress  each row's address under its title (`StaffView`)
+ * @var bool                       $showBulk     tick boxes and bulk actions (`StaffView`)
  */
 
 $label       = (string) $contentType['label'];
@@ -111,6 +113,7 @@ ob_start();
             <p class="empty__title">Nothing in the trash</p>
         </div>
     <?php else: ?>
+        <?php if ($showBulk): ?>
         <?php // The rows' tick boxes join this form by `form=` — each row
               // already holds two forms, and HTML has no nested ones. ?>
         <form id="entry-bulk" method="post" action="<?= h(Url::admin($adminSlug . '/bulk')) ?>"
@@ -129,32 +132,39 @@ ob_start();
                 <button type="submit" class="btn btn--sm" data-bulk-apply disabled>Apply</button>
             </div>
         </form>
+        <?php endif; ?>
 
-        <div class="list entry-list entry-list--trash entry-list--select">
+        <div class="list entry-list entry-list--trash entry-list--select<?= $showBulk ? '' : ' entry-list--no-bulk' ?>">
             <?php // The list's heading row, for its select-all — nothing here
                   // sorts: the trash is ordered by when things arrived in it. ?>
             <div class="list__row entry-list__head">
-                <label class="entry-list__check">
-                    <input type="checkbox" data-bulk-all aria-label="Select everything in the trash">
-                </label>
-                <div class="entry-list__main">Title</div>
+                <?php if ($showBulk): ?>
+                    <label class="entry-list__check">
+                        <input type="checkbox" data-bulk-all aria-label="Select everything in the trash">
+                    </label>
+                <?php endif; ?>
+                <div class="entry-list__main"><?= h(\Cms\ContentType\Registry::ownTitleLabel((string) $contentType['key']) ?? 'Title') ?></div>
                 <div class="entry-list__when">Trashed</div>
                 <div aria-hidden="true"></div>
             </div>
             <?php foreach ($posts as $post): ?>
                 <div class="list__row">
-                    <label class="entry-list__check">
-                        <input type="checkbox" name="ids[]" value="<?= (int) $post['id'] ?>" form="entry-bulk"
-                               data-bulk-row data-title="<?= h((string) $post['title']) ?>"
-                               aria-label="Select &ldquo;<?= h((string) $post['title']) ?>&rdquo;">
-                    </label>
+                    <?php if ($showBulk): ?>
+                        <label class="entry-list__check">
+                            <input type="checkbox" name="ids[]" value="<?= (int) $post['id'] ?>" form="entry-bulk"
+                                   data-bulk-row data-title="<?= h((string) $post['title']) ?>"
+                                   aria-label="Select &ldquo;<?= h((string) $post['title']) ?>&rdquo;">
+                        </label>
+                    <?php endif; ?>
                     <div class="entry-list__main">
                         <?php // NOT a link. A trashed entry has no edit route
                               // that makes sense — restoring is the step before
                               // editing — so the title is text, and the row does
                               // not pretend to navigate. ?>
                         <span class="list__row-title"><?= h((string) $post['title']) ?></span>
-                        <div class="list__row-sub">/<?= h((string) $post['slug']) ?></div>
+                        <?php if ($showAddress): ?>
+                            <div class="list__row-sub">/<?= h((string) $post['slug']) ?></div>
+                        <?php endif; ?>
                     </div>
 
                     <div class="list__row-meta">

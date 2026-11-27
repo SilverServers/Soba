@@ -45,7 +45,7 @@ class SeoController
         // Such a type is left out of the index, the routes and search alike.
         $contentTypeKey = null;
         foreach (Registry::all() as $key => $ct) {
-            $public = trim((string) ($ct['public_slug'] ?? ''));
+            $public = trim((string) Registry::publicSlug((string) $key));
             if ($public !== '' && $public === $slug) {
                 $contentTypeKey = $key;
                 break;

@@ -104,8 +104,48 @@
     // teaches its user that the software is arbitrary.
   ];
 
+  // ── A THEME'S OWN CLASSES FOR CONTENT ─────────────────────────────────────
+  // theme.json's `content_classes`, printed in the admin's head as tag =>
+  // {class: name} (`Helpers\Theme::contentClasses()`), which `Html\Sanitizer`
+  // keeps on those tags and no others. Offered in a Style menu for the block
+  // the caret is in, and on a picture's own bar: one style at a time on each.
+  var STYLES = (function () {
+    var meta = document.querySelector('meta[name="content-classes"]');
+    if (!meta) { return {}; }
+    try { return JSON.parse(meta.getAttribute('content')) || {}; } catch (e) { return {}; }
+  }());
+  var STYLED_BLOCKS = Object.keys(STYLES).filter(function (t) { return t !== 'img' && t !== 'figure'; });
+
+  /** The innermost element round the caret whose tag the theme has styles for, or null. */
+  function themeStyledBlock(surface) {
+    var sel = window.getSelection();
+    var n = sel && sel.rangeCount ? sel.anchorNode : null;
+    while (n && n !== surface) {
+      if (n.nodeType === 1 && STYLED_BLOCKS.indexOf(n.nodeName.toLowerCase()) !== -1) { return n; }
+      n = n.parentNode;
+    }
+    return null;
+  }
+
+  /** Put one of its tag's styles on an element, taking off the others; '' takes them all off. */
+  function setThemeStyle(el, cls) {
+    Object.keys(STYLES[el.nodeName.toLowerCase()] || {}).forEach(function (c) { el.classList.remove(c); });
+    if (cls) { el.classList.add(cls); }
+    if (el.getAttribute('class') === '') { el.removeAttribute('class'); }
+  }
+
+  /** The style an element wears, of its tag's, or ''. */
+  function themeStyleOf(el) {
+    var own = Object.keys(STYLES[el.nodeName.toLowerCase()] || {});
+    for (var i = 0; i < own.length; i++) {
+      if (el.classList.contains(own[i])) { return own[i]; }
+    }
+    return '';
+  }
+
   var TOOLS = [
     { block: true, title: 'Paragraph style' },
+    { styles: true, title: 'Style' },
     { sep: true },
     { cmd: 'bold',   label: 'B', title: 'Bold',   key: 'b', style: 'font-weight:700' },
     { cmd: 'italic', label: 'I', title: 'Italic', key: 'i', style: 'font-style:italic' },
@@ -826,7 +866,33 @@
 
     var buttons = [];
     var blockSelect = null;
+    var styleSelect = null;
     TOOLS.forEach(function (tool) {
+      if (tool.styles) {
+        // ── THE STYLE MENU: the theme's own, for the block the caret is in.
+        // Drawn only when the theme gives a block one. Its choices follow
+        // the caret (`refresh()`); with the caret in no styled block it holds
+        // only No style, disabled, rather than a choice that does nothing.
+        if (STYLED_BLOCKS.length === 0) { return; }
+        styleSelect = document.createElement('select');
+        styleSelect.className = 'select select--sm editor__block editor__style';
+        styleSelect.setAttribute('aria-label', tool.title);
+        styleSelect.dataset.style = '';
+        styleSelect.addEventListener('change', function () {
+          var at = caretOffset(surface);
+          surface.focus();
+          setCaretOffset(surface, at);
+          var el = themeStyledBlock(surface);
+          if (el) {
+            setThemeStyle(el, styleSelect.value);
+            textarea.value = htmlOut(surface);
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          refresh();
+        });
+        bar.appendChild(styleSelect);
+        return;
+      }
       if (tool.sep) {
         var hr = document.createElement('span');
         hr.className = 'editor__sep';
@@ -1099,6 +1165,32 @@
       imgButtons.push({ el: b, tool: tool });
       imgBar.appendChild(b);
     });
+    // A PICTURE'S STYLES, the theme's for `img`, on its own bar.
+    var imgStyle = null;
+    if (STYLES.img && Object.keys(STYLES.img).length) {
+      var sepS = document.createElement('span');
+      sepS.className = 'editor__sep';
+      sepS.setAttribute('aria-hidden', 'true');
+      imgBar.appendChild(sepS);
+      imgStyle = document.createElement('select');
+      imgStyle.className = 'select select--sm editor__block editor__style';
+      imgStyle.setAttribute('aria-label', 'Picture style');
+      imgStyle.dataset.imgStyle = '';
+      [['', 'No style']].concat(Object.keys(STYLES.img).map(function (c) { return [c, STYLES.img[c]]; }))
+        .forEach(function (pair) {
+          var o = document.createElement('option');
+          o.value = pair[0];
+          o.textContent = pair[1];
+          imgStyle.appendChild(o);
+        });
+      imgStyle.addEventListener('change', function () {
+        if (!selectedImage) { return; }
+        setThemeStyle(selectedImage, imgStyle.value);
+        textarea.value = htmlOut(surface);
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      imgBar.appendChild(imgStyle);
+    }
     wrap.appendChild(imgBar);
 
     // ── THE THIRD BAR: WHAT A TABLE OFFERS ─────────────────────────────────
@@ -1176,6 +1268,20 @@
       if (blockSelect) {
         var known = BLOCK_MENU.some(function (p) { return p[0] === block; });
         blockSelect.value = known ? block : 'p';
+      }
+      if (styleSelect) {
+        var styled = themeStyledBlock(surface);
+        var offered = styled ? (STYLES[styled.nodeName.toLowerCase()] || {}) : {};
+        styleSelect.innerHTML = '';
+        [['', 'No style']].concat(Object.keys(offered).map(function (c) { return [c, offered[c]]; }))
+          .forEach(function (pair) {
+            var o = document.createElement('option');
+            o.value = pair[0];
+            o.textContent = pair[1];
+            styleSelect.appendChild(o);
+          });
+        styleSelect.value = styled ? themeStyleOf(styled) : '';
+        styleSelect.disabled = !styled;
       }
 
       // WHICH ALIGNMENT THE SELECTION ALREADY HAS. Reported from the first
@@ -1646,6 +1752,7 @@
     /** The image bar reports the alignment the picture already has. */
     function refreshImage() {
         if (!selectedImage) { return; }
+        if (imgStyle) { imgStyle.value = themeStyleOf(selectedImage); }
         var box = alignHost(selectedImage);
         imgButtons.forEach(function (b) {
             if (b.tool.img !== 'align') { return; }

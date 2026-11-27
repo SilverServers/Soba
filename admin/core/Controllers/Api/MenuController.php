@@ -7,6 +7,7 @@ namespace Cms\Controllers\Api;
 use Cms\Auth\Auth;
 use Cms\ContentType\Registry;
 use Cms\ContentType\TaxonomyRegistry;
+use Cms\Http\Cache;
 use Cms\Models\Menu;
 use Cms\Models\MenuItem;
 use Cms\Models\Page;
@@ -19,12 +20,13 @@ class MenuController
      */
     public function items(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menuId = (int) ($vars['id'] ?? 0);
         $menu   = Menu::find($menuId);
 
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
 
         if (!$menu) {
             http_response_code(404);
@@ -43,12 +45,13 @@ class MenuController
      */
     public function saveItems(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menuId = (int) ($vars['id'] ?? 0);
         $menu   = Menu::find($menuId);
 
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
 
         if (!$menu) {
             http_response_code(404);
@@ -75,9 +78,10 @@ class MenuController
      */
     public function sourcePages(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
 
         $pages = Page::all();
         $data  = [];
@@ -108,9 +112,10 @@ class MenuController
      */
     public function sourceTerms(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
 
         $data = [];
         foreach (TaxonomyRegistry::all() as $taxKey => $tax) {
@@ -137,13 +142,16 @@ class MenuController
      */
     public function sourceContentTypes(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
 
+        // Only types whose entries have pages (`Registry::hasPages()`): one
+        // without has no archive to link to.
         $data = [];
-        foreach (Registry::all() as $key => $ct) {
-            $publicSlug = $ct['public_slug'] ?? $ct['admin_slug'] ?? $key;
+        foreach (Registry::withPages() as $key => $ct) {
+            $publicSlug = (string) Registry::publicSlug((string) $key);
             $data[] = [
                 'key'   => $key,
                 'label' => $ct['label'],

@@ -6,6 +6,7 @@ namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
 use Cms\Helpers\Url;
+use Cms\Http\Cache;
 use Cms\Models\User;
 use Cms\Security\AccountLock;
 use Cms\Security\Accounts;
@@ -370,7 +371,7 @@ class AuthController
         }
 
         http_response_code($errors === [] ? 200 : 422);
-        header('Cache-Control: no-store');
+        Cache::noStore();
         $summary = PasswordPolicy::summary();
         require ROOT_PATH . '/admin/templates/choose-password.php';
     }
@@ -619,7 +620,7 @@ class AuthController
     private function renderAccess(?array $access, ?string $error = null): void
     {
         http_response_code($error !== null ? 422 : 200);
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $signIn = LoginUrl::url();
         require ROOT_PATH . '/admin/templates/access.php';
@@ -629,7 +630,7 @@ class AuthController
     private function renderPasswordless(string $method, string $state, array $errors = [], int $status = 200): void
     {
         http_response_code($status);
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $signIn    = LoginUrl::url();
         $settings  = Passwordless::settings();
@@ -651,7 +652,7 @@ class AuthController
         }
 
         http_response_code($status);
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $id       = (int) $pending['id'];
         $method   = (string) $pending['method'];
@@ -746,7 +747,7 @@ class AuthController
     private function renderUnlock(?array $lock, ?string $error = null): void
     {
         http_response_code($error !== null ? 422 : 200);
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $signIn = LoginUrl::url();
         require ROOT_PATH . '/admin/templates/unlock.php';
@@ -764,7 +765,7 @@ class AuthController
     private function renderReset(string $state, array $errors = [], int $status = 200): void
     {
         http_response_code($status);
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $signIn    = LoginUrl::url();
         $summary   = PasswordPolicy::summary();
@@ -789,7 +790,7 @@ class AuthController
         http_response_code($status);
         // A sign-in page is never cached: it holds a token tied to this session,
         // and a stale copy is a form that can only fail.
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $action    = LoginUrl::url();
         $challenge = Challenge::questionFor(ClientIp::key());

@@ -383,12 +383,15 @@
         var input = e.target.closest('[data-md-replace-input]');
         if (!input || !input.files.length || !current) { return; }
 
-        var body = new FormData();
-        body.append('file', input.files[0]);
+        var file = input.files[0];
         input.value = '';
         say('Replacing…');
 
-        CMS.post('/api/v1/media/' + current.id + '/replace', body)
+        // `CMS.upload()` (upload.js): in pieces when it is too large for one
+        // request, a HEIC photo as a JPEG, and how far along it is.
+        CMS.upload(file, { replace: current.id }, function (share) {
+            say('Replacing… ' + Math.round(share * 100) + '%');
+        })
             .then(function () {
                 // RELOAD, do not patch. The file itself changed — new size, new
                 // dimensions, a new version row — and the server already knows

@@ -7,6 +7,7 @@ namespace Cms\Controllers\Api;
 use Cms\Auth\Auth;
 use Cms\Content\Presence;
 use Cms\Helpers\Dates;
+use Cms\Http\Cache;
 use Cms\Security\Csrf;
 use Cms\Ui\KeepWriting;
 
@@ -56,7 +57,7 @@ final class SessionController
         }
 
         header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo json_encode(['success' => true, 'data' => $data]);
     }
 

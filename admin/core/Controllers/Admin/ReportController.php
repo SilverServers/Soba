@@ -6,6 +6,7 @@ namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
 use Cms\Commerce\Reports;
+use Cms\Http\Cache;
 
 /**
  * SHOP → REPORTS: what sold over a stretch of days, by day or month, by product
@@ -62,7 +63,7 @@ class ReportController
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $which . '-' . $from . '-to-' . $to . '.csv"');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         // THE BYTE-ORDER MARK FIRST, as the orders spreadsheet's.
         echo "\xEF\xBB\xBF" . Reports::csv($rows, $columns);
         exit;

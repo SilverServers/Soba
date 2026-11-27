@@ -58,11 +58,12 @@ class GalleryController
             $errors[] = 'Gallery title is required.';
         }
         $placeKey = self::postedPlace($errors, null);
+        $posted   = $this->parseItems($_POST, $errors);
 
         if (!empty($errors)) {
             [$placesList, $holders] = self::placesForGallery();
             $gallery  = null;
-            $items    = [];
+            $items    = self::postedItems($posted);
             $formData = $_POST;
             $pageTitle   = 'Create Gallery';
             $currentPage = 'galleries';
@@ -80,7 +81,7 @@ class GalleryController
         $galleryId = Gallery::create($title, $description ?: null, $settings);
 
         // Save image items, each with its details (migration 091)
-        Gallery::setItems($galleryId, $this->parseItems($_POST));
+        Gallery::setItems($galleryId, $posted);
 
         // Where it is shown (change 28).
         $had = $placeKey !== null ? Gallery::place($galleryId, $placeKey) : null;
@@ -135,10 +136,11 @@ class GalleryController
             $errors[] = 'Gallery title is required.';
         }
         $placeKey = self::postedPlace($errors, $gallery['place_key'] ?? null);
+        $posted   = $this->parseItems($_POST, $errors);
 
         if (!empty($errors)) {
             [$placesList, $holders] = self::placesForGallery();
-            $items    = Gallery::getItems($galleryId);
+            $items    = self::postedItems($posted);
             $formData = $_POST;
             $pageTitle   = 'Edit Gallery: ' . $gallery['title'];
             $currentPage = 'galleries';
@@ -156,7 +158,7 @@ class GalleryController
         Gallery::update($galleryId, $title, $description ?: null, $settings);
 
         // Save image items, each with its details (migration 091)
-        Gallery::setItems($galleryId, $this->parseItems($_POST));
+        Gallery::setItems($galleryId, $posted);
 
         // Where it is shown (change 28). A save without the field — a site
         // with no places — leaves the place alone.
@@ -234,47 +236,95 @@ class GalleryController
     }
 
     /**
-     * THE GALLERY, IN ORDER, WITH EACH ITEM'S DETAILS — migration 091.
+     * THE GALLERY, IN ORDER, WITH EACH ITEM'S DETAILS — migrations 091, 127.
      *
      * The order is `image_ids`, as it always was. The details ride in inputs
-     * keyed by the attachment id — `item_caption[ID]`, `item_link[ID]`,
-     * `item_thumb[ID]` — which sit inside their tile, so a drag moves them
-     * and a remove takes them. A detail for an id that is not in
-     * `image_ids` is ignored: no item is added by its caption alone.
+     * keyed by the attachment id — `item_title[ID]`, `item_caption[ID]`,
+     * `item_link[ID]`, `item_thumb[ID]` — which sit inside their tile, so a
+     * drag moves them and a remove takes them. A detail for an id that is not
+     * in `image_ids` is ignored: no item is added by its caption alone.
      *
      * CHECKED, NOT TRUSTED. A link is a site path (`/…`) or an http(s)
      * address — anything else (`javascript:`, `data:`) is dropped, since it
      * reaches an `href`. A thumbnail must be a file in the library, and not
      * the picture itself.
      *
+     * A TITLE AND A CAPTION ARE KEPT AS TYPED. Only the white space at their
+     * ends goes, and every line break is a LF, whichever the browser sent. One
+     * too long for its column is not cut: it adds a sentence naming the
+     * picture to `$errors` and stays in what is returned, every character of
+     * it, so the screen drawn again shows it to be shortened.
+     *
      * @param  array<string, mixed> $post
-     * @return list<array{attachment_id: int, caption: string, link_url: string, thumb_attachment_id: int}>
+     * @param  list<string>         $errors
+     * @return list<array{attachment_id: int, title: string, caption: string, link_url: string, thumb_attachment_id: int}>
      */
-    private function parseItems(array $post): array
+    private function parseItems(array $post, array &$errors): array
     {
         $detail = static function (string $name, int $id) use ($post): string {
             $all = $post[$name] ?? null;
             $one = is_array($all) ? ($all[$id] ?? '') : '';
             return is_scalar($one) ? trim((string) $one) : '';
         };
+        $words = static fn (string $name, int $id): string => str_replace(["\r\n", "\r"], "\n", $detail($name, $id));
 
         $items = [];
         $ids   = $this->parseImageIds(is_string($post['image_ids'] ?? null) ? $post['image_ids'] : '');
         foreach ($ids as $id) {
-            $link  = $detail('item_link', $id);
-            $thumb = (int) $detail('item_thumb', $id);
+            $title   = $words('item_title', $id);
+            $caption = $words('item_caption', $id);
+            $link    = $detail('item_link', $id);
+            $thumb   = (int) $detail('item_thumb', $id);
             if ($link !== '' && preg_match('~^(https?://\S+|/(?!/)\S*)$~i', $link) !== 1) {
                 $link = '';
             }
             if ($thumb > 0 && ($thumb === $id || Media::find($thumb) === null)) {
                 $thumb = 0;
             }
+            if (mb_strlen($title) > Gallery::TITLE_MAX || mb_strlen($caption) > Gallery::CAPTION_MAX) {
+                $file = Media::find($id);
+                $name = $file !== null ? (string) ($file['original_name'] ?: $file['filename']) : 'picture ' . $id;
+                array_push($errors, ...Gallery::tooLong($title, $caption, '“' . $name . '”'));
+            }
             $items[] = [
                 'attachment_id'       => $id,
-                'caption'             => mb_substr($detail('item_caption', $id), 0, 300),
+                'title'               => $title,
+                'caption'             => $caption,
                 'link_url'            => mb_substr($link, 0, 500),
                 'thumb_attachment_id' => $thumb,
             ];
+        }
+        return $items;
+    }
+
+    /**
+     * The posted items as `Gallery::getItems()` gives the stored ones, so a
+     * save that is refused draws what was posted — its pictures, their order
+     * and their details as typed — rather than what was stored before it. An
+     * id that is no file in the library is left out.
+     *
+     * @param  list<array{attachment_id: int, title: string, caption: string, link_url: string, thumb_attachment_id: int}> $posted
+     * @return list<array<string, mixed>>
+     */
+    private static function postedItems(array $posted): array
+    {
+        $items = [];
+        foreach ($posted as $position => $item) {
+            $file = Media::find($item['attachment_id']);
+            if ($file === null) {
+                continue;
+            }
+            $items[] = [
+                'item_id'             => 0,
+                'attachment_id'       => $item['attachment_id'],
+                'position'            => $position,
+                'title'               => $item['title'],
+                'caption'             => $item['caption'],
+                'link_url'            => $item['link_url'],
+                'thumb_attachment_id' => $item['thumb_attachment_id'] > 0 ? $item['thumb_attachment_id'] : null,
+            ] + array_intersect_key($file, array_flip(
+                ['filename', 'site_path', 'original_name', 'mime_type', 'width', 'height', 'alt_text', 'visibility']
+            ));
         }
         return $items;
     }

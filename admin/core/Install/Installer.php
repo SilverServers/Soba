@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Install;
 
 use Cms\Database\Database;
+use Cms\Http\Cache;
 use Cms\Models\Option;
 use Cms\Models\User;
 use Cms\Security\Csrf;
@@ -98,7 +99,7 @@ final class Installer
         defined('ADMIN_URL_SLUG') || define('ADMIN_URL_SLUG', 'admin');
         defined('ADMIN_URL') || define('ADMIN_URL', BASE_URL . '/' . ADMIN_URL_SLUG);
         require_once ROOT_PATH . '/core/Ui/globals.php';
-        header('Cache-Control: no-store');
+        Cache::noStore();
         header('X-Frame-Options: DENY');
         header('X-Robots-Tag: noindex, nofollow');
         header('Referrer-Policy: same-origin');
@@ -229,14 +230,7 @@ final class Installer
         if ($address === null) {
             $errors[] = 'The site\'s address is a whole address, such as https://www.example.com.';
         }
-        if ($site['username'] === '') {
-            $errors[] = 'Choose a username.';
-        } elseif (mb_strlen($site['username']) > 100) {
-            $errors[] = 'A username has at most 100 characters.';
-        }
-        if (!filter_var($site['email'], FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'Enter a valid email address.';
-        }
+        array_push($errors, ...self::accountProblems($site['username'], $site['email']));
         if ($site['password'] !== $site['password2']) {
             $errors[] = 'The two passwords are not the same.';
         }
@@ -290,6 +284,30 @@ final class Installer
             'signin'   => $address . '/admin/login',
             'config'   => self::writeConfig($text) ? null : $text,
         ]];
+    }
+
+    /**
+     * Why a new site's first account cannot have this name and address, or
+     * []: the set-up's rules, which `migrate.php run --admin-user= --admin-email=`
+     * follows too, before anything is set up. The names every script tries
+     * first are a setting, read once the migrations have made it
+     * (`Security\Usernames::blocked()`).
+     *
+     * @return list<string>
+     */
+    public static function accountProblems(string $username, string $email): array
+    {
+        $errors = [];
+        if ($username === '') {
+            $errors[] = 'Choose a username.';
+        } elseif (mb_strlen($username) > 100) {
+            $errors[] = 'A username has at most 100 characters.';
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Enter a valid email address.';
+        }
+
+        return $errors;
     }
 
     /** config.example.php with the set-up's values in place, its comments kept. */

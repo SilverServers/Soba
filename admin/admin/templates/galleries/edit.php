@@ -182,65 +182,13 @@ ob_start();
                         <div class="cms-gallery cms-gallery--<?= h($setting('layout', 'grid')) ?>"
                              style="--gallery-columns: <?= (int) ($setting('columns', '3') ?: 3) ?>"
                              data-gallery-tiles>
+                            <?php // THE TILES ARE `Ui\GalleryTiles`'s, a gallery field's
+                                  // too: the picture as the public grid draws it, its
+                                  // chrome over it, the words under it as the page
+                                  // prints them, and its details in hidden inputs keyed
+                                  // by the attachment (GalleryController::parseItems()). ?>
                             <?php foreach ($items as $item): ?>
-                                <?php
-                                $aid = (int) $item['attachment_id'];
-                                $url = Media::getUrl($aid);
-                                $isImage = str_starts_with((string) $item['mime_type'], 'image/');
-                                // ITS DETAILS (migration 091). The tile shows what
-                                // the public grid will: the thumbnail when there is
-                                // one, the caption under it.
-                                $thumbId  = (int) ($item['thumb_attachment_id'] ?? 0);
-                                $thumbUrl = $thumbId > 0 ? Media::getUrl($thumbId) : '';
-                                $caption  = (string) ($item['caption'] ?? '');
-                                $link     = (string) ($item['link_url'] ?? '');
-                                $name     = (string) ($item['original_name'] ?: $item['filename']);
-                                ?>
-                                <figure class="cms-gallery__item gtile" data-gallery-tile data-id="<?= $aid ?>">
-                                    <?php if ($isImage && $url !== ''): ?>
-                                        <img src="<?= h($thumbUrl !== '' ? $thumbUrl : $url) ?>"
-                                             data-url="<?= h($url) ?>"
-                                             alt="<?= h((string) ($item['alt_text'] ?? '')) ?>"
-                                             loading="lazy">
-                                    <?php else: ?>
-                                        <span class="gtile__kind"><?= icon('file', 'icon', '', 24) ?></span>
-                                    <?php endif; ?>
-                                    <?php // THE CHROME SITS OVER THE IMAGE, not
-                                          // in a caption below it. A caption row
-                                          // adds height the public tile does not
-                                          // have, and the moment the preview is
-                                          // a different SHAPE it is back to
-                                          // being a second grid. ?>
-                                    <figcaption class="gtile__bar">
-                                        <span class="gtile__grip" data-gallery-grip
-                                              title="<?= h($name) ?>">
-                                            <?= icon('grip-vertical', 'icon icon--sm') ?>
-                                        </span>
-                                        <?php // THE LINK MARK SAYS, WITHOUT WORDS, THAT THE
-                                              // TILE GOES SOMEWHERE; the pen opens its
-                                              // details. Both sit with Remove. ?>
-                                        <span class="gtile__has-link" data-detail-link
-                                              title="<?= h($link) ?>"<?= $link === '' ? ' hidden' : '' ?>>
-                                            <?= icon('link', 'icon icon--sm') ?>
-                                        </span>
-                                        <button type="button" class="gtile__edit" data-gallery-edit
-                                                aria-label="Caption, link and thumbnail of <?= h($name) ?>">
-                                            <?= icon('pen', 'icon icon--sm') ?>
-                                        </button>
-                                        <button type="button" class="gtile__kill" data-gallery-remove
-                                                aria-label="Remove <?= h($name) ?> from this gallery">
-                                            <?= icon('trash', 'icon icon--sm') ?>
-                                        </button>
-                                    </figcaption>
-                                    <div class="cms-gallery__caption" data-detail-caption<?= $caption === '' ? ' hidden' : '' ?>><?= h($caption) ?></div>
-                                    <?php // KEYED BY THE ATTACHMENT, INSIDE THE TILE: a drag
-                                          // moves them and a remove takes them
-                                          // (GalleryController::parseItems()). ?>
-                                    <input type="hidden" name="item_caption[<?= $aid ?>]" value="<?= h($caption) ?>" data-detail="caption">
-                                    <input type="hidden" name="item_link[<?= $aid ?>]" value="<?= h($link) ?>" data-detail="link">
-                                    <input type="hidden" name="item_thumb[<?= $aid ?>]" value="<?= $thumbId > 0 ? $thumbId : '' ?>"
-                                           data-detail="thumb" data-thumb-url="<?= h($thumbUrl) ?>">
-                                </figure>
+                                <?= \Cms\Ui\GalleryTiles::tile($item, 'item_{detail}[{id}]', ['title', 'caption', 'link', 'thumb']) ?>
                             <?php endforeach; ?>
                         </div>
 
@@ -249,57 +197,56 @@ ob_start();
                             <p class="empty__title">No images yet</p>
                         </div>
 
+                        <?php // FILES DROPPED ON THE TILES go one at a time; this
+                              // says which and how far (gallery-images.js). The
+                              // picker uploads too, many at once. ?>
+                        <div data-gallery-progress hidden>
+                            <p class="form-help" data-gallery-progress-text></p>
+                            <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Upload">
+                                <div class="progress-bar__fill" data-gallery-progress-fill></div>
+                            </div>
+                        </div>
+
                         <?php // NO "DRAG A TILE TO CHANGE THE ORDER" LINE. Every
                               // tile carries a grip, and a sentence explaining a
                               // control that is visible on the control is
                               // telling where the design language shows. ?>
 
                         <template data-gallery-template>
-                            <figure class="cms-gallery__item gtile" data-gallery-tile>
-                                <img alt="" loading="lazy">
-                                <figcaption class="gtile__bar">
-                                    <span class="gtile__grip" data-gallery-grip>
-                                        <?= icon('grip-vertical', 'icon icon--sm') ?>
-                                    </span>
-                                    <span class="gtile__has-link" data-detail-link hidden>
-                                        <?= icon('link', 'icon icon--sm') ?>
-                                    </span>
-                                    <button type="button" class="gtile__edit" data-gallery-edit
-                                            aria-label="Caption, link and thumbnail">
-                                        <?= icon('pen', 'icon icon--sm') ?>
-                                    </button>
-                                    <button type="button" class="gtile__kill" data-gallery-remove
-                                            aria-label="Remove from this gallery">
-                                        <?= icon('trash', 'icon icon--sm') ?>
-                                    </button>
-                                </figcaption>
-                                <div class="cms-gallery__caption" data-detail-caption hidden></div>
-                                <input type="hidden" value="" data-detail="caption">
-                                <input type="hidden" value="" data-detail="link">
-                                <input type="hidden" value="" data-detail="thumb" data-thumb-url="">
-                            </figure>
+                            <?= \Cms\Ui\GalleryTiles::template('item_{detail}[{id}]', ['title', 'caption', 'link', 'thumb']) ?>
                         </template>
 
-                        <?php // ── AN ITEM'S DETAILS (migration 091) ─────────────
+                        <?php // ── AN ITEM'S DETAILS (migrations 091, 127) ───────
                               // Opened by a tile's pen; Done writes the tile's own
                               // inputs, so nothing is saved until the gallery is.
                               // The thumbnail is the media-picker component's own
-                              // shape (FieldRenderer::renderMediaPicker()), driven
-                              // by the gallery's picker in its pick-one mode.
-                              // Its inputs carry no name: they never post. ?>
+                              // shape (FieldRenderer::renderMediaPicker()), chosen
+                              // with the one picker (`CmsMedia.pick()`).
+                              // Its inputs carry no name: they never post.
+                              //
+                              // NO maxlength ON THE TITLE OR THE CAPTION. The
+                              // browser cuts a longer paste to fit without a
+                              // word; Done says how long each may be instead,
+                              // and keeps the dialog open to shorten it. ?>
                         <dialog class="modal" data-gallery-details aria-labelledby="gdetails-title">
                             <div class="modal__inner">
-                                <h2 class="modal__title" id="gdetails-title">Caption, link and thumbnail</h2>
+                                <h2 class="modal__title" id="gdetails-title">Title, caption, link and thumbnail</h2>
                                 <div class="alert alert--danger" data-gd-error hidden></div>
                                 <div class="field">
+                                    <label class="label" for="gd-title">Title</label>
+                                    <input class="input" type="text" id="gd-title" data-gd-title
+                                           data-most="<?= \Cms\Models\Gallery::TITLE_MAX ?>">
+                                </div>
+                                <div class="field">
                                     <label class="label" for="gd-caption">Caption</label>
-                                    <input class="input" type="text" id="gd-caption" maxlength="300" data-gd-caption>
+                                    <textarea class="textarea" id="gd-caption" rows="5" data-gd-caption
+                                              data-most="<?= \Cms\Models\Gallery::CAPTION_MAX ?>"></textarea>
                                 </div>
                                 <div class="field">
                                     <label class="label" for="gd-link">Link</label>
                                     <input class="input input--mono" type="text" id="gd-link" maxlength="500"
                                            spellcheck="false" placeholder="/portfolio/a-project" data-gd-link>
-                                    <p class="form-help">A page on this site, starting with /, or a whole address. With “Open images full size on click” ticked, the picture opens in full and the caption carries the link — so give it a caption.</p>
+                                    <p class="form-help">A page on this site, starting with /, or a whole address. With “Open images full size on click” ticked, the picture opens in full and its title and caption carry the link — so give it one or the other.</p>
                                 </div>
                                 <div class="field">
                                     <span class="label">Thumbnail</span>
@@ -439,8 +386,10 @@ ob_start();
       // page. It is tokens-only, so nothing in it touches the admin's chrome. ?>
 <link rel="stylesheet" href="<?= h(Asset::site('assets/css/gallery.css')) ?>">
 <?php // reorder.js BEFORE the gallery script, which calls Reorder.create() on
-      // the tiles as soon as it runs. ?>
+      // the tiles as soon as it runs; entry-form.js for the one picker
+      // (`CmsMedia`), which the gallery adds pictures and thumbnails with. ?>
 <script src="<?= h(Asset::admin('js/reorder.js')) ?>"></script>
+<script src="<?= h(Asset::admin('js/entry-form.js')) ?>"></script>
 <script src="<?= h(Asset::admin('js/gallery-images.js')) ?>"></script>
 <?php
 $pageContent = ob_get_clean();

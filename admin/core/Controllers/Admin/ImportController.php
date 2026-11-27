@@ -12,6 +12,7 @@ use Cms\Content\WordPressImport;
 use Cms\Content\Wxr;
 use Cms\ContentType\Registry;
 use Cms\Helpers\Url;
+use Cms\Http\Cache;
 use Cms\Security\Csrf;
 
 /**
@@ -207,6 +208,7 @@ class ImportController
     {
         Auth::requireRole('admin');
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         $token = (string) ($vars['token'] ?? '');
         if (WordPressImport::job($token) === null) {
             http_response_code(404);

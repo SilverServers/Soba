@@ -18,7 +18,9 @@ use Cms\Update\Release;
  *
  * ── WHAT A THEME IS ─────────────────────────────────────────────────────────
  * A directory holding `theme.json` — `name` (required), `description`,
- * `version`, `author`, `mode` — its templates, and an `assets/` directory for
+ * `version`, `author`, `mode`, `page_lists`, what its pages list
+ * (`Site\PageLists`), and `content_classes`, the classes its stylesheet gives
+ * content (`contentClasses()`) — its templates, and an `assets/` directory for
  * what a browser fetches (`theme.css` there is loaded on every framed page).
  * Where they are found:
  *
@@ -99,6 +101,9 @@ final class Theme
     /** The active theme's key, for this request — `Template::locate()` asks per card. */
     private static ?string $activeKey = null;
 
+    /** @var array<string, array<string, string>>|null `contentClasses()`, for this request */
+    private static ?array $contentClasses = null;
+
     /** `configure()`'s path, when the front controller of a site set one. */
     private static ?string $configured = null;
 
@@ -136,6 +141,8 @@ final class Theme
             'where'       => 'Built in',
             'configured'  => false,
             'problem'     => null,
+            'page_lists'  => [],
+            'content_classes' => [],
         ]];
 
         $configured = self::configuredPath();
@@ -204,6 +211,69 @@ final class Theme
     public static function stylesheet(): ?string
     {
         return self::active()['mode'] === 'framed' ? self::asset('theme.css') : null;
+    }
+
+    /**
+     * THE CLASSES THE ACTIVE THEME'S STYLESHEET GIVES CONTENT, which content
+     * may therefore keep: tag => [class => its name in the editor's Style
+     * menu]. theme.json names them by tag, each a list of classes or a class
+     * and its name:
+     *
+     *     "content_classes": {"img": ["logo"], "p": {"gallery-row": "Row of pictures"}}
+     *
+     * `Html\Sanitizer` keeps each on its own tag only, beside its own
+     * alignment classes. A tag the sanitizer does not keep, `i` and `span`
+     * (config.php's `icon_classes` are theirs), and a name that is not a
+     * class are said in the log, at most hourly, and left out.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function contentClasses(): array
+    {
+        if (self::$contentClasses !== null) {
+            return self::$contentClasses;
+        }
+        // BEFORE THE SITE HAS ITS DATABASE there is no theme to ask, since the
+        // active one is a setting: the web installer draws the admin's head
+        // before the site has a database, and its refusals (a database in use,
+        // one that could not be set up) before its tables exist. Nothing is
+        // kept, so a later call asks again.
+        if (!\Cms\Database\Database::initialized()) {
+            return [];
+        }
+        try {
+            $wanted = (array) (self::active()['content_classes'] ?? []);
+        } catch (\PDOException) {
+            return [];
+        }
+        $out = [];
+        $bad = [];
+        foreach ($wanted as $tag => $classes) {
+            $tag = strtolower(trim((string) $tag));
+            if (!isset(\Cms\Html\Sanitizer::TAGS[$tag]) || in_array($tag, ['i', 'span'], true) || !is_array($classes)) {
+                $bad[] = '"' . $tag . '" is not a tag whose classes content may keep';
+                continue;
+            }
+            foreach ($classes as $key => $value) {
+                $class = is_int($key) ? (is_string($value) ? trim($value) : '') : trim((string) $key);
+                $name  = is_int($key) ? $class : trim(is_string($value) ? $value : '');
+                if (preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/D', $class) !== 1) {
+                    $bad[] = json_encode(is_int($key) ? $value : $key) . ' (on ' . $tag . ') is not a class name';
+                    continue;
+                }
+                $out[$tag][$class] = $name !== '' ? $name : $class;
+            }
+        }
+        if ($bad !== []) {
+            $sum = md5(implode("\n", $bad));
+            $was = explode('|', (string) (Option::get('content_classes_noted', '') ?? ''), 2);
+            if (($was[0] ?? '') !== $sum || time() - (int) ($was[1] ?? 0) >= 3600) {
+                Option::set('content_classes_noted', $sum . '|' . time());
+                error_log('Theme content_classes left out: ' . implode('; ', $bad) . '.');
+            }
+        }
+
+        return self::$contentClasses = $out;
     }
 
     /** A site theme's name for `dir()`, kept so that theme code reads the same. */
@@ -337,7 +407,8 @@ final class Theme
     public static function reset(): void
     {
         self::$all       = null;
-        self::$activeKey = null;
+        self::$activeKey      = null;
+        self::$contentClasses = null;
     }
 
     /**
@@ -391,6 +462,10 @@ final class Theme
             'where'       => self::relative($dir),
             'configured'  => $configured,
             'problem'     => $problem,
+            // What its pages list, as written: `Site\PageLists` checks each name.
+            'page_lists'  => is_array($data['page_lists'] ?? null) ? $data['page_lists'] : [],
+            // The classes its content may keep, as written: `contentClasses()` checks each.
+            'content_classes' => is_array($data['content_classes'] ?? null) ? $data['content_classes'] : [],
         ];
     }
 

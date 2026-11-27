@@ -7,6 +7,7 @@ namespace Cms\Controllers\Api;
 use Cms\Auth\Auth;
 use Cms\ContentType\Registry;
 use Cms\Database\Database;
+use Cms\Http\Cache;
 use Cms\Models\Meta;
 use Cms\Models\Option;
 use Cms\Models\Page;
@@ -76,6 +77,7 @@ class ExportController
         if ($ct === null) {
             http_response_code(404);
             header('Content-Type: application/json');
+            Cache::noStore();
             echo json_encode(['success' => false, 'error' => 'Content type not found']);
             return;
         }
@@ -107,13 +109,14 @@ class ExportController
         if (Registry::get($key) === null || !\Cms\Commerce\Product::isSellableType($key)) {
             http_response_code(404);
             header('Content-Type: application/json');
+            Cache::noStore();
             echo json_encode(['success' => false, 'error' => 'No content type that sells is called that']);
             return;
         }
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $key . '-products-' . date('Y-m-d') . '.csv"');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo "\xEF\xBB\xBF" . \Cms\Commerce\ProductSheet::export($key);
     }
 
@@ -306,6 +309,7 @@ class ExportController
     {
         $filename = $filenamePrefix . '-' . date('Y-m-d') . '.json';
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }

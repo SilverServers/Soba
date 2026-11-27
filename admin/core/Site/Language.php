@@ -335,8 +335,8 @@ final class Language
             || in_array($prefix, \Cms\Site\Front::siteAddresses(), true)) {
             return $at . ' is one of the site\'s own addresses, so the second language cannot be at it.';
         }
-        foreach (\Cms\ContentType\Registry::all() as $type) {
-            if (explode('/', trim((string) ($type['public_slug'] ?? ''), '/'))[0] === $prefix) {
+        foreach (\Cms\ContentType\Registry::all() as $typeKey => $type) {
+            if (explode('/', trim((string) \Cms\ContentType\Registry::publicSlug((string) $typeKey), '/'))[0] === $prefix) {
                 return 'The ' . strtolower((string) ($type['label'] ?? 'entries')) . ' are at ' . $at . '. Give them another address first.';
             }
         }

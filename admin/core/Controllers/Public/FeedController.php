@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Public;
 
 use Cms\Commerce\ProductFeed;
+use Cms\Http\Cache;
 
 /**
  * GET /feed/products.xml — the shop's products, as Google Merchant Center and
@@ -19,7 +20,7 @@ class FeedController
     {
         header('Content-Type: application/rss+xml; charset=utf-8');
         header('X-Robots-Tag: noindex');
-        header('Cache-Control: public, max-age=900');
+        Cache::publicFor(900);
         echo ProductFeed::xml();
     }
 }

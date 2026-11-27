@@ -18,7 +18,9 @@ use RuntimeException;
  * backup writes it (`Update\DbSnapshot`), then `uploads/`, every file under
  * `www/uploads/`. Not `config.php`: it holds the database's password and the
  * site's secret, and a backup is a file somebody downloads. Kept in
- * `admin/backups/`, outside the web root, where no update reaches.
+ * `admin/backups/`, outside the web root, where no update reaches, and
+ * 0640, as the updater's snapshot is: the site's own and its group's,
+ * whatever the server's umask, since it holds the whole database.
  *
  * ── MADE ON A VISIT, A STEP AT A TIME ───────────────────────────────────────
  * Shared hosting has no cron to rely on, so a visit makes one when it is due,
@@ -163,20 +165,42 @@ final class Backups
     // A backup
     // ----------------------------------------------------------------
 
-    /** The job under way, if one is, and not stale. @return array<string, mixed>|null */
+    /**
+     * The job under way, if one is, and not stale: a backup being made, or a
+     * finished one whose copy is still going off the server (`BackupCopy`).
+     * A stale backup is removed; a stale copy is only said to have stopped,
+     * since its backup is whole.
+     *
+     * @return array<string, mixed>|null
+     */
     public static function running(): ?array
     {
         foreach (self::jobs() as $job) {
-            if ($job['phase'] === 'done') {
+            if ($job['phase'] === 'done' && !self::copying($job)) {
                 continue;
             }
             if (time() - (int) $job['touched'] > self::STALE) {
+                if ($job['phase'] === 'done') {
+                    if (is_string($job['copy']['upload'] ?? null)) {
+                        BackupCopy::abandon((string) $job['id'], (string) $job['copy']['upload']);
+                    }
+                    $job['copy'] = ['state' => 'failed', 'to' => (string) ($job['copy']['to'] ?? ''), 'at' => time(),
+                                    'error' => 'its copy stopped part-way and was not finished'];
+                    self::save($job);
+                    continue;
+                }
                 self::remove((string) $job['id']);
                 continue;
             }
             return $job;
         }
         return null;
+    }
+
+    /** Whether a job's copy off the server is still to go, or going. @param array<string, mixed> $job */
+    private static function copying(array $job): bool
+    {
+        return in_array($job['copy']['state'] ?? '', BackupCopy::UNDER_WAY, true);
     }
 
     /**
@@ -229,14 +253,20 @@ final class Backups
             $job   = self::read((string) $job['id']) ?? $job;
             $until = microtime(true) + max(0.0, $seconds);
             $part  = self::dir() . '/' . $job['id'] . '.part';
-            while ($job['phase'] !== 'done' && microtime(true) < $until) {
-                if ($job['phase'] === 'database') {
+            while (($job['phase'] !== 'done' || self::copying($job)) && microtime(true) < $until) {
+                if ($job['phase'] === 'done') {
+                    // ITS COPY OFF THE SERVER, the next parts of it (`BackupCopy`).
+                    BackupCopy::step($job, $until);
+                } elseif ($job['phase'] === 'database') {
                     $dump = self::dir() . '/' . $job['id'] . '-database.sql.gz';
                     DbSnapshot::dump(Database::getInstance(), $dump);
                     $tar = fopen($part, 'wb');
                     if ($tar === false) {
                         throw new RuntimeException('Could not write ' . $part . '.');
                     }
+                    // 0640 before its first byte, whatever the server's umask;
+                    // the rename that finishes it keeps the mode.
+                    @chmod($part, 0640);
                     self::add($tar, 'database.sql.gz', $dump);
                     fclose($tar);
                     @unlink($dump);
@@ -271,6 +301,11 @@ final class Backups
                     $job['phase']    = 'done';
                     $job['finished'] = time();
                     $job['bytes']    = (int) filesize($tarFile);
+                    // Whole, and listed: its copy, where config.php names
+                    // somewhere, goes on from here (`BackupCopy`).
+                    if (BackupCopy::config() !== null) {
+                        $job['copy'] = ['state' => 'waiting', 'to' => BackupCopy::label()];
+                    }
                 }
                 $job['touched'] = time();
                 self::save($job);
@@ -278,7 +313,7 @@ final class Backups
             if ($job['phase'] === 'done') {
                 self::prune();
             }
-            return $job['phase'] === 'done';
+            return $job['phase'] === 'done' && !self::copying($job);
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -300,9 +335,11 @@ final class Backups
     // ----------------------------------------------------------------
 
     /**
-     * The finished backups, newest first: id, when, the file and its size.
+     * The finished backups, newest first: id, when, the file and its size,
+     * and its copy off the server (`BackupCopy`) as far as it has gone: null
+     * when none was asked for.
      *
-     * @return list<array{id: string, why: string, finished: int, bytes: int, file: string, count: int}>
+     * @return list<array{id: string, why: string, finished: int, bytes: int, file: string, count: int, copy: ?array<string, mixed>}>
      */
     public static function all(): array
     {
@@ -317,6 +354,7 @@ final class Backups
                     'bytes'    => (int) filesize($file),
                     'file'     => $file,
                     'count'    => (int) $job['count'],
+                    'copy'     => is_array($job['copy'] ?? null) ? $job['copy'] : null,
                 ];
             }
         }
@@ -578,20 +616,10 @@ final class Backups
     // Bookkeeping
     // ----------------------------------------------------------------
 
-    /** A size as people read it: "820 KB", "1.4 GB". */
+    /** A size as people read it: "820 KB", "1.4 GB" (`Media::sizeInWords()`). */
     public static function size(int $bytes): string
     {
-        if ($bytes < 1024) {
-            return $bytes . ' B';
-        }
-        $units = ['KB', 'MB', 'GB', 'TB'];
-        $i     = -1;
-        $n     = (float) $bytes;
-        do {
-            $n /= 1024;
-            $i++;
-        } while ($n >= 1024 && $i < count($units) - 1);
-        return round($n, $n < 10 ? 1 : 0) . ' ' . $units[$i];
+        return \Cms\Models\Media::sizeInWords($bytes);
     }
 
     private static function prepare(): void
@@ -603,6 +631,13 @@ final class Backups
         // admin/ is never served, but a backup holds every account's password hash.
         if (!is_file($dir . '/.htaccess')) {
             @file_put_contents($dir . '/.htaccess', "# Backups of this site. Never served.\nRequire all denied\n");
+        }
+        // A backup kept here with a wider mode, an older one or one copied in,
+        // is narrowed as the next one starts.
+        foreach (scandir($dir) ?: [] as $name) {
+            if (preg_match('/^\d{8}-\d{6}-[0-9a-f]{6}\.(tar|json)$/', $name) === 1) {
+                @chmod($dir . '/' . $name, 0640);
+            }
         }
     }
 
@@ -622,9 +657,14 @@ final class Backups
         return is_array($job) ? $job : null;
     }
 
+    /** A job's record or its list of files: whole or not at all, and 0640, as the backup is. */
     private static function write(string $file, string $bytes): void
     {
-        if (@file_put_contents($file . '.tmp', $bytes) === false || !@rename($file . '.tmp', $file)) {
+        $written = @file_put_contents($file . '.tmp', $bytes) !== false;
+        if ($written) {
+            @chmod($file . '.tmp', 0640);
+        }
+        if (!$written || !@rename($file . '.tmp', $file)) {
             throw new RuntimeException('Could not write ' . $file . '.');
         }
     }

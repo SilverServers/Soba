@@ -6,11 +6,12 @@
  * static copy's search index (`Public\SearchController`, `Export\StaticCopy`),
  * so a copy's results look as the site's do.
  *
- * @var array<string, mixed> $row the page: title, slug, content
+ * @var array<string, mixed> $row the page: title, slug, content, excerpt
  */
 
-// `Post::summary()` — the cut that knows a block's end is a word boundary. A
-// page has no excerpt, so it always gets the start of its text.
+// `Post::summary()` — the cut that knows a block's end is a word boundary:
+// the page's summary when it has one (migration 135), otherwise the start of
+// its text.
 $summary = \Cms\Models\Post::summary($row);
 ?>
 <li class="post-list__item">

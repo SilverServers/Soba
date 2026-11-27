@@ -18,10 +18,12 @@ use PDO;
  * published, so next week's meeting could sit on page three while page one
  * opened on last year's.
  *
- * An event is over once its end has passed, or its start when it has no end,
- * so one that began yesterday and ends tomorrow is still to come. Its times
- * are the site's wall-clock times as typed, in Settings → General's zone, and
- * are read that way.
+ * An event is over once its end has passed, so one that began yesterday and
+ * ends tomorrow is still to come; with no end after its start, once its day
+ * has, so a 9 a.m. meeting with no end is still on the list at noon. Its
+ * times are the site's wall-clock times as typed, in Settings → General's
+ * zone, and are read that way. Its calendar file is not this: there an event
+ * with no end is a moment at its start (`Content\Calendar`).
  */
 final class Events
 {
@@ -58,7 +60,9 @@ final class Events
         foreach (array_values($rows) as $position => $row) {
             $start = self::moment($row['starts'] ?? null);
             $end   = self::moment($row['ends'] ?? null, true);
-            $last  = $start !== null && $end !== null && $end > $start ? $end : self::moment($row['starts'] ?? null, true);
+            // WITH NO END AFTER ITS START, IT LASTS ITS DAY, whether or not
+            // its start has a time.
+            $last  = $start !== null && $end !== null && $end > $start ? $end : $start?->setTime(23, 59, 59);
             // 0 still to come, 1 over, 2 no date
             $group   = $start === null ? 2 : ($last < $now ? 1 : 0);
             $at      = $start !== null ? $start->getTimestamp() : 0;

@@ -12,6 +12,10 @@ declare(strict_types=1);
  *   --no-first-password
  *                     do not give a new site's first account its password
  *                     (the updater's run: its output is saved to a file)
+ *   --admin-user=<name> --admin-email=<address>
+ *                     name a new site's first account, as the browser set-up
+ *                     asks for its owner's own, rather than the seeded `admin`;
+ *                     both or neither, by the set-up's rules
  *
  * A NEW SITE'S FIRST PASSWORD. Migration 002 seeds `admin` with none, so
  * nobody can sign in from the web, not even after a page view has applied
@@ -57,15 +61,35 @@ require $admin . '/vendor/autoload.php';
 $command       = 'status';
 $config        = $admin . '/config/config.php';
 $firstPassword = true;
+$adminUser     = null;
+$adminEmail    = null;
+$usage         = "Usage: php admin/bin/migrate.php [status|run] [--config=<path>] [--no-first-password] [--admin-user=<name> --admin-email=<address>]\n";
 foreach (array_slice($argv, 1) as $arg) {
     if (str_starts_with($arg, '--config=')) {
         $config = substr($arg, strlen('--config='));
     } elseif ($arg === '--no-first-password') {
         $firstPassword = false;
+    } elseif (str_starts_with($arg, '--admin-user=')) {
+        $adminUser = trim(substr($arg, strlen('--admin-user=')));
+    } elseif (str_starts_with($arg, '--admin-email=')) {
+        $adminEmail = trim(substr($arg, strlen('--admin-email=')));
     } elseif (in_array($arg, ['status', 'run'], true)) {
         $command = $arg;
     } else {
-        fwrite(STDERR, "Usage: php admin/bin/migrate.php [status|run] [--config=<path>] [--no-first-password]\n");
+        fwrite(STDERR, $usage);
+        exit(2);
+    }
+}
+// THE FIRST ACCOUNT'S NAME AND ADDRESS, both or neither, checked by the
+// browser set-up's rules before anything is done.
+if (($adminUser === null) !== ($adminEmail === null)) {
+    fwrite(STDERR, "--admin-user and --admin-email name the first account together: give both, or neither.\n" . $usage);
+    exit(2);
+}
+if ($adminUser !== null) {
+    $problems = \Cms\Install\Installer::accountProblems($adminUser, (string) $adminEmail);
+    if ($problems !== []) {
+        fwrite(STDERR, implode("\n", $problems) . "\n");
         exit(2);
     }
 }
@@ -142,9 +166,24 @@ try {
         $code = $left === [] ? 0 : 1;
     }
 
+    // A NAME EVERY SCRIPT TRIES FIRST is a setting the migrations make, so
+    // it is asked once they have run; the account waits, unnamed and with no
+    // password, for a run with another.
+    if ($code === 0 && $adminUser !== null && \Cms\Security\Usernames::blocked($adminUser)) {
+        fwrite(STDERR, '“' . $adminUser . '” is one of the names every script tries first. Choose another.' . "\n");
+        exit(2);
+    }
+
     // Also after "Nothing to apply": a page view may have applied the
     // migrations first, and the account still has no password.
-    if ($code === 0 && $firstPassword && ($first = User::issueFirstPassword()) !== null) {
+    $first = $code === 0 && $firstPassword ? User::issueFirstPassword($adminUser, $adminEmail) : null;
+    if ($first === null && $code === 0 && $firstPassword && $adminUser !== null) {
+        fwrite(STDERR, "This site's first account is already set up; --admin-user and --admin-email name only a new site's.\n");
+    }
+    if ($first !== null) {
+        if ($adminEmail !== null) {
+            \Cms\Models\Option::set('admin_email', $adminEmail);
+        }
         // What LoginUrl needs to build the address, as security.php gives it.
         defined('ROOT_PATH') || define('ROOT_PATH', $admin);
         defined('BASE_URL') || define('BASE_URL', rtrim((string) ($settings['base_url'] ?? ''), '/'));

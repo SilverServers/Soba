@@ -496,12 +496,16 @@ final class StaticCopy
                 $keys[] = Url::inLanguage((string) $slug, $lang);
             }
             foreach (Registry::all() as $key => $type) {
-                $slug = (string) ($type['public_slug'] ?? '');
+                $slug = (string) Registry::publicSlug((string) $key);
                 if ($slug === '' || ($lang !== '' && !\Cms\Content\Translation::translates((string) $key))) {
                     continue;
                 }
                 $keys[] = Url::inLanguage($slug, $lang);
-                $stmt = $pdo->prepare('SELECT slug FROM posts WHERE post_type = :t AND ' . Post::live('', $lang) . ' ORDER BY id');
+                // NO SAMPLE ENTRY: these are read here, outside the pages the
+                // copy draws, and a static copy is the published site's
+                // wherever it is made (`Post::samplesShown()`).
+                $stmt = $pdo->prepare('SELECT slug FROM posts WHERE post_type = :t AND ' . Post::live('', $lang)
+                    . " AND status <> '" . Post::SAMPLE . "' ORDER BY id");
                 $stmt->execute([':t' => (string) $key]);
                 foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $entry) {
                     $keys[] = Url::inLanguage($slug . '/' . $entry, $lang);

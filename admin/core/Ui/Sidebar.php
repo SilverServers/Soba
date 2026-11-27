@@ -138,6 +138,29 @@ final class Sidebar
     }
 
     /**
+     * A HEADING, in a column the site arranges (`Site\Column`): words naming
+     * what its rows are for, and the rows under it, always shown. Not a group:
+     * there is nothing to open or shut, so nothing in it opens by itself, and
+     * railed its words go and each row's own glyph stands for the row, as the
+     * lead rows' do.
+     *
+     * With `$groups`, it has no rows of its own and heads the groups that
+     * follow it instead: the CMS's own, for an administrator. A heading whose
+     * rows the viewer may open none of is no heading at all.
+     *
+     * @param list<array<string, mixed>|null> $items
+     */
+    public static function heading(string $key, string $label, array $items, bool $groups = false): array
+    {
+        $items = array_values(array_filter($items));
+        if ($items === [] && !$groups) {
+            return [];
+        }
+
+        return ['key' => $key, 'label' => $label, 'heading' => true, 'items' => $items];
+    }
+
+    /**
      * One NAVIGATE row.
      *
      * `$icon` is an ICON REGISTRY KEY or a real slug — never a label. `$count`
@@ -221,6 +244,8 @@ final class Sidebar
             // A distinct mark from Library: two rows in the same section that
             // wear the same glyph are told apart only by reading them.
             'galleries'      => 'table-cells-large',
+            // One picture, where Library's many and Galleries' grid are more.
+            'picture-places' => 'image',
 
             // Appearance
             'menus'          => 'list-ul',

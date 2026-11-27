@@ -47,6 +47,8 @@ final class Sections
             'addresses'       => 'link',
             // A type's archive and how it pages (migration 090): a list.
             'archive'         => 'table-list',
+            // What its entry list shows beside each title, and its order (migration 130).
+            'list-view'       => 'table-columns',
             'address'         => 'link',
             // The archetype question. Same mark as the Content types nav row,
             // because that is exactly what the section is choosing the kind of.
@@ -61,6 +63,11 @@ final class Sections
             // same idea: where this thing sits relative to another. Migration
             // 047's panel.
             'parent'          => 'folder-tree',
+            // The types that belong to it, as rows on its editor (migration
+            // 145): an ordered list.
+            'children'        => 'list-ol',
+            // What Copy makes of its entries (migration 147): the copy mark.
+            'copies'          => 'copy',
             'used-by'         => 'file',
             // How many terms an entry takes (migration 056) — a count, so the
             // number sign.
@@ -229,6 +236,7 @@ final class Sections
             'words-search'        => 'magnifying-glass',
             'words-not-found'     => 'lock',
             'words-menus'         => 'bars',
+            'words-announcements' => 'bell',
             'words-hours'         => 'clock',
             'words-dates'         => 'calendar',
             'words-names'         => 'tags',
@@ -244,12 +252,19 @@ final class Sections
             // none.
             'export'          => 'cloud-arrow-down',
             'import'          => 'upload',
+            // Tools → System health: a site's scheduled tasks, and their runs.
+            'tasks'           => 'repeat',
+            'task-runs'       => 'list-check',
             // Tools → Static copy: the copy, a file to take away; and where
             // the next one will be published, the form's first question.
             'static-copy-file' => 'file-arrow-down',
             'static-copy-make' => 'location-dot',
             'environment'     => 'hard-drive',
             'content'         => 'database',
+            // System health's sample entries: the Sample chip's own note.
+            'samples'         => 'note-sticky',
+            // And what going to production changes: going on air.
+            'going-live'      => 'tower-broadcast',
             // THE ENTRY'S BODY, and NOT `content`'s database mark — that key is
             // System health's row-count panel, where a database is exactly
             // right and here it would be nonsense. `align-left` is lines of

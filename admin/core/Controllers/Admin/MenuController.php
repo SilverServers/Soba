@@ -51,7 +51,7 @@ class MenuController
 
     public function index(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menus     = Menu::all();
         $locations = MenuLocationRegistry::all();
@@ -76,7 +76,7 @@ class MenuController
      */
     public function showLocations(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $locations   = MenuLocationRegistry::all();
         $locationMap = Menu::locationMap();
@@ -90,7 +90,7 @@ class MenuController
 
     public function handleLocations(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $posted = $_POST['locations'] ?? [];
         if (!is_array($posted)) {
@@ -132,7 +132,7 @@ class MenuController
      */
     public function selectMenu(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menuId = (int) ($_GET['menu_id'] ?? 0);
 
@@ -151,7 +151,7 @@ class MenuController
 
     public function showCreate(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menu     = null;
         $formData = [];
@@ -165,7 +165,7 @@ class MenuController
 
     public function handleCreate(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $name   = trim($_POST['name'] ?? '');
         $errors = [];
@@ -198,7 +198,7 @@ class MenuController
 
     public function showEdit(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menu = Menu::find((int) ($vars['id'] ?? 0));
         if (!$menu) {
@@ -218,7 +218,7 @@ class MenuController
 
     public function handleUpdate(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menuId = (int) ($vars['id'] ?? 0);
         $menu   = Menu::find($menuId);
@@ -270,7 +270,7 @@ class MenuController
 
     public function handleDelete(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('menus');
 
         $menuId = (int) ($vars['id'] ?? 0);
         $menu   = Menu::find($menuId);
@@ -434,11 +434,10 @@ class MenuController
     {
         $out = [];
 
-        foreach (Registry::all() as $key => $type) {
-            $slug = (string) ($type['public_slug'] ?? '');
-            if ($slug === '') {
-                continue;
-            }
+        // Only types whose entries have pages (`Registry::hasPages()`): a menu
+        // item links to a page.
+        foreach (Registry::withPages() as $key => $type) {
+            $slug = (string) Registry::publicSlug((string) $key);
 
             $archetypes = is_array($type['archetypes'] ?? null) ? $type['archetypes'] : [];
             $entries    = Post::all((string) $key, null, $archetypes);

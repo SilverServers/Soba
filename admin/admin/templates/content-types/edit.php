@@ -137,7 +137,11 @@ $supportChoices = [
     'thumbnail' => 'Featured image',
 ];
 
-$archetypeChoices = ['post', 'event', 'listing', 'product'];
+$archetypeChoices = ArchetypeDefaults::KEYS;
+
+// A KIND WITH NO PAGE (`ArchetypeDefaults::ALONE`): its type has no Public
+// URL, so the box gives way to the fact while one is ticked (type-form.js).
+$pageless = array_intersect($archetypes, ArchetypeDefaults::ALONE) !== [];
 
 // ── THE GROUP AN ARCHETYPE HAS ALREADY BROUGHT ──────────────────────────────
 // An archetype that is already applied has a REAL field group behind it, and
@@ -249,6 +253,19 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                             </div>
                         </div>
 
+                        <?php // THE TYPE'S OWN WORD FOR ITS TITLE (migration 150,
+                              // `Registry::titleLabel()`), such as Name. Blank is
+                              // the word every type has, which the box shows. ?>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-title-label">Title label</label>
+                                <input class="input" type="text" id="f-title-label" name="title_label" maxlength="100"
+                                       value="<?= h($val('title_label')) ?>" autocomplete="off"
+                                       placeholder="<?= h(($val('singular_label') !== '' ? $val('singular_label') : 'News item') . ' title') ?>">
+                                <p class="form-help">Over each entry's title and its list, such as Name or Business name.</p>
+                            </div>
+                        </div>
+
                         <div class="field">
                             <?php if ($isNew): ?>
                                 <label class="label" for="f-key">Key<span class="label__req">required</span></label>
@@ -322,21 +339,98 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                                 <p class="form-help">Left blank, it follows the plural name.</p>
                             </div>
 
-                            <div class="field">
+                            <div class="field" data-type-public-field<?= $pageless ? ' hidden' : '' ?>>
                                 <label class="label" for="f-public-slug">Public URL</label>
                                 <div class="prefixed">
                                     <span class="prefixed__prefix">/</span>
+                                    <?php // ON A NEW TYPE the box follows the plural name
+                                          // as it is typed (type-form.js), so a type has
+                                          // pages unless the box is cleared. ?>
                                     <input class="input input--mono" type="text" id="f-public-slug" name="public_slug"
                                            value="<?= h($val('public_slug')) ?>" autocomplete="off"
-                                           spellcheck="false" placeholder="<?= h($isNew ? 'news' : '') ?>">
+                                           spellcheck="false"<?= $isNew ? ' data-type-public' : '' ?>>
                                 </div>
-                                <p class="form-help">What visitors see. Changing it moves every entry's address.</p>
+                                <p class="form-help">What visitors see. Changing it moves every entry's address. Left blank, entries have no page of their own.</p>
+                            </div>
+                            <div class="field" data-type-pageless<?= $pageless ? '' : ' hidden' ?>>
+                                <span class="label">Public URL</span>
+                                <p class="form-help">None. An announcement has no page of its own: it shows on the pages it names.</p>
                             </div>
                         </div>
 
                     </div>
 
-                    <div class="form-card__section">
+                    <?php
+                    // ITS TITLES AND ADDRESSES MADE FROM ITS FIELDS — migration
+                    // 146, `ContentType\Patterns`. On a type that exists, since
+                    // a pattern names its fields and taxonomies.
+                    $patternKey = $isNew ? '' : (string) ($contentTypeDefinition['type_key'] ?? '');
+                    ?>
+                    <?php if ($patternKey !== '' && \Cms\ContentType\Registry::get($patternKey) !== null): ?>
+                        <div class="form-card__section" data-patterns>
+                            <?= panel_title('Titles and addresses', 'title-patterns') ?>
+                            <div class="form-grid form-grid--2">
+                                <div class="field">
+                                    <label class="label" for="f-title-pattern">Title, when left blank</label>
+                                    <input class="input input--mono" type="text" id="f-title-pattern" name="title_pattern"
+                                           value="<?= h($val('title_pattern')) ?>" autocomplete="off" spellcheck="false" maxlength="255">
+                                    <p class="form-help">An entry saved with no title is titled this way, and its title box shows it.</p>
+                                </div>
+                                <div class="field">
+                                    <label class="label" for="f-slug-pattern">Address, when not typed</label>
+                                    <input class="input input--mono" type="text" id="f-slug-pattern" name="slug_pattern"
+                                           value="<?= h($val('slug_pattern')) ?>" autocomplete="off" spellcheck="false" maxlength="255">
+                                    <p class="form-help">A new entry's address is made this way unless one is typed.</p>
+                                </div>
+                            </div>
+                            <p class="form-help">
+                                Each names <?php foreach (\Cms\ContentType\Patterns::tokens($patternKey) as $patternToken): ?><code><?= h($patternToken) ?></code> <?php endforeach; ?>
+                                and the site's own, such as <code>{sep}</code>. A date takes a format after a colon, such as
+                                <code>{<?= h(\Cms\ContentType\Patterns::dateField($patternKey) ?? 'report_date') ?>:F j, Y}</code>;
+                                <code>{id}</code> is the entry's number, and an address can name its <code>{title}</code>.
+                            </p>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php
+                    // WHAT COPY MAKES OF ITS ENTRIES — migration 147,
+                    // `ContentType\CopyRules`: as typed on a failed save, else as
+                    // kept, else the CMS's own. In the column's two halves, as its
+                    // other settings are.
+                    $copyKept = (array) (json_decode((string) ($contentTypeDefinition['copy_rules'] ?? ''), true) ?: []);
+                    $copyNow  = $formData !== []
+                        ? ['suffix' => (string) ($formData['copy_suffix'] ?? ''), 'status' => (string) ($formData['copy_status'] ?? 'private'), 'skip' => (string) ($formData['copy_skip'] ?? '')]
+                        : ['suffix' => array_key_exists('suffix', $copyKept) ? (string) $copyKept['suffix'] : \Cms\ContentType\CopyRules::SUFFIX,
+                           'status' => ($copyKept['status'] ?? '') === 'same' ? 'same' : 'private',
+                           'skip'   => implode(', ', \Cms\ContentType\CopyRules::names($copyKept['skip'] ?? []))];
+                    ?>
+                    <div class="form-card__section" data-copies>
+                        <?= panel_title('Copies', 'copies') ?>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-copy-suffix">After a copy's title</label>
+                                <input class="input" type="text" id="f-copy-suffix" name="copy_suffix" maxlength="100"
+                                       value="<?= h($copyNow['suffix']) ?>" autocomplete="off">
+                                <p class="form-help">Left blank, a copy keeps its title, and its address ends -2.</p>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="f-copy-status">A copy starts as</label>
+                                <select class="select" id="f-copy-status" name="copy_status">
+                                    <option value="private">Private</option>
+                                    <option value="same"<?= $copyNow['status'] === 'same' ? ' selected' : '' ?>>Its original's status</option>
+                                </select>
+                                <p class="form-help">Private keeps a copy off the site until it is published.</p>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="f-copy-skip">Never copied</label>
+                                <input class="input input--mono" type="text" id="f-copy-skip" name="copy_skip" autocomplete="off" spellcheck="false"
+                                       value="<?= h($copyNow['skip']) ?>">
+                                <p class="form-help">Fields a copy leaves empty, by key, with commas between; legacy_* is each that begins legacy_.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-card__section" data-type-archive<?= $pageless ? ' hidden' : '' ?>>
                         <?= panel_title('Archive', 'archive') ?>
                         <?php // HOW THIS TYPE'S LIST PAGES — migration 090, read by
                               // `Registry::perPage()` / `firstPageExtra()` in the
@@ -366,6 +460,185 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                             </div>
                         </div>
                     </div>
+
+                    <?php
+                    // WHAT STAFF SEE ON ITS SCREENS (migration 140, `ContentType\StaffView`):
+                    // each part's role as the form shows it, and its select.
+                    $staffType = $isNew ? '' : (string) ($contentTypeDefinition['type_key'] ?? '');
+                    $staffNow  = static function (string $set, string $part, string $default) use ($staffType, $formData): string {
+                        if (isset($formData['staff_view'])) {
+                            $posted = $formData[$set === 'panels' ? 'panels' : 'list_parts'][$part] ?? $default;
+                            return is_string($posted) && isset(\Cms\ContentType\StaffView::ROLE_CHOICES[$posted]) ? $posted : $default;
+                        }
+                        $role = $staffType !== '' && \Cms\ContentType\Registry::get($staffType) !== null
+                            ? \Cms\ContentType\StaffView::role($staffType, $set, $part, $default) : $default;
+                        return $role === false ? 'none' : $role;
+                    };
+                    $roleSelect = static function (string $id, string $name, string $chosen): string {
+                        $html = '<select class="select" id="' . h($id) . '" name="' . h($name) . '">';
+                        foreach (\Cms\ContentType\StaffView::ROLE_CHOICES as $value => $words) {
+                            $html .= '<option value="' . h($value) . '"' . ($chosen === $value ? ' selected' : '') . '>' . h($words) . '</option>';
+                        }
+                        return $html . '</select>';
+                    };
+                    ?>
+                    <?php
+                    // WHAT ITS ENTRY LIST SHOWS AND HOW IT IS ORDERED — migration
+                    // 130, `ContentType\ListColumns`. On a type that exists, since
+                    // the columns are its own fields, taxonomies and child types;
+                    // a new one shows its default until then. Ticked: what the
+                    // list shows now, its own default included, so a save keeps it.
+                    $listKey = $isNew ? '' : (string) ($contentTypeDefinition['type_key'] ?? '');
+                    $listOn  = $listKey !== '' && \Cms\ContentType\Registry::get($listKey) !== null;
+                    if ($listOn) {
+                        $listOptions = \Cms\ContentType\ListColumns::available($listKey);
+                        $listChosen  = isset($formData['list_view'])
+                            ? array_map('strval', (array) ($formData['list_columns'] ?? []))
+                            : array_column(\Cms\ContentType\ListColumns::forType($listKey), 'spec');
+                        $sortNow     = \Cms\ContentType\ListColumns::defaultSort($listKey);
+                        $sortChosen  = isset($formData['list_view']) ? (string) ($formData['list_sort'] ?? '')
+                            : ($sortNow === null ? '' : preg_replace('/^field:/', '', $sortNow['orderby']) . ':' . $sortNow['order']);
+                        $sortOptions = ['' => 'Date, newest first', 'date:asc' => 'Date, oldest first', 'title:asc' => 'Title, A to Z', 'title:desc' => 'Title, Z to A'];
+                        foreach (\Cms\ContentType\ContentTypeSchema::fields($listKey) as $sortField) {
+                            $words = match ((string) ($sortField['type'] ?? 'text')) {
+                                'date', 'datetime' => ['earliest first', 'latest first'],
+                                'number'           => ['lowest first', 'highest first'],
+                                'text', 'select'   => ['A to Z', 'Z to A'],
+                                default            => null,
+                            };
+                            if ($words !== null) {
+                                $sortOptions[$sortField['key'] . ':asc']  = $sortField['label'] . ', ' . $words[0];
+                                $sortOptions[$sortField['key'] . ':desc'] = $sortField['label'] . ', ' . $words[1];
+                            }
+                        }
+                    }
+                    ?>
+                    <?php if ($listOn): ?>
+                        <div class="form-card__section" data-list-view>
+                            <?= panel_title('Its list', 'list-view') ?>
+                            <input type="hidden" name="list_view" value="1">
+                            <fieldset class="field">
+                                <legend class="label">Shown beside each title</legend>
+                                <?php if ($listOptions === []): ?>
+                                    <p class="form-help">This type has no field, taxonomy or child type its list can show yet.</p>
+                                <?php else: ?>
+                                    <div class="check-list">
+                                        <?php foreach ($listOptions as $option): ?>
+                                            <label class="check-list__row">
+                                                <input type="checkbox" name="list_columns[]" value="<?= h($option['spec']) ?>"
+                                                       <?= in_array($option['spec'], $listChosen, true) ? 'checked' : '' ?>>
+                                                <span><?= h($option['heading']) ?><?= match ($option['kind']) { 'tax' => ', its terms', 'children' => ', how many', default => '' } ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <p class="form-help">Each in a column of the list, in this order. A field's column sorts the list when its heading is pressed.</p>
+                                <?php endif; ?>
+                            </fieldset>
+                            <div class="form-grid form-grid--2">
+                                <div class="field">
+                                    <label class="label" for="f-list-sort">Sorted by</label>
+                                    <select class="select" id="f-list-sort" name="list_sort">
+                                        <?php foreach ($sortOptions as $sortValue => $sortLabel): ?>
+                                            <option value="<?= h($sortValue) ?>"<?= $sortChosen === $sortValue ? ' selected' : '' ?>><?= h($sortLabel) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <?php if (\Cms\ContentType\ListColumns::isEvent($listKey)): ?>
+                                        <p class="form-help">Its list opens on Upcoming, soonest first, beside Past, newest first; this is the order of All.</p>
+                                    <?php else: ?>
+                                        <p class="form-help">How the list is ordered until someone presses a heading.</p>
+                                    <?php endif; ?>
+                                </div>
+                                <?php // WHAT THE LIST IS GROUPED BY (migration 140): a
+                                      // Choice field or a taxonomy, a heading for
+                                      // each of its values, in their order. ?>
+                                <?php
+                                $groupOptions = \Cms\ContentType\StaffView::groupOptions($listKey);
+                                $groupChosen  = isset($formData['list_view']) ? (string) ($formData['group_by'] ?? '')
+                                    : (string) (((array) (\Cms\ContentType\Registry::get($listKey)['list'] ?? []))['group_by'] ?? '');
+                                ?>
+                                <div class="field">
+                                    <label class="label" for="f-group-by">Grouped by</label>
+                                    <select class="select" id="f-group-by" name="group_by">
+                                        <option value="">Not grouped</option>
+                                        <?php foreach ($groupOptions as $groupValue => $groupLabel): ?>
+                                            <option value="<?= h($groupValue) ?>"<?= $groupChosen === $groupValue ? ' selected' : '' ?>><?= h($groupLabel) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="form-help">A heading for each of a Choice field's choices or a taxonomy's terms, in their order, with its entries under it.</p>
+                                </div>
+                                <?php // WHO SEES EACH PART OF THE LIST (migration 140):
+                                      // bulk actions not offered are refused too. In
+                                      // this grid, so the column keeps its two halves. ?>
+                                <?php foreach (\Cms\ContentType\StaffView::LIST as $part => $default): ?>
+                                    <div class="field" data-staff-list="<?= h($part) ?>">
+                                        <label class="label" for="f-list-<?= h($part) ?>"><?= h(\Cms\ContentType\StaffView::NAMES[$part]) ?> shown to</label>
+                                        <?= $roleSelect('f-list-' . $part, 'list_parts[' . $part . ']', $staffNow('list', $part, $default)) ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php // HOW MANY TERMS OF EACH TAXONOMY ITS ENTRIES TAKE
+                          // (migration 151, `Term::countRule()`), beside each
+                          // taxonomy on the type, in the four answers the
+                          // taxonomy's own screen gives: its own rule until one
+                          // is chosen here, for this type's entries alone. A new
+                          // type has none on it yet. ?>
+                    <?php
+                    $termTaxonomies = $isNew ? [] : \Cms\ContentType\TaxonomyRegistry::getForContentType((string) $contentTypeDefinition['type_key']);
+                    $storedRules    = json_decode((string) ($contentTypeDefinition['term_rules'] ?? ''), true);
+                    $ruleWords      = static function (array $rule): string {
+                        return match (true) {
+                            $rule === [1, 1]                      => 'exactly one',
+                            $rule[0] === 1 && $rule[1] === null   => 'at least one',
+                            $rule[0] === 1                        => 'one to ' . $rule[1],
+                            $rule[1] !== null                     => 'no more than ' . $rule[1],
+                            default                               => 'any number',
+                        };
+                    };
+                    ?>
+                    <?php if ($termTaxonomies !== []): ?>
+                        <div class="form-card__section">
+                            <?= panel_title('How many terms an entry takes', 'how-many') ?>
+                            <?php // THE TAXONOMY'S OWN SCREEN'S FOUR ANSWERS, its own
+                                  // rule first and named, and the number No more than
+                                  // takes beside them, on the form's two columns. ?>
+                            <?php foreach ($termTaxonomies as $taxKey => $tax): ?>
+                                <?php
+                                $posted = is_array($formData['term_rules'][$taxKey] ?? null) ? $formData['term_rules'][$taxKey] : null;
+                                $kept   = \Cms\Models\Term::ruleOf(is_array($storedRules) ? ($storedRules[$taxKey] ?? null) : null);
+                                $chosen = $posted !== null ? (string) ($posted['rule'] ?? '')
+                                    : ($kept === null ? '' : match (true) {
+                                        $kept === [1, 1]   => 'exactly_one',
+                                        $kept[0] === 1     => 'one_or_more',
+                                        $kept[1] !== null  => 'at_most',
+                                        default            => 'any',
+                                    });
+                                $most   = $posted !== null ? (string) ($posted['max'] ?? '') : ($chosen === 'at_most' ? (string) $kept[1] : '');
+                                $own    = [(int) ($tax['min_terms'] ?? 0), isset($tax['max_terms']) ? (int) $tax['max_terms'] : null];
+                                ?>
+                                <div class="form-grid form-grid--2" data-term-rule="<?= h((string) $taxKey) ?>">
+                                    <div class="field">
+                                        <label class="label" for="<?= h('f-terms-' . $taxKey) ?>"><?= h((string) $tax['label']) ?></label>
+                                        <select class="select" id="<?= h('f-terms-' . $taxKey) ?>" name="<?= h('term_rules[' . $taxKey . '][rule]') ?>">
+                                            <?php foreach (['' => 'As the taxonomy says: ' . $ruleWords($own), 'any' => 'Any number', 'one_or_more' => 'At least one',
+                                                            'exactly_one' => 'Exactly one', 'at_most' => 'No more than a number'] as $ruleKey => $ruleName): ?>
+                                                <option value="<?= h($ruleKey) ?>"<?= $chosen === $ruleKey ? ' selected' : '' ?>><?= h($ruleName) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="label" for="<?= h('f-terms-' . $taxKey . '-max') ?>">No more than</label>
+                                        <input class="input" type="number" id="<?= h('f-terms-' . $taxKey . '-max') ?>" name="<?= h('term_rules[' . $taxKey . '][max]') ?>"
+                                               min="1" max="99" value="<?= h($most) ?>">
+                                        <p class="form-help">1 to 99, with No more than a number.</p>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                            <p class="form-help">For this type's entries alone, in place of each taxonomy's own rule.</p>
+                        </div>
+                    <?php endif; ?>
 
                     <div class="form-card__section">
                         <?= panel_title('Belongs to', 'parent') ?>
@@ -422,8 +695,69 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                                     way a child page does.
                                 </p>
                             </div>
+                            <?php // HOW EACH IS NAMED where it is chosen (migration
+                                  // 148): by its title, or in the token form of
+                                  // titles made from fields, over its own fields. ?>
+                            <div class="field">
+                                <label class="label" for="f-parent-label">Each named as</label>
+                                <input class="input input--mono" type="text" id="f-parent-label" name="parent_label" maxlength="255"
+                                       value="<?= h($val('parent_label')) ?>" autocomplete="off" spellcheck="false"
+                                       placeholder="{title}">
+                                <?php $_parentTokens = $val('parent_type') !== '' && \Cms\ContentType\Registry::get($val('parent_type')) !== null
+                                    ? \Cms\ContentType\Patterns::tokens($val('parent_type')) : []; ?>
+                                <p class="form-help">
+                                    Left blank, by its title. Or by its own fields<?php if ($_parentTokens !== []): ?>,
+                                    <?php foreach ($_parentTokens as $_parentToken): ?><code><?= h($_parentToken) ?></code> <?php endforeach; ?>and
+                                    <code>{title}</code><?php endif; ?>: a date in a format after a colon, such as
+                                    <code>{event_start_date:D, M j}</code>.
+                                </p>
+                            </div>
                         </div>
                     </div>
+
+                    <?php
+                    // ITS CHILDREN ON EACH ENTRY'S EDITOR — migration 145,
+                    // `ContentType\Children`. For each type that belongs to this
+                    // one, the columns its rows show there; none ticked, it is
+                    // not shown. On a type that exists and has such types.
+                    $childOptions = $listOn ? \Cms\ContentType\Children::available($listKey) : [];
+                    $childNow     = [];
+                    if ($childOptions !== []) {
+                        // AS KEPT, read from the row: the Registry was loaded
+                        // before a save this screen is drawn after.
+                        foreach ((array) (json_decode((string) ($contentTypeDefinition['children'] ?? ''), true) ?: []) as $keptChild => $keptSpec) {
+                            $childNow[(string) $keptChild] = array_map('strval', array_filter((array) ($keptSpec['columns'] ?? []), 'is_scalar'));
+                        }
+                        if (isset($formData['children_view'])) {
+                            $childNow = [];
+                            foreach ((array) ($formData['children'] ?? []) as $postedChild => $postedSpec) {
+                                $childNow[(string) $postedChild] = array_map('strval', array_filter((array) ($postedSpec['columns'] ?? []), 'is_scalar'));
+                            }
+                        }
+                    }
+                    $_entrySingle = mb_strtolower($val('singular_label') !== '' ? $val('singular_label') : 'entry');
+                    ?>
+                    <?php if ($childOptions !== []): ?>
+                        <div class="form-card__section" data-children-view>
+                            <?= panel_title('Its children', 'children') ?>
+                            <input type="hidden" name="children_view" value="1">
+                            <?php foreach ($childOptions as $childOption): ?>
+                                <fieldset class="field">
+                                    <legend class="label"><?= h($childOption['label']) ?>, on each <?= h($_entrySingle) ?>'s editor</legend>
+                                    <div class="check-list">
+                                        <?php foreach ($childOption['columns'] as $column): ?>
+                                            <label class="check-list__row">
+                                                <input type="checkbox" name="children[<?= h($childOption['key']) ?>][columns][]" value="<?= h($column['spec']) ?>"
+                                                       <?= in_array($column['spec'], $childNow[$childOption['key']] ?? [], true) ? 'checked' : '' ?>>
+                                                <span><?= h($column['label']) ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </fieldset>
+                            <?php endforeach; ?>
+                            <p class="form-help">Each ticked is shown on every row, in this order, and each row is saved as it is added or changed. None ticked, they are not shown there.</p>
+                        </div>
+                    <?php endif; ?>
 
                     <div class="form-card__section">
                         <?= panel_title('What kind of content is this?', 'archetypes') ?>
@@ -445,7 +779,8 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                             type can be an Event and a Product at once. Each brings a
                             starting set of fields; choose which of them you want, and
                             change or remove any of them afterwards. Unticking one
-                            takes away the group it brought.
+                            takes away the group it brought. An announcement is a
+                            kind of its own, with no page and in no list.
                         </p>
                         <?php // THE WARNING IS SAID ONCE, HERE, not on every
                               // applied row — "Unticking this takes that group away
@@ -487,7 +822,7 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                                           // photo box until the owner found the switch. ?>
                                     <input type="checkbox" name="archetypes[]" value="<?= h($archetype) ?>"
                                            <?= $isOn ? 'checked' : '' ?>
-                                           data-archetype="<?= h($archetype) ?>"
+                                           data-archetype="<?= h($archetype) ?>"<?= in_array($archetype, ArchetypeDefaults::ALONE, true) ? ' data-archetype-alone' : '' ?>
                                            data-archetype-supports="<?= h(implode(' ', ArchetypeDefaults::getSupports($archetype))) ?>">
                                     <?php // NAME AND MEANING ON ONE LINE. Two stacked
                                           // lines inside a wrapper span would be a line
@@ -613,6 +948,52 @@ $seedTicked = static function (string $archetype, string $fieldKey) use ($formDa
                                 </label>
                             <?php endforeach; ?>
                         </div>
+                        <?php // THE STATUS A NEW ENTRY STARTS AT on its editor
+                              // (migration 131, `Registry::defaultStatus()`):
+                              // Private unless a type's entries are made to be
+                              // seen at once, a weekly event's, say. ?>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-default-status">New entries start as</label>
+                                <select class="select" id="f-default-status" name="default_status">
+                                    <option value="private">Private</option>
+                                    <option value="published"<?= $val('default_status', 'private') === 'published' ? ' selected' : '' ?>>Published</option>
+                                </select>
+                                <p class="form-help">The Status a new entry's editor starts at. Copies and translations keep their own.</p>
+                            </div>
+                        </div>
+                        <?php // WHERE ITS FIELDS GO on its editor (migration 149):
+                              // a type whose fields are the point, an event's date
+                              // and place, opens on them. A field group's own
+                              // Position wins. A row of its own, half the column. ?>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-fields-position">Its fields</label>
+                                <select class="select" id="f-fields-position" name="fields_position">
+                                    <option value="">After the text</option>
+                                    <option value="high"<?= $val('fields_position') === 'high' ? ' selected' : '' ?>>Above the text</option>
+                                </select>
+                                <p class="form-help">Where an entry's screen draws them. A field group's own Position wins.</p>
+                            </div>
+                        </div>
+                        <?php // WHO SEES EACH PANEL of an entry's editor (migration
+                              // 140, `ContentType\StaffView`): the least role, or
+                              // no one. A panel not shown leaves what its entry
+                              // holds as it is on save. ?>
+                        <?php // One a row, half the column, as New entries start as
+                              // is: the aside's controls keep two widths. ?>
+                        <?php foreach (\Cms\ContentType\StaffView::PANELS as $part => $default): ?>
+                            <div class="form-grid form-grid--2" data-staff-panel="<?= h($part) ?>">
+                                <div class="field">
+                                    <label class="label" for="f-panel-<?= h($part) ?>"><?= h(\Cms\ContentType\StaffView::NAMES[$part]) ?> shown to</label>
+                                    <?= $roleSelect('f-panel-' . $part, 'panels[' . $part . ']', $staffNow('panels', $part, $default)) ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php // After the rows, not between them: each row is spaced
+                              // from the one before it only when nothing comes between. ?>
+                        <input type="hidden" name="staff_view" value="1">
+                        <p class="form-help">Each is shown to that role and those above it. A panel not shown keeps what an entry holds when it is saved.</p>
                     </div>
 
                     <div class="form-card__section">

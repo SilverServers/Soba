@@ -45,7 +45,7 @@ $isEvent    = in_array('event', $archetypes, true);
 $shopTools = $shopTools ?? null;
 ?>
 <?php if ($shopTools !== null): ?>
-    <form class="shop-sort" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::archive((string) ($contentType['public_slug'] ?? ''))) ?>">
+    <form class="shop-sort" method="get" action="<?= htmlspecialchars(\Cms\Helpers\Url::archive((string) \Cms\ContentType\Registry::publicSlug((string) ($contentType['key'] ?? '')))) ?>">
         <label class="u-visually-hidden" for="shop-sort">Sort</label><?php /* audit-ok: the field's own label */ ?>
         <select class="shop-variant" id="shop-sort" name="sort">
             <?php foreach ($shopTools['sorts'] as $key => $word): ?>
@@ -70,7 +70,7 @@ $shopTools = $shopTools ?? null;
     <p class="post-list-empty">
         <?php // audit-ok: what a list narrowed to nothing says — the system's state, with the way back. ?>
         Nothing here matches that.
-        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::archive((string) ($contentType['public_slug'] ?? ''))) ?>">Show everything</a>
+        <a href="<?= htmlspecialchars(\Cms\Helpers\Url::archive((string) \Cms\ContentType\Registry::publicSlug((string) ($contentType['key'] ?? '')))) ?>">Show everything</a>
     </p>
 
 <?php elseif (empty($posts)): ?>

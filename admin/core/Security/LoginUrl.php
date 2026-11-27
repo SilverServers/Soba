@@ -193,8 +193,8 @@ final class LoginUrl
         if (in_array($slug, Front::SERVER, true)) {
             return '/' . $slug . ' belongs to the web server on many hosts, and never reaches the site.';
         }
-        foreach (Registry::all() as $type) {
-            if (trim((string) ($type['public_slug'] ?? ''), '/') === $slug) {
+        foreach (Registry::all() as $typeKey => $type) {
+            if (trim((string) Registry::publicSlug((string) $typeKey), '/') === $slug) {
                 return '/' . $slug . ' is where ' . $type['label'] . ' are published.';
             }
         }

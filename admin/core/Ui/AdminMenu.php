@@ -37,6 +37,13 @@ use Cms\Helpers\Url;
  * has nothing to render into. The per-type group is the whole point of the
  * column — it is where a Content Type stops being a row and becomes a place.
  *
+ * ── UNLESS THE SITE ARRANGES IT ─────────────────────────────────────────────
+ * A site whose staff work by job rather than by type says so in
+ * `admin/config/admin-menu.php` (`Site\Column`): its rows under its own
+ * headings, each a type's list, a taxonomy's terms, a page, a tool, a
+ * settings page, one of the CMS's screens or an address, and for an
+ * administrator the CMS's own groups beneath (`arrangedSections()`).
+ *
  * ── SO THE TOP BAR CARRIES NO DESTINATIONS ──────────────────────────────────
  * `navItems()` returns `[]`. With every destination in the column, pillars in
  * the bar would be a second navigation naming the same places — and two
@@ -53,10 +60,65 @@ use Cms\Helpers\Url;
  * A row that leads somewhere the viewer's role will bounce them off is worse
  * than no row: it advertises a destination and then throws you back to the
  * dashboard with no explanation. The gates here mirror the `requireRole()`
- * calls in the controllers.
+ * calls in the controllers (`admits()`).
  */
 final class AdminMenu
 {
+    /**
+     * THE CMS'S OWN SCREENS, by their address under the admin's: the rows of
+     * its groups below, and what a site's arranged column names with
+     * `'screen' => 'media'` (`Site\Column`). Each one's name, its mark, and
+     * how its row lights (`lit()`): on its address and every one beneath it
+     * ('under'), on its address alone ('exact'), or, for Taxonomies, on the
+     * index and a taxonomy's own screens and never its terms, which are a
+     * type's. Who may open each is `admits()`.
+     *
+     * @var array<string, array{0: string, 1: string, 2: string}>
+     */
+    public const SCREENS = [
+        'pages'                     => ['Pages', 'pages', 'under'],
+        'media'                     => ['Library', 'library', 'under'],
+        'galleries'                 => ['Galleries', 'galleries', 'under'],
+        'picture-places'            => ['Picture places', 'picture-places', 'under'],
+        'forms'                     => ['All forms', 'forms', 'exact'],
+        'forms/submissions'         => ['Submissions', 'submissions', 'under'],
+        'forms/spam'                => ['Spam', 'spam', 'under'],
+        'orders'                    => ['Orders', 'orders', 'under'],
+        'customers'                 => ['Customers', 'customers', 'under'],
+        'reports'                   => ['Reports', 'reports', 'under'],
+        'coupons'                   => ['Discount codes', 'coupons', 'under'],
+        'stock'                     => ['Stock', 'stock', 'under'],
+        'content-types'             => ['Content types', 'content-types', 'under'],
+        'field-groups'              => ['Field groups', 'field-groups', 'under'],
+        'taxonomies'                => ['Taxonomies', 'taxonomies', 'taxonomies'],
+        'appearance/menus'          => ['Menus', 'menus', 'under'],
+        'tools/import-export'       => ['Import and export', 'import-export', 'exact'],
+        'tools/redirects'           => ['Redirects', 'redirects', 'exact'],
+        'tools/static-copy'         => ['Static copy', 'static-copy', 'exact'],
+        'tools/broken-links'        => ['Broken links', 'broken-links', 'exact'],
+        'tools/backups'             => ['Backups', 'backups', 'exact'],
+        'tools/system-health'       => ['System health', 'system-health', 'exact'],
+        'settings/general'          => ['General', 'settings', 'exact'],
+        'settings/branding'         => ['Branding', 'branding', 'exact'],
+        'settings/business'         => ['Business details', 'business', 'exact'],
+        'settings/seo'              => ['SEO', 'seo', 'exact'],
+        'settings/permalinks'       => ['Permalinks', 'permalinks', 'exact'],
+        'settings/words'            => ['Words', 'words', 'exact'],
+        'settings/email'            => ['Email', 'email', 'exact'],
+        'settings/commerce'         => ['Shop', 'commerce', 'exact'],
+        'settings/api'              => ['API', 'api', 'exact'],
+        'users'                     => ['Users', 'users', 'under'],
+        'security'                  => ['Overview', 'security-overview', 'exact'],
+        'security/login-protection' => ['Login protection', 'login-protection', 'exact'],
+        'security/two-step'         => ['Two-step sign-in', 'two-step', 'exact'],
+        'security/passwordless'     => ['Passwordless', 'passwordless', 'exact'],
+        'security/temporary-access' => ['Temporary access', 'temporary-access', 'exact'],
+        'security/activity'         => ['Activity log', 'activity-log', 'exact'],
+        'security/blocking'         => ['Blocking', 'blocking', 'exact'],
+        'security/https'            => ['HTTPS', 'https', 'exact'],
+        'security/files'            => ['Files', 'file-check', 'exact'],
+    ];
+
     /**
      * The current request's admin path, normalised — no query, no base path, no
      * trailing slash, and with the configurable admin slug folded back to
@@ -167,17 +229,213 @@ final class AdminMenu
     {
         $here = $here ?? self::here();
 
-        $isEditor = Auth::hasRole('editor');
-        $isAdmin  = Auth::hasRole('admin');
+        $column   = \Cms\Site\Column::rows();
+        $sections = $column !== null ? self::arrangedSections($here, $column) : self::ownSections($here);
 
-        $sections = [self::leadSection($here, $isEditor)];
+        return Sidebar::spec(self::openWhereLit($sections));
+    }
+
+    /**
+     * MAY THE SIGNED-IN ACCOUNT OPEN THIS SCREEN (`SCREENS`)? Each answer is
+     * the door its controller keeps, so a row the column draws never turns
+     * its reader away.
+     */
+    public static function admits(string $screen): bool
+    {
+        return match ($screen) {
+            // `PageController` is `requireRole('editor')` on every action.
+            'pages'                                    => Auth::hasRole('editor') && Modules::enabled('pages'),
+            'media'                                    => Auth::check(),
+            // `GalleryController` and `PicturePlaceController` are the
+            // administrators'; Picture places only once the site lists one.
+            'galleries'                                => Auth::hasRole('admin'),
+            'picture-places'                           => Auth::hasRole('admin') && \Cms\Helpers\Places::all('picture') !== [],
+            // A switched-off module shows nowhere (`Helpers\Modules`).
+            'forms', 'forms/submissions', 'forms/spam' => Auth::check() && Modules::enabled('forms'),
+            // ── THE SHOP, ONLY WHEN THERE IS ONE, AND ONLY FOR WHOEVER RUNS
+            // IT (`commerceSection()`).
+            'orders', 'customers', 'reports', 'coupons', 'stock'
+                                                       => self::hasProducts() && Modules::enabled('commerce') && Auth::hasRole('shop_manager'),
+            // A SCREEN GRANTED BELOW ADMINISTRATOR (`Auth::can()`).
+            'appearance/menus'                         => Modules::enabled('menus') && Auth::can('menus'),
+            'tools/redirects'                          => Auth::can('redirects'),
+            'settings/business'                        => Auth::can('business'),
+            'settings/words'                           => Auth::can('words'),
+            'settings/commerce', 'settings/api'        => self::hasProducts() && Modules::enabled('commerce') && Auth::hasRole('admin'),
+            default                                    => isset(self::SCREENS[$screen]) && Auth::hasRole('admin'),
+        };
+    }
+
+    /**
+     * Does a door let the account in: a CMS screen's (`admits()`), a least
+     * role, or the screen at an admin address (`admitsPath()`)?
+     *
+     * @param array<string, string> $door
+     */
+    public static function opens(array $door): bool
+    {
+        return match (true) {
+            isset($door['screen']) => self::admits($door['screen']),
+            isset($door['role'])   => Auth::hasRole($door['role']),
+            isset($door['path'])   => self::admitsPath($door['path']),
+            default                => false,
+        };
+    }
+
+    /**
+     * Does the screen at this admin address let the account in? The nearest
+     * one the column knows, by the longest address that holds it: one of the
+     * CMS's screens, a type's, a taxonomy's terms, a site tool, a settings
+     * page. One under none of them answers as the dashboard does: anyone
+     * signed in.
+     */
+    public static function admitsPath(string $path): bool
+    {
+        $doors = [];
+        foreach (array_keys(self::SCREENS) as $key) {
+            $doors['/admin/' . $key] = ['screen' => $key];
+        }
+        foreach (Registry::all() as $type) {
+            $doors['/admin/' . trim((string) $type['admin_slug'], '/')] = ['role' => 'author'];
+        }
+        foreach (TaxonomyRegistry::all() as $tax) {
+            $doors['/admin/taxonomies/' . trim((string) $tax['admin_slug'], '/') . '/terms'] = ['role' => 'editor'];
+        }
+        foreach (\Cms\Site\Tools::all() as $tool) {
+            $doors['/admin/tools/' . $tool['path']] = ['role' => $tool['role']];
+        }
+        foreach (\Cms\Site\SettingsPages::all() as $key => $settingsPage) {
+            $doors['/admin/site-settings/' . $key] = ['role' => (string) $settingsPage['role']];
+        }
+        $nearest = null;
+        foreach (array_keys($doors) as $base) {
+            if (self::under($path, (string) $base) && ($nearest === null || strlen((string) $base) > strlen($nearest))) {
+                $nearest = (string) $base;
+            }
+        }
+
+        return $nearest === null ? Auth::check() : self::opens($doors[$nearest]);
+    }
+
+    /**
+     * How near a row's address is to the page: its length when the row lights
+     * on `$here` by its match (`SCREENS`), else 0. The column lights only the
+     * nearest, so an About page's own row and a Pages row are never lit
+     * together.
+     */
+    public static function lit(string $match, ?string $path, string $here): int
+    {
+        if ($path === null) {
+            return 0;
+        }
+        $on = match ($match) {
+            'exact'      => $here === $path,
+            'taxonomies' => $here === $path || preg_match('~^' . preg_quote($path, '~') . '/(new|\d+)~', $here) === 1,
+            default      => self::under($here, $path),
+        };
+
+        return $on ? strlen($path) : 0;
+    }
+
+    // ----------------------------------------------------------------
+    // Sections
+    // ----------------------------------------------------------------
+
+    /**
+     * The column as the CMS draws it: the lead rows, a group per top-level
+     * Content Type, then its own groups.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function ownSections(string $here): array
+    {
+        $sections = [self::leadSection($here, Auth::hasRole('editor'))];
 
         // One group per top-level Content Type, in Registry order.
         foreach (self::contentTypeSections($here) as $section) {
             $sections[] = $section;
         }
 
-        $sections[] = self::mediaSection($here);
+        return [...$sections, ...self::cmsGroups($here)];
+    }
+
+    /**
+     * THE COLUMN A SITE ARRANGES (`Site\Column`): Dashboard and the rows under
+     * no heading, then each heading with its rows, each row shown only to an
+     * account its screen lets in and its own role allows. Only the nearest
+     * row to the page lights (`lit()`). For an administrator the CMS's own
+     * groups follow under one heading, less the screens the file has placed
+     * and the site's own tools and settings pages, which are where the file
+     * puts them. No type has a group.
+     *
+     * @param array{lead: list<array<string, mixed>>, headings: list<array{label: string, rows: list<array<string, mixed>>}>, cms: string} $column
+     * @return list<array<string, mixed>>
+     */
+    private static function arrangedSections(string $here, array $column): array
+    {
+        $places  = [$column['lead'], ...array_column($column['headings'], 'rows')];
+        $shown   = [];
+        $nearest = 0;
+        foreach ($places as $place => $rows) {
+            foreach ($rows as $row) {
+                if (!self::opens($row['door']) || ($row['role'] !== null && !Auth::hasRole($row['role']))) {
+                    continue;
+                }
+                $reach           = self::lit($row['match'], $row['path'], $here);
+                $nearest         = max($nearest, $reach);
+                $shown[$place][] = [$row, $reach];
+            }
+        }
+        $link = static fn (array $r): array => Sidebar::link((string) $r[0]['label'], (string) $r[0]['href'],
+            $r[1] > 0 && $r[1] === $nearest, (string) $r[0]['icon']);
+
+        $lead = [Sidebar::link('Dashboard', Url::admin(), $here === '/admin', 'dashboard'), ...array_map($link, $shown[0] ?? [])];
+        if (Modules::enabled('assistant')) {
+            $lead[] = Sidebar::link('Assistant', Url::admin('assistant'), self::under($here, '/admin/assistant'), 'assistant');
+        }
+        $sections = [Sidebar::lead($lead)];
+        foreach ($column['headings'] as $i => $heading) {
+            $sections[] = Sidebar::heading('rows-' . ($i + 1), $heading['label'], array_map($link, $shown[$i + 1] ?? []));
+        }
+        if (!Auth::hasRole('admin')) {
+            return $sections;
+        }
+
+        $placed = [];
+        foreach ($shown as $rows) {
+            foreach ($rows as [$row]) {
+                $placed[(string) $row['href']] = true;
+            }
+        }
+        foreach (\Cms\Site\Tools::all() as $tool) {
+            $placed[Url::admin('tools/' . $tool['path'])] = true;
+        }
+        foreach (array_keys(\Cms\Site\SettingsPages::all()) as $key) {
+            $placed[Url::admin('site-settings/' . $key)] = true;
+        }
+        $groups = [];
+        foreach (self::cmsGroups($here) as $group) {
+            $group['items'] = array_values(array_filter((array) ($group['items'] ?? []),
+                static fn (array $item): bool => !isset($placed[(string) $item['href']])));
+            if ($group['items'] !== []) {
+                $groups[] = $group;
+            }
+        }
+
+        return $groups === [] ? $sections : [...$sections, Sidebar::heading('cms', $column['cms'], [], true), ...$groups];
+    }
+
+    /**
+     * THE CMS'S OWN GROUPS, Files and media to Security, each for whoever may
+     * open it.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function cmsGroups(string $here): array
+    {
+        $isAdmin  = Auth::hasRole('admin');
+        $sections = [self::mediaSection($here)];
+
         // A switched-off module shows nowhere (`Helpers\Modules`).
         if (Modules::enabled('forms')) {
             $sections[] = self::formsSection($here);
@@ -198,26 +456,61 @@ final class AdminMenu
 
         if ($isAdmin) {
             $sections[] = self::structureSection($here);
-            // Appearance holds Menus alone, so it goes with the menus module.
-            if (Modules::enabled('menus')) {
-                $sections[] = self::appearanceSection($here);
-            }
+        }
+        // Appearance holds Menus alone, so it goes with the menus module, for
+        // whoever may open it (`Auth::can()`: administrators, and a role
+        // config.php grants it).
+        if (Modules::enabled('menus') && Auth::can('menus')) {
+            $sections[] = self::appearanceSection($here);
         }
         // Tools sits between the two in every column that has it: the CMS's
         // own rows are the administrators', but a site's tool is shown to the
         // roles its row names, so an editor's column can hold the group too.
         $sections[] = self::toolsSection($here, $isAdmin);
+        // Settings: the CMS's own rows are the administrators', and a site's
+        // settings page placed here is shown to the roles it names, so an
+        // editor's column can hold the group with those alone.
+        $settings = self::settingsSection($here, $isAdmin);
+        if ($settings !== null) {
+            $sections[] = $settings;
+        }
         if ($isAdmin) {
-            $sections[] = self::settingsSection($here);
             $sections[] = self::securitySection($here);
         }
 
-        return Sidebar::spec($sections);
+        return array_values(array_filter($sections));
     }
 
-    // ----------------------------------------------------------------
-    // Sections
-    // ----------------------------------------------------------------
+    /**
+     * A GROUP OPENS ON ITS OWN ROWS, NOT ON ITS ADDRESS. Each group says the
+     * addresses it is home to, so a screen with no row of its own (a form's
+     * editor, an import's report) still opens the group it belongs to; but
+     * once any row in the column is lit, only the group holding it is
+     * current. Otherwise a site tool placed at the top opened Tools beneath
+     * it, every address under /admin/tools being Tools', and a taxonomy's
+     * terms, lit in their type's group, opened Structure too.
+     *
+     * @param list<array<string, mixed>> $sections
+     * @return list<array<string, mixed>>
+     */
+    private static function openWhereLit(array $sections): array
+    {
+        foreach ($sections as $section) {
+            foreach ((array) ($section['items'] ?? []) as $item) {
+                if (!empty($item['active'])) {
+                    foreach ($sections as $i => $s) {
+                        if (isset($s['active'])) {
+                            $sections[$i]['active'] = false;
+                        }
+                    }
+
+                    return $sections;
+                }
+            }
+        }
+
+        return $sections;
+    }
 
     /**
      * The rows above the first heading — Dashboard, Assistant, Pages.
@@ -238,14 +531,19 @@ final class AdminMenu
                     self::under($here, '/admin/tools/' . $tool['path']), $tool['icon'] !== '' ? $tool['icon'] : 'tools');
             }
         }
+        // A SITE'S OWN SETTINGS PAGE placed here (`Site\SettingsPages`), for the roles it names.
+        foreach (\Cms\Site\SettingsPages::forSidebar('top') as $settingsPage) {
+            $items[] = Sidebar::link((string) $settingsPage['label'], Url::admin('site-settings/' . $settingsPage['key']),
+                self::under($here, '/admin/site-settings/' . $settingsPage['key']), $settingsPage['icon'] !== '' ? (string) $settingsPage['icon'] : 'settings');
+        }
         if (Modules::enabled('assistant')) {
             $items[] = Sidebar::link('Assistant', Url::admin('assistant'), self::under($here, '/admin/assistant'), 'assistant');
         }
 
         // `PageController` is `requireRole('editor')` on every action, so an
         // author following this row would be bounced to the dashboard.
-        if ($isEditor && Modules::enabled('pages')) {
-            $items[] = Sidebar::link('Pages', Url::admin('pages'), self::under($here, '/admin/pages'), 'pages');
+        if ($isEditor) {
+            $items[] = self::screen('pages', $here);
         }
 
         return Sidebar::lead($items);
@@ -283,6 +581,7 @@ final class AdminMenu
         }
 
         $sections = [];
+        $refused  = [];
 
         foreach ($types as $key => $contentType) {
             $parent = $contentType['nav_parent'] ?? null;
@@ -311,7 +610,25 @@ final class AdminMenu
             // Taxonomies attached to THIS type live here, not in Structure.
             // Structure is where a taxonomy is DEFINED; this is where its terms
             // are managed, and those are different jobs for different people.
-            foreach (TaxonomyRegistry::getForContentType((string) $key) as $tax) {
+            // EACH ONCE IN THE GROUP, WITH THE PARENT TYPE: one on this type, or
+            // on more than one type in its group, is listed here; one on a
+            // single child type alone, with that child, below. ONLY FOR AN
+            // EDITOR AND UP, whose the terms screens are (`TermController`):
+            // an author following one would be turned back to the dashboard.
+            $termsRows = Auth::hasRole('editor');
+            $inGroup   = [];
+            foreach ($termsRows ? [$key, ...($children[$key] ?? [])] : [] as $member) {
+                foreach (array_keys(TaxonomyRegistry::getForContentType((string) $member)) as $taxKey) {
+                    $inGroup[$taxKey][] = $member;
+                }
+            }
+            $listed = [];
+            foreach ($inGroup as $taxKey => $members) {
+                $tax = TaxonomyRegistry::get((string) $taxKey);
+                if ($tax === null || ($members[0] !== $key && count($members) === 1)) {
+                    continue;
+                }
+                $listed[$taxKey] = true;
                 $termsPath = '/admin/taxonomies/' . trim((string) $tax['admin_slug'], '/') . '/terms';
                 $items[]   = Sidebar::link(
                     (string) $tax['label'],
@@ -337,8 +654,12 @@ final class AdminMenu
                     full:   $contentType['label'] . ' · ' . $child['label']
                 );
 
-                // A child type's own taxonomies belong with it.
-                foreach (TaxonomyRegistry::getForContentType((string) $childKey) as $tax) {
+                // A child type's own taxonomies belong with it: those it shares
+                // with the parent or another child are listed with the parent.
+                foreach ($termsRows ? TaxonomyRegistry::getForContentType((string) $childKey) : [] as $taxKey => $tax) {
+                    if (isset($listed[$taxKey])) {
+                        continue;
+                    }
                     $termsPath = '/admin/taxonomies/' . trim((string) $tax['admin_slug'], '/') . '/terms';
                     $items[]   = Sidebar::link(
                         (string) $tax['label'],
@@ -353,8 +674,20 @@ final class AdminMenu
             }
 
             // `nav_items` from the registration: the Registry accepts them,
-            // and this is what renders them.
+            // and this is what renders them. A ROW FOR A ROLE (`'role' =>
+            // 'admin'`) is shown to it and the roles above it, as a site tool's
+            // row is; one naming a role there is none of is left out and said
+            // in the log, once an hour while it stays.
             foreach ((array) ($contentType['nav_items'] ?? []) as $navItem) {
+                $role = $navItem['role'] ?? null;
+                if ($role !== null && (!is_string($role) || !isset(Auth::ROLE_LEVELS[$role]))) {
+                    $refused[] = '"' . (string) ($navItem['label'] ?? '') . '" of "' . $key . '", whose role is not one of '
+                        . implode(', ', array_keys(Auth::ROLE_LEVELS));
+                    continue;
+                }
+                if ($role !== null && !Auth::hasRole($role)) {
+                    continue;
+                }
                 $href = !empty($navItem['url'])
                     ? (string) $navItem['url']
                     : Url::admin((string) ($navItem['slug'] ?? ''));
@@ -381,31 +714,32 @@ final class AdminMenu
                 self::under($here, $base)
             );
         }
+        if ($refused !== []) {
+            \Cms\Helpers\LogNote::hourly('nav_items_noted', 'Content types: sidebar rows left out: ' . implode('; ', $refused) . '.');
+        }
 
         return $sections;
     }
 
     private static function mediaSection(string $here): array
     {
+        // PICTURE PLACES only when the site lists any (`Helpers\Places`, kind
+        // 'picture'), and with Galleries the administrators' (`admits()`).
         return Sidebar::group('media', 'Files and media', 'group-media', Url::admin('media'), [
-            Sidebar::link('Library', Url::admin('media'), self::under($here, '/admin/media'), 'library'),
-            Sidebar::link('Galleries', Url::admin('galleries'), self::under($here, '/admin/galleries'), 'galleries'),
-        ], self::under($here, '/admin/media') || self::under($here, '/admin/galleries'));
+            self::screen('media', $here),
+            self::screen('galleries', $here),
+            self::screen('picture-places', $here),
+        ], self::under($here, '/admin/media') || self::under($here, '/admin/galleries') || self::under($here, '/admin/picture-places'));
     }
 
     private static function formsSection(string $here): array
     {
         return Sidebar::group('forms', 'Forms', 'group-forms', Url::admin('forms'), [
-            Sidebar::link('All forms', Url::admin('forms'), $here === '/admin/forms', 'forms'),
-            Sidebar::link(
-                'Submissions',
-                Url::admin('forms/submissions'),
-                self::under($here, '/admin/forms/submissions'),
-                'submissions'
-            ),
+            self::row('forms', $here),
+            self::row('forms/submissions', $here),
             // WHAT THE FORMS TURNED AWAY AND KEPT (`Forms\Guard`) — its own
             // row, beside the rest.
-            Sidebar::link('Spam', Url::admin('forms/spam'), self::under($here, '/admin/forms/spam'), 'spam'),
+            self::row('forms/spam', $here),
         ], self::under($here, '/admin/forms'));
     }
 
@@ -424,39 +758,33 @@ final class AdminMenu
                || self::under($here, '/admin/stock');
 
         return Sidebar::group('commerce', 'Shop', 'orders', Url::admin('orders'), [
-            Sidebar::link('Orders', Url::admin('orders'), self::under($here, '/admin/orders'), 'orders'),
+            self::row('orders', $here),
             // WHO HAS BOUGHT, AS THEIR ORDERS MAKE THEM: under the orders they
             // are made of (`Commerce\Customers`).
-            Sidebar::link('Customers', Url::admin('customers'), self::under($here, '/admin/customers'), 'customers'),
+            self::row('customers', $here),
             // WHAT SOLD, AND THE TAX COLLECTED, over any stretch of days.
-            Sidebar::link('Reports', Url::admin('reports'), self::under($here, '/admin/reports'), 'reports'),
+            self::row('reports', $here),
             // DISCOUNT CODES ARE NOT SETTINGS AND NOT CONTENT. Migration 045's
             // header has the argument: a coupon has no page, no slug and nothing
             // to say, so it is not a Content Type; there are many of them and
             // they are created and retired constantly, so it is not a settings
             // screen either. It gets a row of its own beside the orders it
             // discounts.
-            Sidebar::link('Discount codes', Url::admin('coupons'),
-                          self::under($here, '/admin/coupons'), 'coupons'),
+            self::row('coupons', $here),
             // EVERY COUNT ON ONE SCREEN, and each product's history of them.
-            Sidebar::link('Stock', Url::admin('stock'), self::under($here, '/admin/stock'), 'stock'),
+            self::row('stock', $here),
         ], $onShop);
     }
 
     private static function structureSection(string $here): array
     {
         return Sidebar::group('structure', 'Structure', 'group-structure', Url::admin('content-types'), [
-            Sidebar::link('Content types', Url::admin('content-types'), self::under($here, '/admin/content-types'), 'content-types'),
-            Sidebar::link('Field groups', Url::admin('field-groups'), self::under($here, '/admin/field-groups'), 'field-groups'),
+            self::row('content-types', $here),
+            self::row('field-groups', $here),
             // The taxonomies INDEX only. A taxonomy's terms are managed inside
             // the Content Type group they belong to, so this row must not light
             // up when you are on a terms screen.
-            Sidebar::link(
-                'Taxonomies',
-                Url::admin('taxonomies'),
-                $here === '/admin/taxonomies' || preg_match('~^/admin/taxonomies/(new|\d+)~', $here) === 1,
-                'taxonomies'
-            ),
+            self::row('taxonomies', $here),
         ], self::under($here, '/admin/content-types')
            || self::under($here, '/admin/field-groups')
            || self::under($here, '/admin/taxonomies'));
@@ -465,20 +793,24 @@ final class AdminMenu
     private static function appearanceSection(string $here): array
     {
         return Sidebar::group('appearance', 'Appearance', 'group-appearance', Url::admin('appearance/menus'), [
-            Sidebar::link('Menus', Url::admin('appearance/menus'), self::under($here, '/admin/appearance/menus'), 'menus'),
+            self::row('appearance/menus', $here),
         ], self::under($here, '/admin/appearance'));
     }
 
     private static function toolsSection(string $here, bool $isAdmin): array
     {
         $rows = $isAdmin ? [
-            Sidebar::link('Import and export', Url::admin('tools/import-export'), $here === '/admin/tools/import-export', 'import-export'),
-            Sidebar::link('Redirects', Url::admin('tools/redirects'), $here === '/admin/tools/redirects', 'redirects'),
-            Sidebar::link('Static copy', Url::admin('tools/static-copy'), $here === '/admin/tools/static-copy', 'static-copy'),
-            Sidebar::link('Broken links', Url::admin('tools/broken-links'), $here === '/admin/tools/broken-links', 'broken-links'),
-            Sidebar::link('Backups', Url::admin('tools/backups'), $here === '/admin/tools/backups', 'backups'),
-            Sidebar::link('System health', Url::admin('tools/system-health'), $here === '/admin/tools/system-health', 'system-health'),
+            self::row('tools/import-export', $here),
+            self::row('tools/redirects', $here),
+            self::row('tools/static-copy', $here),
+            self::row('tools/broken-links', $here),
+            self::row('tools/backups', $here),
+            self::row('tools/system-health', $here),
         ] : [];
+        // A SCREEN GRANTED BELOW ADMINISTRATOR (`Auth::can()`) is its role's row too.
+        if (!$isAdmin && Auth::can('redirects')) {
+            $rows[] = self::row('tools/redirects', $here);
+        }
         // THE SITE'S OWN TOOLS, after the CMS's (`Site\Tools`): each answers
         // at /admin/tools/{path} itself; the CMS only lists it — to the roles
         // its row names, the same check its door makes (`Tools::dispatch()`).
@@ -496,31 +828,47 @@ final class AdminMenu
         return Sidebar::group('tools', 'Tools', 'group-tools', (string) ($rows[0]['href'] ?? ''), $rows, self::under($here, '/admin/tools'));
     }
 
-    private static function settingsSection(string $here): array
+    private static function settingsSection(string $here, bool $isAdmin): ?array
     {
-        return Sidebar::group('settings', 'Settings', 'group-settings', Url::admin('settings/general'), [
-            Sidebar::link('General', Url::admin('settings/general'), $here === '/admin/settings/general', 'settings'),
+        // A SITE'S OWN SETTINGS PAGES placed in Settings (`Site\SettingsPages`), after the CMS's own.
+        $own = [];
+        foreach (\Cms\Site\SettingsPages::forSidebar('settings') as $settingsPage) {
+            $own[] = Sidebar::link((string) $settingsPage['label'], Url::admin('site-settings/' . $settingsPage['key']),
+                self::under($here, '/admin/site-settings/' . $settingsPage['key']), $settingsPage['icon'] !== '' ? (string) $settingsPage['icon'] : 'settings');
+        }
+        $onOwn = $own !== [] && array_filter(\Cms\Site\SettingsPages::forSidebar('settings'), static fn (array $p): bool => self::under($here, '/admin/site-settings/' . $p['key'])) !== [];
+        if (!$isAdmin) {
+            // THE SETTINGS SCREENS A ROLE IS GRANTED (`Auth::can()`), then the site's own pages.
+            $granted = array_values(array_filter([
+                self::screen('settings/business', $here),
+                self::screen('settings/words', $here),
+            ]));
+            $rows = [...$granted, ...$own];
+            $onGranted = $here === '/admin/settings/business' || $here === '/admin/settings/words';
+
+            return $rows === [] ? null
+                : Sidebar::group('settings', 'Settings', 'group-settings', (string) $rows[0]['href'], $rows, $onOwn || ($granted !== [] && $onGranted));
+        }
+
+        return Sidebar::group('settings', 'Settings', 'group-settings', Url::admin('settings/general'), [...[
+            self::row('settings/general', $here),
             // The site's logo on the top bar and the sign-in pages, and their look (`Ui\Branding`).
-            Sidebar::link('Branding', Url::admin('settings/branding'), $here === '/admin/settings/branding', 'branding'),
-            Sidebar::link('Business details', Url::admin('settings/business'), $here === '/admin/settings/business', 'business'),
-            Sidebar::link('SEO', Url::admin('settings/seo'), $here === '/admin/settings/seo', 'seo'),
-            Sidebar::link('Permalinks', Url::admin('settings/permalinks'), $here === '/admin/settings/permalinks', 'permalinks'),
-            Sidebar::link('Words', Url::admin('settings/words'), $here === '/admin/settings/words', 'words'),
-            Sidebar::link('Email', Url::admin('settings/email'), $here === '/admin/settings/email', 'email'),
+            self::row('settings/branding', $here),
+            self::row('settings/business', $here),
+            self::row('settings/seo', $here),
+            self::row('settings/permalinks', $here),
+            self::row('settings/words', $here),
+            self::row('settings/email', $here),
             // ── SHOP SETTINGS, ON THE SAME CONDITION AS THE SHOP ────────────
             // `array_filter()` inside `Sidebar::group()` drops the null, so a
             // site with no product type gets the Settings group it always had
-            // and no empty row. Same test as `commerceSection()`, so the two
-            // cannot disagree about whether this install is a shop.
-            self::hasProducts() && Modules::enabled('commerce')
-                ? Sidebar::link('Shop', Url::admin('settings/commerce'), $here === '/admin/settings/commerce', 'commerce')
-                : null,
+            // and no empty row. Same test as `commerceSection()` (`admits()`),
+            // so the two cannot disagree about whether this install is a shop.
+            self::screen('settings/commerce', $here),
             // THE KEYS AND WEBHOOKS OTHER PROGRAMS USE, beside the shop's settings.
-            self::hasProducts() && Modules::enabled('commerce')
-                ? Sidebar::link('API', Url::admin('settings/api'), $here === '/admin/settings/api', 'api')
-                : null,
-            Sidebar::link('Users', Url::admin('users'), self::under($here, '/admin/users'), 'users'),
-        ], self::under($here, '/admin/settings') || self::under($here, '/admin/users'));
+            self::screen('settings/api', $here),
+            self::row('users', $here),
+        ], ...$own], self::under($here, '/admin/settings') || self::under($here, '/admin/users') || $onOwn);
     }
 
     /**
@@ -531,26 +879,43 @@ final class AdminMenu
     private static function securitySection(string $here): array
     {
         return Sidebar::group('security', 'Security', 'group-security', Url::admin('security'), [
-            Sidebar::link('Overview', Url::admin('security'), $here === '/admin/security', 'security-overview'),
-            Sidebar::link('Login protection', Url::admin('security/login-protection'), $here === '/admin/security/login-protection', 'login-protection'),
-            Sidebar::link('Two-step sign-in', Url::admin('security/two-step'), $here === '/admin/security/two-step', 'two-step'),
+            self::row('security', $here),
+            self::row('security/login-protection', $here),
+            self::row('security/two-step', $here),
             // Signing in without a password: a code by email, or a link.
-            Sidebar::link('Passwordless', Url::admin('security/passwordless'), $here === '/admin/security/passwordless', 'passwordless'),
+            self::row('security/passwordless', $here),
             // Temporary access — a link with a lifespan.
-            Sidebar::link('Temporary access', Url::admin('security/temporary-access'), $here === '/admin/security/temporary-access', 'temporary-access'),
-            Sidebar::link('Activity log', Url::admin('security/activity'), $here === '/admin/security/activity', 'activity-log'),
+            self::row('security/temporary-access', $here),
+            self::row('security/activity', $here),
             // CAPTCHA, addresses and user enumeration.
-            Sidebar::link('Blocking', Url::admin('security/blocking'), $here === '/admin/security/blocking', 'blocking'),
+            self::row('security/blocking', $here),
             // HTTP Strict Transport Security, an owner's decision.
-            Sidebar::link('HTTPS', Url::admin('security/https'), $here === '/admin/security/https', 'https'),
+            self::row('security/https', $here),
             // File change detection (`Security\FileCheck`).
-            Sidebar::link('Files', Url::admin('security/files'), $here === '/admin/security/files', 'file-check'),
+            self::row('security/files', $here),
         ], self::under($here, '/admin/security'));
     }
 
     // ----------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------
+
+    /**
+     * One of the CMS's screens as a row (`SCREENS`), for a section whose own
+     * condition is already the screen's door.
+     */
+    private static function row(string $key, string $here): array
+    {
+        [$label, $icon, $match] = self::SCREENS[$key];
+
+        return Sidebar::link($label, Url::admin($key), self::lit($match, '/admin/' . $key, $here) > 0, $icon);
+    }
+
+    /** The same row, for an account its door lets in (`admits()`), else null. */
+    private static function screen(string $key, string $here): ?array
+    {
+        return self::admits($key) ? self::row($key, $here) : null;
+    }
 
     /**
      * Is `$here` this path, or somewhere beneath it?

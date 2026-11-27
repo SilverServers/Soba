@@ -94,11 +94,17 @@ class TermController
         // `IN (…)` rather than joined, so it cannot come back once per term.
         $filed = 'p.id IN (SELECT ptr.post_id FROM post_term_relationships ptr WHERE ptr.term_id IN ('
                . implode(',', array_fill(0, count($termIds), '?')) . '))';
+        // ONLY ENTRIES WITH PAGES OF THEIR OWN (`Registry::hasPages()`): a card
+        // links to its entry's page, and an entry whose type has none is data
+        // for the site's own templates, not a page to list.
+        [$paged, $pagedTypes] = Registry::withPagesSql('p');
+        $filed .= $paged;
+        $params = array_merge($termIds, $pagedTypes);
 
         $countStmt = $pdo->prepare(
             "SELECT COUNT(*) FROM posts p WHERE $filed AND " . \Cms\Models\Post::live('p')
         );
-        $countStmt->execute($termIds);
+        $countStmt->execute($params);
         $total      = (int) $countStmt->fetchColumn();
         $totalPages = Paging::pages($total, $perPage);
 
@@ -126,7 +132,7 @@ class TermController
             // No LIMIT for a type listed whole (0 to a page).
             . ($limit > 0 ? " LIMIT " . (int) $limit . " OFFSET " . (int) $offset : "")
         );
-        $stmt->execute($termIds);
+        $stmt->execute($params);
         $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // THE ARCHETYPE FIELDS COME WITH THE ROWS, because the card that renders
@@ -176,6 +182,9 @@ class TermController
         if ($page > 1) {
             $tokens['page_num'] = \Cms\Site\Words::of('page_n', ['n' => $page]);
         }
+
+        // Edit this term, for a signed-in editor (`Site\EditBar`).
+        \Cms\Site\EditBar::forTerm($term + ['taxonomy_key' => $this->taxonomyKey]);
 
         Head::set([
             'title'       => Head::buildTitle(Head::titlePattern('term'), $tokens),

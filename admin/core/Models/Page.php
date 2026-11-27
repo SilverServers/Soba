@@ -156,10 +156,10 @@ class Page
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO pages
-                 (parent_id, title, slug, lang, translation_of, content, menu_order, status, unpublish_at,
+                 (parent_id, title, slug, lang, translation_of, content, excerpt, menu_order, status, unpublish_at,
                   password_hash, featured_image_id, seo_title, meta_description, author_id)
              VALUES
-                 (:parent_id, :title, :slug, :lang, :translation_of, :content, :menu_order, :status, :unpublish_at,
+                 (:parent_id, :title, :slug, :lang, :translation_of, :content, :excerpt, :menu_order, :status, :unpublish_at,
                   :password_hash, :featured_image_id, :seo_title, :meta_description, :author_id)'
         );
         $lang = \Cms\Site\Language::checked((string) ($data['lang'] ?? ''));
@@ -172,6 +172,8 @@ class Page
             ':lang'              => $lang,
             ':translation_of'    => !empty($data['translation_of']) ? (int) $data['translation_of'] : null,
             ':content'           => Sanitizer::clean((string) ($data['content'] ?? '')),
+            // A SUMMARY IS PLAIN TEXT, as an entry's excerpt is (migration 135).
+            ':excerpt'           => \Cms\Models\Post::cleanExcerpt($data['excerpt'] ?? null),
             ':menu_order'        => $data['menu_order']        ?? 0,
             ':status'            => $data['status']            ?? 'private',
             ':unpublish_at'      => self::unpublishAt($data['unpublish_at'] ?? null),
@@ -207,9 +209,9 @@ class Page
     /**
      * Update an existing page.
      *
-     * The unpublish date is written only when `$data` names it: the page's
-     * screen does, and a caller that knows nothing of it (an import, the
-     * assistant) leaves the date the owner set alone.
+     * The unpublish date and the summary are written only when `$data` names
+     * them: the page's screen does, and a caller that knows nothing of them
+     * (an import, the assistant) leaves what the owner set alone.
      *
      * @param array<string, mixed> $data
      */
@@ -217,6 +219,7 @@ class Page
     {
         $pdo    = Database::getInstance();
         $ending = array_key_exists('unpublish_at', $data);
+        $summed = array_key_exists('excerpt', $data);
         $stmt   = $pdo->prepare(
             'UPDATE pages
              SET parent_id         = :parent_id,
@@ -226,13 +229,15 @@ class Page
                  menu_order        = :menu_order,
                  status            = :status,
                  ' . ($ending ? 'unpublish_at      = :unpublish_at,' : '') . '
+                 ' . ($summed ? 'excerpt           = :excerpt,' : '') . '
                  password_hash     = :password_hash,
                  featured_image_id = :featured_image_id,
                  seo_title         = :seo_title,
                  meta_description  = :meta_description
              WHERE id = :id'
         );
-        $stmt->execute(($ending ? [':unpublish_at' => self::unpublishAt($data['unpublish_at'])] : []) + [
+        $stmt->execute(($ending ? [':unpublish_at' => self::unpublishAt($data['unpublish_at'])] : [])
+            + ($summed ? [':excerpt' => \Cms\Models\Post::cleanExcerpt($data['excerpt'])] : []) + [
             ':parent_id'         => $data['parent_id']         ?? null,
             ':title'             => $data['title'],
             ':slug'              => $data['slug'],

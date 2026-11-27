@@ -29,6 +29,17 @@ return [
     'session_lifetime' => 7200,
 
     // ----------------------------------------------------------------
+    // Screens a role is granted (optional)
+    //
+    // Business details, Words, Menus and Redirects are administrators'
+    // unless a role below is granted them here: `business`, `words`, `menus`
+    // and `redirects`. A grant reaches its role and every role above it, so
+    // editors' screens are shop managers' too. Settings, Security and Users
+    // stay administrators'.
+    // ----------------------------------------------------------------
+    // 'grants' => ['editor' => ['business', 'words', 'menus', 'redirects']],
+
+    // ----------------------------------------------------------------
     // Mail through Brevo (optional)
     //
     // Every message the CMS sends goes through Brevo's API instead of the
@@ -70,7 +81,7 @@ return [
     // ----------------------------------------------------------------
     // The admin themes the site offers (optional)
     //
-    // Every theme is offered, Tuxedo the default, unless they are named
+    // Every theme is offered, Carton the default, unless they are named
     // here: then those alone, in this order, and the first is the theme of
     // every account that has not chosen one. A site's own theme is its file
     // name in www/site/admin-themes/, without .css.
@@ -87,6 +98,39 @@ return [
     // goes. Without the key, <i> and <span> keep no attribute.
     // ----------------------------------------------------------------
     // 'icon_classes' => ['fa-solid', 'fa-regular', 'fa-brands', 'fa-*'],
+
+    // ----------------------------------------------------------------
+    // The largest file the library takes (optional)
+    //
+    // In megabytes: ten when left out, two thousand and forty-eight at most.
+    // A file larger than the server takes in one request is sent in pieces,
+    // so this is the site's own limit, not PHP's upload limit; the space on
+    // the host's disk still is one.
+    // ----------------------------------------------------------------
+    // 'upload_max_mb' => 50,
+
+    // ----------------------------------------------------------------
+    // A copy of each backup off the server (optional)
+    //
+    // Backups are kept in admin/backups/, on this server, so they do not
+    // survive it. Named here, S3-compatible storage (Amazon S3, Backblaze B2,
+    // Wasabi and the like) takes a copy of each finished backup, and keeps
+    // the newest `keep` of them (Tools → Backups' own number when left out).
+    // The key needs to write, list and delete in the bucket. `prefix` is
+    // where in the bucket, for a bucket that holds more than this site's.
+    // `path_style` puts the bucket in the address's path rather than its
+    // host, for storage reached at an address of its own. Tools → Backups
+    // and System health say how each copy went (Site\BackupCopy).
+    // ----------------------------------------------------------------
+    // 'backup_copy' => [
+    //     'endpoint' => 'https://s3.us-west-002.backblazeb2.com',
+    //     'region'   => 'us-west-002',
+    //     'bucket'   => 'example-backups',
+    //     'key'      => 'the access key ID',
+    //     'secret'   => 'the secret access key',
+    //     'prefix'   => 'example.com/',
+    //     'keep'     => 8,
+    // ],
 
     // ----------------------------------------------------------------
     // Modules (optional) — which optional parts of the CMS this site runs.

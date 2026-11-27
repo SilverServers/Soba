@@ -71,6 +71,10 @@ $val = static function (string $key, mixed $fallback = '') use ($page, $saved): 
 $status   = $val('status', 'private');
 $parentId = (int) ($_POST['parent_id'] ?? $page['parent_id'] ?? 0);
 
+// WHAT THIS PAGE LISTS, as the theme says (`Site\PageLists`): its text is
+// then the page's introduction, and the lists are one click away.
+$pageLists = $isNew ? [] : \Cms\Site\PageLists::forPage($page);
+
 $action = $isNew
     ? Url::admin('pages/new')
     : Url::admin('pages/' . $id . '/edit');
@@ -188,7 +192,23 @@ ob_start();
                               // The control keeps its accessible name through
                               // `aria-label` rather than a second visible copy of
                               // the word. ?>
-                        <?= panel_title('Content', 'body') ?>
+                        <?= panel_title($pageLists !== [] ? 'Introduction' : 'Content', 'body') ?>
+                        <?php // WHERE THE REST OF THE PAGE COMES FROM, above the text
+                              // that introduces it: staff change the list there,
+                              // not here, so the way to it is on this screen. ?>
+                        <?php foreach ($pageLists as $pageList): ?>
+                            <?php $listSingle = mb_strtolower((string) $pageList['single']); ?>
+                            <div class="alert alert--info" data-page-list="<?= h($pageList['kind'] . ':' . $pageList['key']) ?>">
+                                <?= icon('list-ul', 'alert__icon icon', '', 18) ?>
+                                <div class="alert__body">
+                                    <p class="alert__text">The <?= h(mb_strtolower((string) $pageList['plural'])) ?> on this page come from <?= h((string) $pageList['plural']) ?>.</p>
+                                    <div class="alert__actions">
+                                        <a class="btn btn--sm" href="<?= h((string) $pageList['open']) ?>">Open <?= h((string) $pageList['plural']) ?></a>
+                                        <a class="btn btn--sm" href="<?= h((string) $pageList['add']) ?>">Add <?= preg_match('/^[aeiou]/', $listSingle) === 1 ? 'an' : 'a' ?> <?= h($listSingle) ?></a>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
                         <div class="field">
                             <?php // THE RICH-TEXT EDITOR BINDS HERE. `editor.js` hides this
                                   // textarea and puts a toolbar and a
@@ -209,8 +229,24 @@ ob_start();
                                   // sizes it, so the height is a stylesheet fact
                                   // rather than a line count in six templates. ?>
                             <textarea class="textarea textarea--tall" id="f-content" name="content"
-                                      aria-label="Content"
+                                      aria-label="<?= $pageLists !== [] ? 'Introduction' : 'Content' ?>"
                                       placeholder="Write here&hellip;" data-editor><?= h($val('content')) ?></textarea>
+                        </div>
+                    </div>
+
+                    <?php // ── ITS SUMMARY — migration 135 ─────────────────────
+                          // As an entry's excerpt: plain text, under the text it
+                          // sums up, and the description's stand-in. ?>
+                    <div class="form-card__section">
+                        <?= panel_title('Summary', 'excerpt') ?>
+                        <div class="field">
+                            <textarea class="textarea" id="f-excerpt" name="excerpt" rows="3" aria-label="Summary"
+                                      placeholder="A sentence or two about this page."><?= h($val('excerpt')) ?></textarea>
+                            <p class="form-help">
+                                For the theme to print with the page's title, and in
+                                search results when the description under Search
+                                engines is blank.
+                            </p>
                         </div>
                     </div>
 
@@ -236,7 +272,8 @@ ob_start();
                             <label class="label" for="f-status">Status</label>
                             <select class="select" id="f-status" name="status" data-status-select>
                                 <?php foreach (Status::labels() as $key => $statusLabel): ?>
-                                    <?php if ($key === 'trash') { continue; } ?>
+                                    <?php // Sample is an entry's (`Post::SAMPLE`): a page has none. ?>
+                                    <?php if ($key === 'trash' || $key === 'sample') { continue; } ?>
                                     <option value="<?= h($key) ?>"<?= $status === $key ? ' selected' : '' ?>>
                                         <?= h($statusLabel) ?>
                                     </option>
@@ -381,7 +418,7 @@ ob_start();
                                       placeholder="A sentence describing this page."><?= h($val('meta_description')) ?></textarea>
                             <p class="form-help">
                                 The grey text under the heading in search results.
-                                Around 120–155 characters.
+                                Around 120–155 characters. Leave blank to use the summary.
                             </p>
                         </div>
                     </div>

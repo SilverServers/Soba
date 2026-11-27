@@ -215,11 +215,11 @@ final class StockAlert
     /** Where the product is on the site, from its type's public address. */
     private static function productUrl(array $product): string
     {
-        $type = \Cms\ContentType\Registry::get((string) $product['post_type']);
-        if ($type === null || (string) ($type['public_slug'] ?? '') === '') {
+        $slug = \Cms\ContentType\Registry::publicSlug((string) $product['post_type']);
+        if ($slug === null) {
             return '';
         }
 
-        return \Cms\Helpers\Url::entry($product, (string) $type['public_slug']);
+        return \Cms\Helpers\Url::entry($product, $slug);
     }
 }

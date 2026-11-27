@@ -83,13 +83,14 @@ class ContentTypeSchema
     }
 
     /**
-     * Merge code-registered fields with DB field group fields.
+     * Merge code-registered fields with DB field group fields: a content
+     * type's, and a settings page's (`Site\SettingsPages`), by one rule.
      *
      * @param array<int, array<string, mixed>> $codeFields Fields from Registry::register()
      * @param array<int, array<string, mixed>> $dbGroups   Rows from FieldGroup::getActiveGroupsForContentType()
      * @return array<int, array<string, mixed>>
      */
-    private static function mergeFields(array $codeFields, array $dbGroups): array
+    public static function mergeFields(array $codeFields, array $dbGroups): array
     {
         $merged   = $codeFields;
         $seenKeys = array_column($codeFields, 'key');
@@ -115,6 +116,8 @@ class ContentTypeSchema
             foreach ($groupFields as &$g) {
                 $g['_group_id']    = (int) $group['id'];
                 $g['_group_title'] = (string) $group['title'];
+                // Where its fields go on the entry editor (migration 149); '' follows the type.
+                $g['_group_position'] = (string) ($group['position'] ?? '');
             }
             unset($g);
 

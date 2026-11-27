@@ -25,15 +25,41 @@ use Cms\Site\Language;
  * and in no menu. The words are then the translator's to change. Deleting the
  * original leaves the translation, unlinked; each keeps its own status.
  *
- * A type that sells has none: the shop is in the site's own language, and so
- * are its products.
+ * A TYPE THAT SELLS AND PUBLISHES TOO — events with tickets: the `product`
+ * archetype beside `post` or `event` — is translated, and its translation
+ * sells the original's product (`Commerce\Product::fromPost()`): one code,
+ * one price, one stock count. The translation keeps no product field or
+ * option of its own, and the product feed, the stock screen and the reports
+ * never list it. A type that only sells has none: the shop is in the site's
+ * own language, and so are its products.
  */
 final class Translation
 {
-    /** Can a type's entries be translated? A registered type that does not sell. */
+    /** Can a type's entries be translated? A registered type that does not sell, or one that publishes too. */
     public static function translates(string $typeKey): bool
     {
-        return Registry::get($typeKey) !== null && !\Cms\Commerce\Product::isSellableType($typeKey);
+        return Registry::get($typeKey) !== null
+            && (!\Cms\Commerce\Product::isSellableType($typeKey) || self::sellsAndPublishes($typeKey));
+    }
+
+    /** A type that sells and publishes too: the `product` archetype beside `post` or `event`. */
+    public static function sellsAndPublishes(string $typeKey): bool
+    {
+        $archetypes = (array) ((Registry::get($typeKey) ?? [])['archetypes'] ?? []);
+
+        return \Cms\Commerce\Product::isSellableType($typeKey) && array_intersect($archetypes, ['post', 'event']) !== [];
+    }
+
+    /**
+     * Is this entry a translation of one that sells? Then it sells its
+     * original's product, and has no product field or option of its own.
+     *
+     * @param array<string, mixed> $post
+     */
+    public static function sellsOriginal(array $post): bool
+    {
+        return (string) ($post['lang'] ?? '') !== '' && (int) ($post['translation_of'] ?? 0) > 0
+            && \Cms\Commerce\Product::isSellableType((string) ($post['post_type'] ?? ''));
     }
 
     /**
@@ -93,7 +119,7 @@ final class Translation
     /**
      * Why `$row` cannot be translated now, or null when it can: there must be
      * a second language, the row must be in the site's own language and not
-     * in the trash, and an entry's type must not sell.
+     * in the trash, and an entry's type must not only sell.
      *
      * @param 'pages'|'posts'      $table
      * @param array<string, mixed> $row
@@ -194,11 +220,21 @@ final class Translation
                 Post::setParent($id, (int) $parent['id']);
             }
         }
+        // WHAT SELLS STAYS THE ORIGINAL'S: no product field (its price, code,
+        // stock and the rest, all `product_…`) and no option taxonomy's terms.
+        $type  = (string) $post['post_type'];
+        $sells = \Cms\Commerce\Product::isSellableType($type);
         foreach (Meta::getAll((int) $post['id']) as $key => $value) {
+            if ($sells && str_starts_with((string) $key, 'product_')) {
+                continue;
+            }
             Meta::set($id, (string) $key, $value);
         }
-        $type = (string) $post['post_type'];
+        $options = $sells ? array_keys(\Cms\Commerce\Variation::optionTaxonomies($type)) : [];
         foreach (array_keys(\Cms\ContentType\TaxonomyRegistry::getForContentType($type)) as $taxKey) {
+            if (in_array($taxKey, $options, true)) {
+                continue;
+            }
             Term::setPostTerms($id, (string) $taxKey, array_map(
                 static fn (array $t): int => (int) $t['id'],
                 Term::forPosts([(int) $post['id']], [(string) $taxKey])[(int) $post['id']][(string) $taxKey] ?? []
@@ -267,10 +303,10 @@ final class Translation
         return [Language::own() => $url($original), Language::second() => $url($translation)];
     }
 
-    /** On the site: published, its date come and its unpublish date not gone. */
+    /** On the site: published, its date come and its unpublish date not gone (`Post::onSite()`; a page has no Sample). */
     private static function onSite(array $row): bool
     {
-        return (string) ($row['status'] ?? '') === 'published' && !Post::isScheduled($row) && !Post::hasEnded($row);
+        return Post::onSite($row);
     }
 
     /** The original's slug in `$lang`, or the next free one there. */

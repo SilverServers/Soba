@@ -118,7 +118,7 @@ class User
     {
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare(
-            'SELECT id, username, display_name, person_key, email, role, theme_preset, created_at, updated_at,
+            'SELECT id, username, display_name, person_key, email, role, theme_preset, radius_pref, created_at, updated_at,
                     last_seen_at, suspended_at, suspended_why, suspended_by
              FROM users
              WHERE id = :id
@@ -217,7 +217,7 @@ class User
     /**
      * Update a user's profile fields.
      *
-     * Accepts: theme_preset, email, role.
+     * Accepts: theme_preset, radius_pref, email, role, display_name.
      * Password is updated separately via updatePassword().
      *
      * @param array<string, mixed> $data
@@ -232,6 +232,13 @@ class User
         if (array_key_exists('theme_preset', $data)) {
             $sets[]                  = 'theme_preset = :theme_preset';
             $params[':theme_preset'] = $data['theme_preset'] === null ? null : (string) $data['theme_preset'];
+        }
+
+        // ITS CORNERS (`Ui\Theme::CORNERS`): 'modern' for Rounded, or NULL for
+        // Square, the default. The caller has checked the value.
+        if (array_key_exists('radius_pref', $data)) {
+            $sets[]                 = 'radius_pref = :radius_pref';
+            $params[':radius_pref'] = $data['radius_pref'] === null ? null : (string) $data['radius_pref'];
         }
 
         if (isset($data['email']) && $data['email'] !== '') {
@@ -321,13 +328,22 @@ class User
      *
      * @return array{id: int, username: string, password: string}|null
      */
-    public static function issueFirstPassword(): ?array
+    public static function issueFirstPassword(?string $username = null, ?string $email = null): ?array
     {
         $stmt = Database::getInstance()->prepare('SELECT id, username FROM users WHERE password_hash = :none ORDER BY id LIMIT 1');
         $stmt->execute([':none' => self::NO_PASSWORD]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row === false) {
             return null;
+        }
+        // NAMED BY WHOEVER INSTALLS IT (`migrate.php run --admin-user=
+        // --admin-email=`), as the browser set-up names it, rather than the
+        // seeded `admin`; the caller has checked both (`Installer::accountProblems()`).
+        if ($username !== null && $email !== null) {
+            Database::getInstance()
+                ->prepare('UPDATE users SET username = :u, email = :e WHERE id = :id')
+                ->execute([':u' => $username, ':e' => $email, ':id' => (int) $row['id']]);
+            $row['username'] = $username;
         }
 
         return ['id' => (int) $row['id'], 'username' => (string) $row['username'], 'password' => self::issuePassword((int) $row['id'], 'seed')];

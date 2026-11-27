@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
+use Cms\Http\Cache;
 use Cms\Models\Option;
 use Cms\Site\Backups;
 use RuntimeException;
@@ -70,6 +71,7 @@ final class BackupsController
     {
         Auth::requireRole('admin');
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         $job = Backups::running();
         if ($job === null || (string) $job['id'] !== (string) ($vars['id'] ?? '')) {
             $done = Backups::file((string) ($vars['id'] ?? '')) !== null;
@@ -116,7 +118,7 @@ final class BackupsController
         header('Content-Type: application/x-tar');
         header('Content-Disposition: attachment; filename="' . $host . '-backup-' . basename($file) . '"');
         header('Content-Length: ' . (string) filesize($file));
-        header('Cache-Control: no-store');
+        Cache::noStore();
         readfile($file);
     }
 
@@ -143,6 +145,10 @@ final class BackupsController
         $every   = $typed['every'] ?? Backups::every();
         $keep    = $typed['keep'] ?? (string) Backups::keep();
         $saved   = isset($_GET['saved']) && $errors === [];
+        // WHERE A COPY OF EACH GOES, if config.php names somewhere (`Site\BackupCopy`).
+        $copyTo      = \Cms\Site\BackupCopy::label();
+        $copyProblem = \Cms\Site\BackupCopy::problem();
+        $copyKeep    = \Cms\Site\BackupCopy::keep();
 
         $pageTitle   = 'Backups';
         $currentPage = 'backups';

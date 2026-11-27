@@ -40,9 +40,12 @@ class HomeController
         // WITH NONE, EVERY PUBLIC TYPE IS LISTED rather than none. A brand-new
         // install whose author has not thought about archetypes yet should see
         // their content, not an empty page that looks broken.
-        $feedTypes = array_keys(Registry::withArchetype('post'));
+        //
+        // AND ONLY TYPES WHOSE ENTRIES HAVE PAGES (`Registry::hasPages()`): an
+        // entry with no page of its own has nothing for its title to link to.
+        $feedTypes = array_values(array_filter(array_keys(Registry::withArchetype('post')), static fn ($key): bool => Registry::hasPages((string) $key)));
         if ($feedTypes === []) {
-            $feedTypes = array_keys(Registry::all());
+            $feedTypes = array_keys(Registry::withPages());
         }
 
         $posts      = [];
@@ -93,8 +96,7 @@ class HomeController
         // two — the entry's own `post_type` is the only thing that knows where
         // it lives.
         foreach ($posts as &$row) {
-            $definition = Registry::get((string) $row['post_type']);
-            $row['public_slug'] = (string) ($definition['public_slug'] ?? $row['post_type']);
+            $row['public_slug'] = (string) Registry::publicSlug((string) $row['post_type']);
         }
         unset($row);
         // ── THE FRONT PAGE'S OWN WORDS, AND WHY THEY ARE A PAGE ─────────────

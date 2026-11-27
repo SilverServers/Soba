@@ -12,6 +12,7 @@ use Cms\Commerce\StockLog;
 use Cms\Commerce\Variation;
 use Cms\ContentType\Registry;
 use Cms\Database\Database;
+use Cms\Http\Cache;
 use Cms\Models\Order;
 use Cms\Security\ApiKeys;
 use PDO;
@@ -48,7 +49,9 @@ class ShopApiController
                 continue;
             }
             $stmt = Database::getInstance()->prepare(
-                "SELECT id FROM posts WHERE post_type = :t AND status = 'published' ORDER BY created_at DESC, id DESC"
+                // The site's own language: a translation sells its original (`Content\Translation`).
+                // Published as this copy treats it: a sample product too, where samples are shown.
+                "SELECT id FROM posts WHERE post_type = :t AND " . \Cms\Models\Post::publishedSql() . " AND lang = '' ORDER BY created_at DESC, id DESC"
             );
             $stmt->execute([':t' => (string) $key]);
             foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
@@ -209,7 +212,7 @@ class ShopApiController
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }

@@ -19,13 +19,13 @@ final class BusinessController
 {
     public function show(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('business');
         $this->render(Business::stored(), [], false);
     }
 
     public function save(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('business');
 
         $post = static fn (string $key): array => is_array($_POST[$key] ?? null) ? $_POST[$key] : [];
         $in = [

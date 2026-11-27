@@ -42,6 +42,7 @@ use Cms\Security\Csrf;
  * @var array<string, mixed>       $taxonomy   the REGISTRY entry, not a DB row
  * @var list<array<string, mixed>> $terms      flat, ordered
  * @var list<array<string, mixed>> $termTree   nested; [] on a flat taxonomy
+ * @var bool                       $canAdd     may this account add a term (`StaffView::addsTerms()`)
  * @var array<string, mixed>|null  $bulkReport what the last bulk Delete or Merge did
  */
 
@@ -197,7 +198,7 @@ $renderRow = static function (array $term, int $depth) use (&$renderRow, $base, 
             <h1 class="page__title"><?= h($label) ?></h1>
         </div>
         <div class="page__header-actions">
-            <?php if ($terms !== []): ?>
+            <?php if ($terms !== [] && $canAdd): ?>
                 <a class="btn btn--primary" href="<?= h(Url::admin($base . '/new')) ?>">
                     Add <?= h(strtolower($labelSingle)) ?>
                 </a>
@@ -248,11 +249,13 @@ $renderRow = static function (array $term, int $depth) use (&$renderRow, $base, 
                 Entries are filed under these, and the picker on the entry form
                 shows nothing until there is at least one.
             </p>
-            <div class="empty__action">
-                <a class="btn btn--primary" href="<?= h(Url::admin($base . '/new')) ?>">
-                    Add <?= h(strtolower($labelSingle)) ?>
-                </a>
-            </div>
+            <?php if ($canAdd): ?>
+                <div class="empty__action">
+                    <a class="btn btn--primary" href="<?= h(Url::admin($base . '/new')) ?>">
+                        Add <?= h(strtolower($labelSingle)) ?>
+                    </a>
+                </div>
+            <?php endif; ?>
         </div>
     <?php else: ?>
         <?php // ── MANY AT ONCE ─────────────────────────────────────────────

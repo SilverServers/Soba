@@ -39,6 +39,12 @@ declare(strict_types=1);
  *                          site ends its addresses with a slash, else ''
  * @var bool   $slugIsLive  is the prefix+slug a URL that actually resolves today?
  * @var string|null $viewUrl the live public URL, or null if it does not resolve
+ * @var bool   $titleHasAddress false for an entry whose type has no pages
+ * @var string|null $titlePreview the address that shows an announcement on the
+ *                  site, for an entry that is one (`Site\Announcements`)
+ *                          (`Registry::hasPages()`): the card is the title
+ *                          alone, and the slug, kept as data, rides in a hidden
+ *                          input with no Address row, Edit or View
  */
 
 $titleLabel = $titleLabel ?? 'Title';
@@ -48,6 +54,15 @@ $slugValue  = $slugValue  ?? '';
 $slugSuffix = $slugSuffix ?? '';
 $slugIsLive = $slugIsLive ?? false;
 $viewUrl    = $viewUrl    ?? null;
+$titleHasAddress = $titleHasAddress ?? true;
+$titlePreview    = $titlePreview ?? null;
+// A TYPE WHOSE TITLES ARE MADE FROM ITS FIELDS (`ContentType\Patterns`): its
+// box may be left blank, and shows what its pattern makes; its address may be
+// made by a pattern too, and then does not follow the title as it is typed.
+$titleRequired    = $titleRequired ?? true;
+$titlePlaceholder = $titlePlaceholder ?? $titleLabel;
+$permalinkFollows = $permalinkFollows ?? true;
+$slugHint         = $slugHint ?? '';
 
 // A NEW record has no slug yet, so the permalink row has nothing true to show
 // until the title is typed. `permalink.js` fills it in live; until then the row
@@ -69,7 +84,7 @@ $viewUrl    = $viewUrl    ?? null;
 // That logs `Trying to access array offset on null` on a page returning
 // **HTTP 200**, with nothing wrong on screen: the status code is not the
 // evidence.
-$permalinkIsNew = $slugValue === '';
+$permalinkIsNew = $slugValue === '' && $permalinkFollows;
 ?>
 <?php // ITS OWN CARD, above the two-column grid.
       //
@@ -84,17 +99,32 @@ $permalinkIsNew = $slugValue === '';
 
         <div class="field">
             <label class="label" for="entry-title">
-                <?= h($titleLabel) ?><span class="label__req">required</span>
+                <?= h($titleLabel) ?><?php if ($titleRequired): ?><span class="label__req">required</span><?php endif; ?>
             </label>
             <?php // NOT `.input`. This is the one control on the screen that is
                   // the page's substance rather than a setting about it, and the
                   // control scale governs boxes in a row — this is not in one.
                   // See admin.css §5a. ?>
-            <input class="input-title" type="text" id="entry-title" name="title" required
+            <input class="input-title" type="text" id="entry-title" name="title"<?= $titleRequired ? ' required' : '' ?>
                    value="<?= h($titleValue) ?>" autocomplete="off"
-                   placeholder="<?= h($titleLabel) ?>">
+                   placeholder="<?= h($titlePlaceholder) ?>">
         </div>
 
+        <?php if (!$titleHasAddress): ?>
+            <?php // NO PAGE, NO ADDRESS: the slug posts as it is, and on a new
+                  // entry the server makes one from the title, as always. ?>
+            <input type="hidden" name="slug" value="<?= h($slugValue) ?>">
+            <?php if ($titlePreview !== null): ?>
+                <?php // AN ANNOUNCEMENT SHOWS ON THE SITE'S PAGES: the address
+                      // that shows it now, whatever its dates, to the signed-in. ?>
+                <div class="permalink">
+                    <span class="permalink__label">Preview</span>
+                    <span class="permalink__display">
+                        <a class="permalink__url" href="<?= h($titlePreview) ?>" target="_blank" rel="noopener" data-announcement-preview><?= h($titlePreview) ?></a>
+                    </span>
+                </div>
+            <?php endif; ?>
+        <?php else: ?>
         <?php // THE PERMALINK ROW: the address with its editable part, a shape
               // every CMS user already knows how to read. ?>
         <div class="permalink" data-permalink
@@ -116,7 +146,7 @@ $permalinkIsNew = $slugValue === '';
                     ><?= h($slugPrefix) ?><span class="permalink__slug" data-permalink-slug><?= h($slugValue) ?></span><?= h($slugSuffix) ?></a>
                 <?php else: ?>
                     <span class="permalink__url" data-permalink-link
-                    ><?= h($slugPrefix) ?><span class="permalink__slug" data-permalink-slug><?= h($slugValue) ?></span><?= h($slugSuffix) ?></span>
+                    ><?= h($slugPrefix) ?><span class="permalink__slug" data-permalink-slug><?= h($slugValue !== '' ? $slugValue : $slugHint) ?></span><?= h($slugSuffix) ?></span>
                 <?php endif; ?>
 
                 <button type="button" class="btn btn--sm permalink__edit" data-permalink-edit>Edit</button>
@@ -164,7 +194,18 @@ $permalinkIsNew = $slugValue === '';
                   // from the title anyway; what it silently throws away is a
                   // slug the author typed by hand into the Edit box. ?>
             <input type="hidden" name="slug" data-permalink-value value="<?= h($slugValue) ?>">
+            <?php // AN ADDRESS MADE FROM THE TITLE, not typed: on a new record,
+                  // `1` until the address is edited by hand (permalink.js), and
+                  // the save makes it unique, -2 and on, where a typed one that
+                  // is taken is refused. The CALLER's `$isNew`, since a failed
+                  // create comes back with its address filled; what it posted
+                  // is kept. ?>
+            <?php if (!empty($isNew)): ?>
+                <input type="hidden" name="slug_auto" data-permalink-auto
+                       value="<?= isset($_POST['slug_auto']) ? ($_POST['slug_auto'] === '1' ? '1' : '') : '1' ?>">
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
 
     </div>
 </div>

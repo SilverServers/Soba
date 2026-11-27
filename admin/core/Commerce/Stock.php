@@ -345,7 +345,8 @@ final class Stock
         }
         $marks = implode(',', array_fill(0, count($types), '?'));
         $stmt  = Database::getInstance()->prepare(
-            "SELECT * FROM posts WHERE post_type IN ($marks) AND status <> 'trash' ORDER BY title, id"
+            // The site's own language: a translation sells its original's stock (`Content\Translation`).
+            "SELECT * FROM posts WHERE post_type IN ($marks) AND status <> 'trash' AND lang = '' ORDER BY title, id"
         );
         $stmt->execute($types);
         $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);

@@ -18,6 +18,7 @@ use Cms\Security\Throttle;
 use Cms\Security\Totp;
 use Cms\Security\TrustedBrowsers;
 use Cms\Security\TwoStep;
+use Cms\Http\Cache;
 
 /**
  * SETTING UP TWO-STEP SIGN-IN — the signed-in half of `Security\TwoStep`:
@@ -351,7 +352,7 @@ class TwoStepController
     private function page(string $template, array $data, int $status = 200): void
     {
         http_response_code($status);
-        header('Cache-Control: no-store');
+        Cache::noStore();
         extract($data, EXTR_SKIP);
         require ROOT_PATH . '/admin/templates/' . $template;
     }

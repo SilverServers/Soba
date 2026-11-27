@@ -99,8 +99,51 @@ final class Mailer
         self::$lastVia  = $via;
         self::$lastSent = $sent;
         self::$lastId   = $sent ? mb_substr(trim($id), 0, 255) : '';
+        if ($via !== '') {
+            self::keepLast($via, $sent);
+        }
 
         return $sent;
+    }
+
+    /**
+     * THE LAST MESSAGE, KEPT FOR SYSTEM HEALTH, past the request that sent it
+     * (`lastSent()`): when, which way, whether it went and why not. In a file
+     * beside the mail log, not in the database: a message is most often sent
+     * by a form's own POST, and a write to the database there would read as
+     * that form's change (`Security\Audit`).
+     */
+    public const LAST_FILE = 'mail-last.json';
+
+    private static function keepLast(string $via, bool $sent): void
+    {
+        if (!defined('ROOT_PATH')) {
+            return;
+        }
+        $dir = ROOT_PATH . '/logs';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return;
+        }
+        @file_put_contents($dir . '/' . self::LAST_FILE, json_encode(
+            ['at' => time(), 'via' => $via, 'sent' => $sent, 'error' => $sent ? '' : mb_substr(self::$lastError, 0, 500)],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n", LOCK_EX);
+    }
+
+    /**
+     * How the last message this site sent went, as `went()` kept it: null
+     * before one was kept.
+     *
+     * @return array{at: int, via: string, sent: bool, error: string}|null
+     */
+    public static function lastSent(): ?array
+    {
+        $raw = defined('ROOT_PATH') ? @file_get_contents(ROOT_PATH . '/logs/' . self::LAST_FILE) : false;
+        $row = is_string($raw) ? json_decode($raw, true) : null;
+        if (!is_array($row) || !is_int($row['at'] ?? null)) {
+            return null;
+        }
+
+        return ['at' => $row['at'], 'via' => (string) ($row['via'] ?? ''), 'sent' => ($row['sent'] ?? false) === true, 'error' => (string) ($row['error'] ?? '')];
     }
 
     /**

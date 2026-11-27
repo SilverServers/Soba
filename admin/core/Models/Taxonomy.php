@@ -134,6 +134,17 @@ class Taxonomy
     }
 
     /**
+     * The least role that may add a term (migration 140, `ContentType\StaffView::
+     * addsTerms()`), or NULL for as it was. One caller, the Taxonomy form.
+     */
+    public static function setAddTerms(int $id, ?string $role): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE taxonomies SET add_terms = :r WHERE id = :id')
+            ->execute([':r' => $role, ':id' => $id]);
+    }
+
+    /**
      * Update an existing taxonomy.
      *
      * @param array<string, mixed> $data

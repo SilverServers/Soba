@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
         'name' => 'silverservers/soba',
-        'pretty_version' => 'v0.8.0',
-        'version' => '0.8.0.0',
-        'reference' => '5972b2270d9f179825d0c9cc2c55b90da4d37db1',
+        'pretty_version' => 'v0.8.1',
+        'version' => '0.8.1.0',
+        'reference' => '68fcb75f6a3e9de76ff77f8ca45193e93ca176c4',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -29,9 +29,9 @@
             'dev_requirement' => false,
         ),
         'silverservers/soba' => array(
-            'pretty_version' => 'v0.8.0',
-            'version' => '0.8.0.0',
-            'reference' => '5972b2270d9f179825d0c9cc2c55b90da4d37db1',
+            'pretty_version' => 'v0.8.1',
+            'version' => '0.8.1.0',
+            'reference' => '68fcb75f6a3e9de76ff77f8ca45193e93ca176c4',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

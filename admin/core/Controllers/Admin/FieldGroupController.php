@@ -100,6 +100,7 @@ class FieldGroupController
         }
 
         $id = FieldGroup::create($data);
+        FieldGroup::setPosition($id, $data['position']);
 
         header('Location: ' . ADMIN_URL . '/field-groups/' . $id . '/edit');
         exit;
@@ -163,6 +164,7 @@ class FieldGroupController
         }
 
         FieldGroup::update((int) $vars['id'], $data);
+        FieldGroup::setPosition((int) $vars['id'], $data['position']);
 
         $group       = FieldGroup::find((int) $vars['id']);
         $formData    = [];
@@ -289,6 +291,20 @@ class FieldGroupController
                     $field['options'] = $this->parseOptions($settings['options_text'] ?? '');
                     break;
 
+                // A FILE FIELD'S KINDS, as typed ("pdf, docx"): only the kinds the
+                // library takes are kept, in its own words (`Media::kindsFor()`).
+                case 'file':
+                    $field['accept'] = implode(', ', array_values(array_unique(\Cms\Models\Media::kindsFor((string) ($settings['accept'] ?? '')))));
+                    break;
+
+                // A GALLERY FIELD IS DRAWN AS A GALLERY IS: Grid or Masonry,
+                // two to six columns, and its pictures opening full size or not.
+                case 'gallery':
+                    $field['layout']   = ($settings['gallery_layout'] ?? '') === 'masonry' ? 'masonry' : 'grid';
+                    $field['columns']  = max(2, min(6, (int) ($settings['gallery_columns'] ?? 3) ?: 3));
+                    $field['lightbox'] = !empty($settings['gallery_lightbox']) ? 1 : 0;
+                    break;
+
                 case 'relationship':
                     // Accept content_type_target (new) with fallback to post_type_target (legacy DB records)
                     $field['content_type_target'] = $settings['content_type_target'] ?? $settings['post_type_target'] ?? '';
@@ -319,6 +335,11 @@ class FieldGroupController
                 case 'repeater':
                     $rawSubFields = $settings['sub_fields'] ?? [];
                     $subFields = [];
+                    // DRAWN AS A TABLE, and a Choice column whose choices are its
+                    // rows, the first one ticked (`FieldRenderer::renderRepeaterTable()`).
+                    if (($settings['layout'] ?? '') === 'table') {
+                        $field['layout'] = 'table';
+                    }
                     foreach ($rawSubFields as $sf) {
                         $sfLabel = trim($sf['label'] ?? '');
                         $sfKey   = trim($sf['key'] ?? '');
@@ -342,9 +363,25 @@ class FieldGroupController
                             if (isset($sf['settings']['max']) && $sf['settings']['max'] !== '') {
                                 $sfSettings['max'] = $sf['settings']['max'];
                             }
+                            if (isset($sf['settings']['decimals']) && is_numeric($sf['settings']['decimals'])) {
+                                $sfSettings['decimals'] = max(0, min(6, (int) $sf['settings']['decimals']));
+                            }
+                            $prefix = trim((string) ($sf['settings']['prefix'] ?? ''));
+                            if ($prefix !== '') {
+                                $sfSettings['prefix'] = mb_substr($prefix, 0, 8);
+                            }
                         }
                         if ($sfType === 'select') {
                             $sfSettings['options'] = $this->parseOptions($sf['settings']['options_text'] ?? '');
+                            if (!empty($sf['rows_from_choices']) && !isset($field['preset_rows'])) {
+                                $field['preset_rows'] = ['field' => $sfKey];
+                            }
+                        }
+                        if ($sfType === 'file') {
+                            $kinds = array_values(array_unique(\Cms\Models\Media::kindsFor((string) ($sf['settings']['accept'] ?? ''))));
+                            if ($kinds !== []) {
+                                $sfSettings['accept'] = implode(', ', $kinds);
+                            }
                         }
                         $subFields[] = [
                             // Raw, for the same reason as the parent label above.
@@ -411,6 +448,9 @@ class FieldGroupController
             'content_types' => $postTypes,
             'is_active'     => $isActive,
             'fields'        => $fields,
+            // ITS POSITION ON THE ENTRY EDITOR (migration 149): one of three,
+            // or '' to follow its content type.
+            'position'      => in_array($post['position'] ?? '', ['high', 'normal', 'side'], true) ? (string) $post['position'] : null,
         ];
 
         return [$errors, $data];

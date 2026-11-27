@@ -71,6 +71,19 @@ final class Product
     public const OUT_OF_STOCK = 'out_of_stock';
     public const ON_BACKORDER = 'on_backorder';
 
+    /**
+     * HOW MANY PLACES A PRICE FIELD TAKES, for its box on the entry editor:
+     * the shop currency's (`Money::exponent()`) for the regular and the sale
+     * price, which the shop reads as money (`Money::parse()`, which refuses
+     * more places than the currency has); null for any other field.
+     *
+     * @param array<string, mixed> $field
+     */
+    public static function pricePlaces(array $field): ?int
+    {
+        return in_array((string) ($field['key'] ?? ''), [self::PRICE, self::SALE_PRICE], true) ? Money::exponent() : null;
+    }
+
     /** Content type keys that can be sold. */
     public static function sellableTypes(): array
     {
@@ -129,6 +142,15 @@ final class Product
             return null;
         }
 
+        // A TRANSLATION SELLS ITS ORIGINAL (`Content\Translation`): one code,
+        // one price, one stock count, and the basket and the order name the
+        // original. Not for sale once the original is gone, or while it is not.
+        if (\Cms\Content\Translation::sellsOriginal($post)) {
+            $original = Post::find((int) $post['translation_of']);
+
+            return $original !== null && (string) $original['lang'] === '' ? self::fromPost($original) : null;
+        }
+
         // ONLY A PUBLICLY REACHABLE ENTRY IS FOR SALE, and the check belongs
         // HERE rather than in each caller, because the caller that forgets it
         // is the bug.
@@ -151,7 +173,11 @@ final class Product
         // administrator, and an admin who wants to sell something publishes it.
         // Selling through a door only we can open is a feature nobody asked for
         // and a support call later.
-        if (!in_array((string) ($post['status'] ?? ''), ['published', 'password'], true)) {
+        //
+        // A sample product is asked as this copy treats it (`Post::siteStatus()`):
+        // sold where samples are shown, so a copy's shop can be tried, and
+        // never in production.
+        if (!in_array(\Cms\Models\Post::siteStatus($post), ['published', 'password'], true)) {
             return null;
         }
 

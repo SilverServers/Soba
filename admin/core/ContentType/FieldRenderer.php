@@ -58,7 +58,33 @@ class FieldRenderer
      */
     public static function renderField(array $field, mixed $value): string
     {
-        $name = 'field_' . $field['key'];
+        return self::renderNamed($field, 'field_' . $field['key'], $value);
+    }
+
+    /**
+     * The same labelled control, posting under a name of the caller's own: a
+     * site's tool draws an entry's picture field this way (`Site\Tools::mediaPicker()`).
+     *
+     * @param array<string, mixed> $field
+     */
+    public static function renderNamed(array $field, string $name, mixed $value): string
+    {
+        return self::wrap($field, $name, self::control($field, $name, $value));
+    }
+
+    /**
+     * A CHILD'S FIELD IN ITS ROW on its parent's editor (`Ui\ChildRows`),
+     * posting under the row's own name. The row is saved by itself and checked
+     * there by the child's own rules, so its boxes carry no `required` for the
+     * parent's Save to stop at, though the label still says Required, and no
+     * logic for the parent's form to apply to its own fields.
+     *
+     * @param array<string, mixed> $field
+     */
+    public static function renderRow(array $field, string $name, mixed $value): string
+    {
+        unset($field['logic']);
+        $field['_row'] = true;
 
         return self::wrap($field, $name, self::control($field, $name, $value));
     }
@@ -77,7 +103,7 @@ class FieldRenderer
     {
         $label    = (string) ($field['label'] ?? $field['key']);
         $help     = trim((string) ($field['description'] ?? $field['instructions'] ?? ''));
-        $compound = in_array($field['type'] ?? 'text', ['image', 'repeater', 'relationship'], true)
+        $compound = in_array($field['type'] ?? 'text', ['image', 'file', 'gallery', 'repeater', 'relationship'], true)
             || (($field['type'] ?? '') === 'taxonomy' && !self::taxonomyIsOneSelect($field));
 
         // ── CONDITIONAL LOGIC AND WIDTH ─────────────────────────────────────
@@ -109,7 +135,7 @@ class FieldRenderer
         // overruled where it does not, rather than offered and ignored. That
         // goes double at a quarter.
         $compoundWidth = in_array($field['type'] ?? 'text',
-                                  ['repeater', 'image', 'relationship'], true);
+                                  ['repeater', 'image', 'file', 'gallery', 'relationship'], true);
         $modifier = $compoundWidth ? '' : FieldWidth::modifier($field['width'] ?? null);
         $class = 'field' . ($modifier === '' ? '' : ' field' . $modifier);
 
@@ -184,7 +210,7 @@ class FieldRenderer
     }
 
     /** The types whose stored value is HTML or JSON, which `plain()` must not touch. */
-    private const NOT_PLAIN = ['rich_text', 'image', 'repeater', 'relationship', 'taxonomy'];
+    private const NOT_PLAIN = ['rich_text', 'image', 'file', 'gallery', 'repeater', 'relationship', 'taxonomy'];
 
     /** Dispatch to the per-type control. Sub-fields of a repeater come through here too. */
     private static function control(array $field, string $name, mixed $value): string
@@ -198,11 +224,15 @@ class FieldRenderer
             'textarea'     => self::renderTextarea($name, $value, $field),
             'rich_text'    => self::renderRichText($name, $value, $field),
             'number'       => self::renderNumber($name, $value, $field),
+            'phone'        => self::renderPhone($name, $value, $field),
+            'email'        => self::renderEmail($name, $value, $field),
             'date'         => self::renderDate($name, $value, $field),
             'datetime'     => self::renderDatetime($name, $value, $field),
             'select'       => self::renderSelect($name, $value, $field),
             'checkbox'      => self::renderCheckbox($name, $value, $field),
             'image'        => self::renderImage($name, $value),
+            'file'         => self::renderFile($name, $value, $field),
+            'gallery'      => self::renderGallery($name, $value, $field),
             'repeater'     => self::renderRepeater($name, $value, $field),
             'relationship' => self::renderRelationship($name, $value, $field),
             'taxonomy'     => self::renderTaxonomy($name, $value, $field),
@@ -253,6 +283,30 @@ class FieldRenderer
             . '>';
     }
 
+    /**
+     * A PHONE NUMBER, as typed, in a box a phone opens its number pad for.
+     * Checked on save by the rule Business details use, and printed as a link
+     * to call it (`FieldDisplay`).
+     */
+    private static function renderPhone(string $name, mixed $value, array $field): string
+    {
+        return '<input type="tel" class="input"'
+            . self::common($name, $field)
+            . ' value="' . View::escape((string) ($value ?? '')) . '"'
+            . self::placeholder($field)
+            . '>';
+    }
+
+    /** AN EMAIL ADDRESS, checked as a form's email field is, and printed as a link to write to. */
+    private static function renderEmail(string $name, mixed $value, array $field): string
+    {
+        return '<input type="email" class="input"'
+            . self::common($name, $field)
+            . ' value="' . View::escape((string) ($value ?? '')) . '"'
+            . self::placeholder($field)
+            . '>';
+    }
+
     private static function renderTextarea(string $name, mixed $value, array $field): string
     {
         return '<textarea class="textarea" rows="' . (int) ($field['rows'] ?? 4) . '"'
@@ -283,13 +337,33 @@ class FieldRenderer
 
     private static function renderNumber(string $name, mixed $value, array $field): string
     {
-        return '<input type="number" class="input"'
+        // DECIMALS NAME THE STEP when the field names none: two places is 0.01,
+        // so 1.25 is a number here and 1.255 is not, as the box says when the
+        // form is checked.
+        $step   = isset($field['step']) && $field['step'] !== '' ? (string) $field['step'] : null;
+        $places = isset($field['decimals']) && is_numeric($field['decimals']) ? max(0, min(6, (int) $field['decimals'])) : null;
+        // A PRICE THE SHOP READS takes the places its currency has, when it
+        // names no step of its own (`Commerce\Product::pricePlaces()`): 24.99
+        // in dollars, 1200 in yen. A box with no step takes whole numbers alone.
+        if ($step === null && $places === null) {
+            $places = \Cms\Commerce\Product::pricePlaces($field);
+        }
+        if ($step === null && $places !== null) {
+            $step = $places === 0 ? '1' : '0.' . str_repeat('0', $places - 1) . '1';
+        }
+        $input = '<input type="number" class="input"'
             . self::common($name, $field)
             . ' value="' . View::escape((string) ($value ?? '')) . '"'
             . (isset($field['min']) ? ' min="' . View::escape((string) $field['min']) . '"' : '')
             . (isset($field['max']) ? ' max="' . View::escape((string) $field['max']) . '"' : '')
-            . (isset($field['step']) ? ' step="' . View::escape((string) $field['step']) . '"' : '')
+            . ($step !== null ? ' step="' . View::escape($step) . '"' : '')
             . '>';
+
+        // A PREFIX, such as $, in front of the box: shown, never kept.
+        $prefix = trim((string) ($field['prefix'] ?? ''));
+
+        return $prefix === '' ? $input
+            : '<div class="prefixed"><span class="prefixed__prefix">' . View::escape($prefix) . '</span>' . $input . '</div>';
     }
 
     private static function renderDate(string $name, mixed $value, array $field): string
@@ -364,7 +438,9 @@ class FieldRenderer
         $url          = $attachmentId > 0 ? \Cms\Models\Media::getUrl($attachmentId) : '';
         $chooseId     = self::id($name) . '-choose';
 
-        $html  = '<div class="media-picker" data-media-picker>';
+        // The glyph comes back when the picture is removed (`entry-form.js`).
+        $html  = '<div class="media-picker" data-media-picker'
+               . ' data-empty-glyph="' . View::escape(Icons::render('image', 'media-picker__glyph', '', 22)) . '">';
         $html .= '<input type="hidden" name="' . View::escape($name) . '"'
                . ' value="' . $attachmentId . '" data-media-value>';
 
@@ -385,6 +461,149 @@ class FieldRenderer
     }
 
     /**
+     * A FILE FROM THE LIBRARY: a PDF, an Office document, any kind the library
+     * takes, narrowed by the field's File types (`accept`, as a form's file
+     * field is), kept by its id so a file renamed in the library is followed.
+     * Drawn as the file's name, a link to it, and its size, with Choose or
+     * Replace and Remove; `entry-form.js` opens the library over every kind of
+     * file, and uploads one, in pieces when it is large.
+     *
+     * @param array<string, mixed> $field
+     */
+    public static function renderFile(string $name, mixed $value, array $field): string
+    {
+        $id     = (int) ($value ?? 0);
+        $file   = $id > 0 ? \Cms\Models\Media::file($id) : null;
+        $kinds  = \Cms\Models\Media::kindsFor((string) ($field['accept'] ?? ''));
+        $accept = $kinds === [] ? '' : implode(',', array_map(static fn (string $ext): string => '.' . $ext, $kinds));
+
+        // THE KIND'S GLYPH WHERE A PICTURE'S PREVIEW IS, and the file's name,
+        // a link to it, and its size over the buttons.
+        $html  = '<div class="media-picker media-picker--file" data-media-picker data-media-kind="file"'
+               . ' data-media-accept="' . View::escape($accept) . '">';
+        $html .= '<input type="hidden" name="' . View::escape($name) . '" value="' . ($file !== null ? $id : 0) . '" data-media-value>';
+        $html .= '<div class="media-picker__preview" data-media-preview>' . Icons::render('file', 'media-picker__glyph', '', 22) . '</div>';
+        $html .= '<div class="media-picker__body">';
+        $html .= '<p class="media-picker__name" data-media-name' . ($file !== null ? '' : ' hidden') . '>';
+        if ($file !== null) {
+            $html .= '<a class="link" href="' . View::escape($file['url']) . '" target="_blank" rel="noopener">' . View::escape($file['name']) . '</a>'
+                   . ' <span class="media-picker__size">' . View::escape($file['size_words']) . '</span>';
+        }
+        $html .= '</p>';
+        $html .= '<div class="media-picker__actions">';
+        $html .= '<button type="button" class="btn" id="' . self::id($name) . '-choose" data-media-choose>' . ($file !== null ? 'Replace' : 'Choose') . '</button>';
+        $html .= '<button type="button" class="btn btn--ghost" data-media-clear' . ($file !== null ? '' : ' hidden') . '>Remove</button>';
+        $html .= '</div></div>';
+
+        return $html . '</div>';
+    }
+
+    /** Was a gallery field drawn this request? Its page loads the tiles' script and gallery.css when one was. */
+    private static bool $galleryDrawn = false;
+
+    public static function drewGallery(): bool
+    {
+        return self::$galleryDrawn;
+    }
+
+    /**
+     * A GALLERY FIELD: pictures chosen from the library or dropped in, many
+     * at once, ordered by drag, each with a caption of its own, kept in the
+     * entry's own value as `[{"id": 12, "caption": "…"}, …]`, in order.
+     *
+     * The Galleries screen's tiles and script (`Ui\GalleryTiles`,
+     * `gallery-images.js`): it posts as that screen does, its pictures' ids in
+     * order (`field_{key}[ids]`) and a caption for each by its id
+     * (`field_{key}[caption][12]`), which `galleryItems()` reads. Its layout,
+     * columns and full-size pictures are its definition's, as the page will
+     * draw them (`FieldDisplay`, `Shortcode::galleryHtml()`).
+     */
+    private static function renderGallery(string $name, mixed $value, array $field): string
+    {
+        self::$galleryDrawn = true;
+        $items   = self::galleryItems($value);
+        $pattern = $name . '[{detail}][{id}]';
+        $layout  = ($field['layout'] ?? '') === 'masonry' ? 'masonry' : 'grid';
+        $columns = max(2, min(6, (int) ($field['columns'] ?? 3) ?: 3));
+        $details = self::id($name) . '-details';
+
+        $html  = '<div class="gallery-field" data-gallery data-gallery-pictures data-gallery-name="' . View::escape($pattern) . '">';
+        $html .= '<input type="hidden" name="' . View::escape($name . '[ids]') . '" value="'
+               . View::escape(implode(',', array_map(static fn (array $i): string => (string) $i['attachment_id'], $items))) . '" data-gallery-ids>';
+        $html .= '<div class="cms-gallery cms-gallery--' . $layout . '" style="--gallery-columns: ' . $columns . '" data-gallery-tiles>';
+        foreach ($items as $item) {
+            $html .= \Cms\Ui\GalleryTiles::tile($item, $pattern, ['caption']);
+        }
+        $html .= '</div>';
+        $html .= '<div class="empty" data-gallery-empty' . ($items === [] ? '' : ' hidden') . '>'
+               . Icons::render('image', 'empty__glyph', '', 24) . '<p class="empty__title">No pictures yet</p></div>';
+        // FILES DROPPED ON IT, OR UPLOADED, go one at a time; this says which and how far.
+        $html .= '<div data-gallery-progress hidden><p class="form-help" data-gallery-progress-text></p>'
+               . '<div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Upload">'
+               . '<div class="progress-bar__fill" data-gallery-progress-fill></div></div></div>';
+        $html .= '<div class="form-actions form-actions--bare">'
+               . '<button type="button" class="btn" data-gallery-add>Add pictures</button>'
+               . '<label class="btn">Upload<input type="file" multiple accept="image/*" hidden data-gallery-upload></label>'
+               . '</div>';
+        $html .= '<template data-gallery-template>' . \Cms\Ui\GalleryTiles::template($pattern, ['caption']) . '</template>';
+        // A PICTURE'S CAPTION, opened by its pen; Done writes the tile's own
+        // input, so nothing is kept until the entry is. No maxlength: Done says
+        // how long a caption may be instead of cutting a paste short.
+        $html .= '<dialog class="modal" data-gallery-details aria-labelledby="' . $details . '-title"><div class="modal__inner">'
+               . '<h2 class="modal__title" id="' . $details . '-title">Caption</h2>'
+               . '<div class="alert alert--danger" data-gd-error hidden></div>'
+               // THE BOX IS NAMED BY THE DIALOG'S TITLE, not a label repeating it.
+               . '<div class="field"><textarea class="textarea" id="' . $details . '-caption" rows="5" aria-labelledby="' . $details . '-title"'
+               . ' data-gd-caption data-most="' . \Cms\Models\Gallery::CAPTION_MAX . '"></textarea></div>'
+               . '<div class="modal__actions"><button type="button" class="btn" data-gd-cancel>Cancel</button>'
+               . '<button type="button" class="btn btn--primary" data-gd-ok>Done</button></div>'
+               . '</div></dialog>';
+
+        return $html . '</div>';
+    }
+
+    /**
+     * A GALLERY FIELD'S PICTURES, from what it keeps (`[{"id": 12, "caption":
+     * "…"}, …]`) or what its form posted (its `ids` in order, and a `caption`
+     * by id), each as `Gallery::getItems()` gives an item: its file's details
+     * and its caption, in order, each picture once. A picture no longer in the
+     * library, or a file that is not a picture, is left out.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function galleryItems(mixed $value): array
+    {
+        $captions = [];
+        if (is_array($value)) {
+            $posted = is_array($value['caption'] ?? null) ? $value['caption'] : [];
+            foreach (explode(',', is_scalar($value['ids'] ?? null) ? (string) $value['ids'] : '') as $id) {
+                $id = (int) trim($id);
+                if ($id > 0 && !isset($captions[$id])) {
+                    $words          = $posted[$id] ?? '';
+                    $captions[$id]  = is_scalar($words) ? str_replace(["\r\n", "\r"], "\n", trim((string) $words)) : '';
+                }
+            }
+        } elseif (is_string($value) && $value !== '') {
+            foreach ((array) json_decode($value, true) as $row) {
+                $id = is_array($row) ? (int) ($row['id'] ?? 0) : 0;
+                if ($id > 0 && !isset($captions[$id])) {
+                    $captions[$id] = is_scalar($row['caption'] ?? null) ? (string) $row['caption'] : '';
+                }
+            }
+        }
+
+        $items = [];
+        foreach ($captions as $id => $caption) {
+            $file = \Cms\Models\Media::find($id);
+            if ($file !== null && str_starts_with((string) $file['mime_type'], 'image/')) {
+                $items[] = ['attachment_id' => $id, 'caption' => $caption] + $file;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
      * The repeater.
      *
      * The rows are the substance of the field, so they are SHARP boxes on the
@@ -397,6 +616,9 @@ class FieldRenderer
     {
         $subFields = $field['sub_fields'] ?? [];
         $rows      = self::decodeRows($value);
+        if (($field['layout'] ?? '') === 'table') {
+            return self::renderRepeaterTable($name, $rows, array_values(array_filter((array) $subFields, 'is_array')), $field);
+        }
 
         $html  = '<div class="repeater" data-repeater data-repeater-name="' . View::escape($name) . '">';
         $html .= '<div class="repeater__rows" data-repeater-rows>';
@@ -420,6 +642,130 @@ class FieldRenderer
                 . '</template>';
 
         return $html . '</div>';
+    }
+
+    /**
+     * THE TABLE LAYOUT (`'layout' => 'table'`): the sub-fields as columns and
+     * each row as one line, a number in a narrow box, under the same names the
+     * stacked rows post, so what is kept is the same JSON, byte for byte.
+     * `entry-form.js` moves Enter down a column and spreads a block pasted from
+     * a spreadsheet across the cells.
+     *
+     * WITH `'preset_rows' => ['field' => <a Choice column's key>]`, that
+     * column's choices are the rows, in its order, each named by its choice and
+     * posting it, with no Add row or Remove. A kept row whose value is no longer
+     * a choice follows them, named by what it holds, with a Remove, so nothing
+     * kept is lost until someone removes it.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<array<string, mixed>> $subFields
+     * @param array<string, mixed>       $field
+     */
+    private static function renderRepeaterTable(string $name, array $rows, array $subFields, array $field): string
+    {
+        $presetKey = (string) ($field['preset_rows']['field'] ?? '');
+        $preset    = null;
+        foreach ($subFields as $sub) {
+            if ($presetKey !== '' && (string) ($sub['key'] ?? '') === $presetKey && ($sub['type'] ?? '') === 'select') {
+                $preset = $sub;
+            }
+        }
+        $columns = $preset === null ? $subFields
+            : array_values(array_filter($subFields, static fn (array $sub): bool => (string) ($sub['key'] ?? '') !== $presetKey));
+
+        // Each line: [its name in the first column, or null; its values; can it be removed].
+        $lines = [];
+        if ($preset === null) {
+            foreach ($rows as $row) {
+                $lines[] = [null, is_array($row) ? $row : [], true];
+            }
+        } else {
+            $left = array_values(array_filter($rows, 'is_array'));
+            foreach ((array) ($preset['options'] ?? []) as $choice => $choiceLabel) {
+                $data = [];
+                foreach ($left as $i => $row) {
+                    if ((string) ($row[$presetKey] ?? '') === (string) $choice) {
+                        $data = $row;
+                        unset($left[$i]);
+                        break;
+                    }
+                }
+                $lines[] = [(string) $choiceLabel, [$presetKey => (string) $choice] + $data, false];
+            }
+            foreach ($left as $row) {
+                $kept    = (string) ($row[$presetKey] ?? '');
+                $lines[] = [$kept !== '' ? $kept : '—', $row, true];
+            }
+        }
+
+        $fixed = $preset !== null;
+        $html  = '<div class="repeater repeater--table" data-repeater data-repeater-table data-repeater-name="' . View::escape($name) . '">'
+               . '<div class="table-wrap"><table class="table"><thead><tr>';
+        if ($fixed) {
+            $html .= '<th scope="col">' . View::escape((string) ($preset['label'] ?? $presetKey)) . '</th>';
+        }
+        foreach ($columns as $sub) {
+            $html .= '<th scope="col"' . (($sub['type'] ?? 'text') === 'number' ? ' class="num"' : '') . '>'
+                   . View::escape((string) ($sub['label'] ?? $sub['key'] ?? '')) . '</th>';
+        }
+        $html .= '<th scope="col" aria-label="Remove"></th></tr></thead><tbody data-repeater-rows>';
+        foreach ($lines as $index => [$rowName, $rowData, $removable]) {
+            $html .= self::renderRepeaterTableRow($name, $index, $columns, $preset, $rowName, $rowData, $removable);
+        }
+        $html .= '</tbody></table></div>';
+
+        if (!$fixed) {
+            $html .= '<div class="form-actions--bare">'
+                   . '<button type="button" class="btn" data-repeater-add>Add row</button>'
+                   . '</div>'
+                   . '<template data-repeater-template>'
+                   . self::renderRepeaterTableRow($name, '__ROW__', $columns, null, null, array_fill_keys(array_column($columns, 'key'), ''), true)
+                   . '</template>';
+        }
+
+        return $html . '</div>';
+    }
+
+    /**
+     * One line of a table repeater: its name and the hidden value it posts when
+     * its rows are preset, a cell per column, each control named by its column
+     * and its row for a screen reader, and a Remove where it can go.
+     *
+     * @param list<array<string, mixed>>  $columns
+     * @param array<string, mixed>|null   $preset
+     * @param array<string, mixed>        $rowData
+     */
+    private static function renderRepeaterTableRow(
+        string $name,
+        int|string $index,
+        array $columns,
+        ?array $preset,
+        ?string $rowName,
+        array $rowData,
+        bool $removable
+    ): string {
+        $html = '<tr data-repeater-row>';
+        if ($preset !== null) {
+            $presetKey = (string) $preset['key'];
+            $html .= '<th scope="row">' . View::escape((string) $rowName)
+                   . '<input type="hidden" name="' . View::escape($name . '[' . $index . '][' . $presetKey . ']') . '"'
+                   . ' value="' . View::escape((string) ($rowData[$presetKey] ?? '')) . '"></th>';
+        }
+        foreach ($columns as $sub) {
+            $subName = $name . '[' . $index . '][' . $sub['key'] . ']';
+            $label   = (string) ($sub['label'] ?? $sub['key']);
+            $cell    = $sub + ['_aria_label' => $rowName !== null ? $label . ', ' . $rowName : $label];
+            $html   .= '<td' . (($sub['type'] ?? 'text') === 'number' ? ' class="num"' : '') . '>'
+                     . self::control($cell, $subName, $rowData[$sub['key']] ?? '') . '</td>';
+        }
+        $html .= '<td>';
+        if ($removable) {
+            $html .= '<button type="button" class="icon-btn" data-repeater-remove'
+                   . ' data-tip="Remove row" aria-label="Remove row">'
+                   . Icons::render('x', 'icon') . '</button>';
+        }
+
+        return $html . '</td></tr>';
     }
 
     /**
@@ -465,8 +811,17 @@ class FieldRenderer
     {
         $selectedIds = self::decodeIds($value);
 
-        // Accept 'content_type' with a fallback to 'post_type' for legacy definitions.
-        $typeKey   = (string) ($field['content_type'] ?? $field['post_type'] ?? 'post');
+        // THE TYPE WHOSE ENTRIES IT OFFERS: `content_type` in code, and
+        // `content_type_target` as the field group editor keeps it, which this
+        // never read, so a relationship made on screen offered nothing;
+        // `post_type` and `post_type_target` are older names for each.
+        $typeKey = 'post';
+        foreach (['content_type', 'content_type_target', 'post_type', 'post_type_target'] as $option) {
+            if (is_string($field[$option] ?? null) && trim($field[$option]) !== '') {
+                $typeKey = trim($field[$option]);
+                break;
+            }
+        }
         $type      = Registry::get($typeKey);
         $available = \Cms\Models\Post::all($typeKey);
 
@@ -551,7 +906,8 @@ class FieldRenderer
                 $options[(int) $term['id']] = (string) $term['name'];
             }
 
-            return self::chipPicker($name, $options, $selected, $termLabel, $taxKey);
+            // The picker makes a term only for whoever may add one (`StaffView`).
+            return self::chipPicker($name, $options, $selected, $termLabel, \Cms\ContentType\StaffView::addsTerms($taxKey) ? $taxKey : '');
         }
 
         // Single select.
@@ -585,13 +941,15 @@ class FieldRenderer
      *
      * @param array<int, string> $options  id => label, in menu order
      * @param list<int>          $selected
+     * @param array<int, string> $slugs    id => a term's slug, for a logic rule naming it (`tax:{key}`)
      */
     public static function chipPicker(
         string $name,
         array $options,
         array $selected,
         string $kindLabel,
-        string $taxonomyKey = ''
+        string $taxonomyKey = '',
+        array $slugs = []
     ): string {
         $inputName = $name . '[]';
 
@@ -611,7 +969,7 @@ class FieldRenderer
         // option has since disappeared still shows as a chip you can remove
         // rather than vanishing silently on the next save.
         foreach ($selected as $id) {
-            $html .= self::chip($inputName, (int) $id, $options[(int) $id] ?? ('#' . (int) $id));
+            $html .= self::chip($inputName, (int) $id, $options[(int) $id] ?? ('#' . (int) $id), (string) ($slugs[(int) $id] ?? ''));
         }
 
         $html .= '</div>';
@@ -625,6 +983,7 @@ class FieldRenderer
         foreach ($options as $id => $label) {
             $html .= '<div class="chip-picker__option" role="option" data-value="' . (int) $id . '"'
                    . ' data-label="' . View::escape($label) . '"'
+                   . (isset($slugs[(int) $id]) ? ' data-slug="' . View::escape((string) $slugs[(int) $id]) . '"' : '')
                    . (in_array((int) $id, $selected, true) ? ' class="chip-picker__option is-selected"' : '')
                    . '>' . View::escape($label) . '</div>';
         }
@@ -646,14 +1005,15 @@ class FieldRenderer
         return $html . '</div>';
     }
 
-    private static function chip(string $inputName, int $id, string $label): string
+    private static function chip(string $inputName, int $id, string $label, string $slug = ''): string
     {
         return '<span class="chip" data-value="' . $id . '">'
             . '<span class="chip__label">' . View::escape($label) . '</span>'
             . '<button type="button" class="chip__remove" data-chip-remove'
             . ' aria-label="' . View::escape('Remove ' . $label) . '">'
             . Icons::render('x', 'icon icon--xs') . '</button>'
-            . '<input type="hidden" name="' . View::escape($inputName) . '" value="' . $id . '">'
+            . '<input type="hidden" name="' . View::escape($inputName) . '" value="' . $id . '"'
+            . ($slug !== '' ? ' data-term-slug="' . View::escape($slug) . '"' : '') . '>'
             . '</span>';
     }
 
@@ -686,13 +1046,17 @@ class FieldRenderer
         // would print "No categorys yet" under every empty category list.
         $plural  = strtolower((string) ($tax['label'] ?? ($termLabel . 's')));
 
-        // NO ADD ROW FOR SOMEONE WHOSE ADD WOULD BE REFUSED. Only an editor
-        // adds to a category-style taxonomy — the terms screen and the API
-        // both say so — so an author is offered the list to tick
-        // and, when there is nothing in it, the truth about who fills it.
-        if (!empty($tax['hierarchical']) && !\Cms\Auth\Auth::hasRole('editor')) {
+        // NO ADD ROW FOR SOMEONE WHOSE ADD WOULD BE REFUSED. Who may add a term
+        // is the taxonomy's (`StaffView::addsTerms()`): an editor on a
+        // category-style one and any author on a tag-style one unless it says
+        // otherwise, and the terms screen and the API ask the same. Anyone else
+        // is offered the list to tick and, when there is nothing in it, the
+        // truth about who fills it.
+        if (!\Cms\ContentType\StaffView::addsTerms($taxKey)) {
+            $who = \Cms\ContentType\StaffView::addTermsRole($taxKey);
             return $empty
-                ? '<p class="form-help">No ' . View::escape($plural) . ' yet. An editor adds them.</p>'
+                ? '<p class="form-help">No ' . View::escape($plural) . ' yet.'
+                    . ($who === false ? '' : ' ' . View::escape(ucfirst(\Cms\ContentType\StaffView::who($who))) . ' adds them.') . '</p>'
                 : '';
         }
 
@@ -811,6 +1175,8 @@ class FieldRenderer
         return '<label class="check-list__row">'
             . '<input type="' . View::escape($inputType) . '"'
             . ' name="' . View::escape($inputName) . '" value="' . $id . '"'
+            // ITS SLUG, for a logic rule that names the term by it (`tax:{key}`, `logic.js`).
+            . (isset($term['slug']) ? ' data-term-slug="' . View::escape((string) $term['slug']) . '"' : '')
             . (in_array($id, $selected, true) ? ' checked' : '') . '>'
             . '<span>' . View::escape((string) $term['name']) . '</span>'
             . '</label>';
@@ -825,7 +1191,11 @@ class FieldRenderer
     {
         return ' name="' . View::escape($name) . '"'
             . ' id="' . self::id($name) . '"'
-            . (!empty($field['required']) ? ' required' : '');
+            . (!empty($field['required']) && empty($field['_row']) ? ' required' : '')
+            // A CELL OF A TABLE has no label of its own: its column and row
+            // name it (`renderRepeaterTable()`), as a fact the CMS writes on
+            // the cell, never an option a definition gives.
+            . (($field['_aria_label'] ?? '') !== '' ? ' aria-label="' . View::escape((string) $field['_aria_label']) . '"' : '');
     }
 
     private static function placeholder(array $field): string
@@ -954,6 +1324,13 @@ class FieldRenderer
 
             'repeater' => self::sanitizeRepeater($postData[$key] ?? null, $field),
 
+            // ITS PICTURES IN ORDER, each once and each still a picture in the
+            // library, its caption as typed with any tags removed (`galleryItems()`).
+            'gallery' => (string) json_encode(array_map(
+                static fn (array $item): array => ['id' => (int) $item['attachment_id'], 'caption' => strip_tags((string) $item['caption'])],
+                self::galleryItems(is_array($postData[$key] ?? null) ? $postData[$key] : [])
+            ), JSON_UNESCAPED_UNICODE),
+
             'relationship' => self::sanitizeRelationship($postData[$key] ?? null),
 
             'taxonomy' => self::sanitizeTaxonomy($postData[$key] ?? null, $field),
@@ -1045,7 +1422,12 @@ class FieldRenderer
     {
         $label = $field['label'] ?? $field['key'];
 
-        if (!empty($field['required']) && ($value === null || $value === '' || $value === '[]')) {
+        // A PICTURE FIELD WITH NO PICTURE POSTS 0: its control holds an
+        // attachment's id as a whole number, so 0 is none, and a required
+        // picture field left empty is refused like any other.
+        $none = $value === null || $value === '' || $value === '[]'
+            || (in_array($field['type'] ?? 'text', ['image', 'file'], true) && is_scalar($value) && (int) $value <= 0);
+        if (!empty($field['required']) && $none) {
             // THE AUTHOR'S OWN WORDING WINS. The field group editor's Validation
             // tab offers "Message when it is left blank", and until this read it
             // the box collected a string nothing ever printed — help text making
@@ -1055,12 +1437,84 @@ class FieldRenderer
             return $custom !== '' ? $custom : "{$label} is required.";
         }
 
+        // A FILE FIELD TAKES A FILE THE LIBRARY HAS, of a kind it names: one
+        // posted by hand that is not, or is of another kind, is refused.
+        if (($field['type'] ?? 'text') === 'file' && is_scalar($value) && (int) $value > 0) {
+            $file  = \Cms\Models\Media::file((int) $value);
+            $kinds = \Cms\Models\Media::kindsFor((string) ($field['accept'] ?? ''));
+            if ($file === null) {
+                return "{$label}: that file is not in the library.";
+            }
+            if ($kinds !== [] && !isset($kinds[$file['mime']])) {
+                $names = array_map('strtoupper', array_values(array_unique($kinds)));
+                $last  = array_pop($names);
+                return "{$label} takes " . ($names === [] ? $last : implode(', ', $names) . ' or ' . $last) . ' files.';
+            }
+        }
+
+        // A CAPTION IS AS LONG AS A GALLERY'S MAY BE, and a longer one is
+        // refused in the Galleries screen's words, never cut short.
+        if (($field['type'] ?? 'text') === 'gallery' && is_string($value)) {
+            foreach ((array) json_decode($value, true) as $row) {
+                $caption = is_array($row) && is_string($row['caption'] ?? null) ? $row['caption'] : '';
+                if (mb_strlen($caption) > \Cms\Models\Gallery::CAPTION_MAX) {
+                    $file = \Cms\Models\Media::find((int) ($row['id'] ?? 0));
+                    $name = $file !== null ? (string) ($file['original_name'] ?: $file['filename']) : 'a picture';
+                    return "{$label}: " . \Cms\Models\Gallery::tooLong('', $caption, '“' . $name . '”')[0];
+                }
+            }
+        }
+
         if (($field['type'] ?? 'text') === 'number' && $value !== null && $value !== '') {
             if (isset($field['min']) && (float) $value < (float) $field['min']) {
                 return "{$label} must be at least {$field['min']}.";
             }
             if (isset($field['max']) && (float) $value > (float) $field['max']) {
                 return "{$label} must be no more than {$field['max']}.";
+            }
+        }
+
+        // A PHONE NUMBER THAT CAN BE DIALLED as written, by the rule Business
+        // details use and in their words, from the business's own country.
+        $typed = is_scalar($value) ? trim((string) $value) : '';
+        if (($field['type'] ?? 'text') === 'phone' && $typed !== '' && FieldDisplay::dialable($typed) === '') {
+            return "{$label}, {$typed}, cannot be dialled as written: " . \Cms\Site\Business::howToWrite(FieldDisplay::dialCountry());
+        }
+        // AN EMAIL ADDRESS, checked as a form's email field is (`Forms\Answers`).
+        if (($field['type'] ?? 'text') === 'email' && $typed !== '' && filter_var($typed, FILTER_VALIDATE_EMAIL) === false) {
+            return "{$label} must be a valid email address.";
+        }
+
+        // A REPEATER'S ROWS: each column checked as a field of its type is,
+        // a column ticked Required in every row, and each refusal naming its
+        // row (by its choice, in a table whose choices are its rows) and its
+        // column, every one at once.
+        if (($field['type'] ?? 'text') === 'repeater' && is_string($value) && $value !== '') {
+            $presetKey = (string) ($field['preset_rows']['field'] ?? '');
+            $choices   = [];
+            foreach ((array) ($field['sub_fields'] ?? []) as $sub) {
+                if (is_array($sub) && $presetKey !== '' && (string) ($sub['key'] ?? '') === $presetKey) {
+                    $choices = (array) ($sub['options'] ?? []);
+                }
+            }
+            $problems = [];
+            foreach (array_values((array) json_decode($value, true)) as $n => $row) {
+                $row     = is_array($row) ? $row : [];
+                $kept    = (string) ($row[$presetKey] ?? '');
+                $rowName = $presetKey !== '' && $kept !== '' ? (string) ($choices[$kept] ?? $kept) : 'row ' . ($n + 1);
+                foreach ((array) ($field['sub_fields'] ?? []) as $sub) {
+                    if (!is_array($sub) || !is_string($sub['key'] ?? null) || $sub['key'] === $presetKey) {
+                        continue;
+                    }
+                    $cell    = $row[$sub['key']] ?? '';
+                    $problem = self::validateField($sub, is_scalar($cell) ? (string) $cell : '');
+                    if ($problem !== null) {
+                        $problems[] = "{$label}, {$rowName}: {$problem}";
+                    }
+                }
+            }
+            if ($problems !== []) {
+                return implode(' ', $problems);
             }
         }
 

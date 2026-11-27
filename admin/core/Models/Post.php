@@ -23,6 +23,15 @@ use PDO;
 class Post
 {
     /**
+     * A SAMPLE ENTRY stands in for content still to come, so a layout can be
+     * seen before the real content exists (migration 132). On a copy of the
+     * site that is not production it is published, and in production it is
+     * private: off every list, its address 404 to a visitor, and listed by
+     * System health with a way to move it to the Trash. See `samplesShown()`.
+     */
+    public const SAMPLE = 'sample';
+
+    /**
      * Return all posts of a given type, joined with author username.
      *
      * ── ORDER ───────────────────────────────────────────────────────────────
@@ -181,7 +190,8 @@ class Post
     public static function listDateSql(string $alias = ''): string
     {
         $a = $alias !== '' ? $alias . '.' : '';
-        return "(CASE WHEN {$a}status IN ('published', 'password') AND {$a}published_at IS NOT NULL"
+        // A sample entry has a publish date as a live one does (liveDate()).
+        return "(CASE WHEN {$a}status IN ('published', 'password', 'sample') AND {$a}published_at IS NOT NULL"
              . " THEN {$a}published_at ELSE {$a}updated_at END)";
     }
 
@@ -199,10 +209,21 @@ class Post
      * two sort columns. None of it reaches the SQL as text — filters are bound,
      * and the ORDER BY is chosen from literals below.
      *
+     * A FIELD'S ORDER, `orderby` = `field:{key}`: the controller has checked
+     * the key is a field of the type the list can sort by
+     * (`ContentType\ListColumns::sortable()`); its value is joined from
+     * post_meta, a number's as a number, and an entry with none comes last
+     * either way.
+     *
+     * A VIEW GIVEN AS IDS, `ids` (an event type's Upcoming or Past,
+     * `eventGroups()`): only those entries, in that order when no sort is
+     * chosen (`ids_ordered`), else in the chosen one.
+     *
      * @param array{
      *   type: string, author_only?: ?int, status?: string, search?: string,
      *   author?: ?int, month?: string, terms?: array<string, list<int>>,
-     *   orderby?: string, order?: string, hand_ordered?: bool,
+     *   orderby?: string, order?: string, hand_ordered?: bool, sort_numeric?: bool,
+     *   ids?: list<int>|null, ids_ordered?: bool,
      *   page?: int, per_page?: int
      * } $q
      * @return array{rows: list<array<string, mixed>>, total: int}
@@ -212,6 +233,36 @@ class Post
         [$where, $params] = self::listWhere($q);
         $date = self::listDateSql('p');
         $pdo  = Database::getInstance();
+
+        // Integers produced here, never bound — MySQL will not take a
+        // placeholder for LIMIT under every driver setting.
+        $perPage = max(1, (int) ($q['per_page'] ?? 20));
+        $offset  = (max(1, (int) ($q['page'] ?? 1)) - 1) * $perPage;
+
+        // THE COLUMNS THE ROW DRAWS, not `p.*`: that carries every body on the
+        // page along with it, and the list prints none of them.
+        $select = "SELECT p.id, p.post_type, p.title, p.slug, p.lang, p.status, p.published_at, p.unpublish_at,
+                          p.updated_at, p.created_at, p.author_id, p.parent_id, p.menu_order,
+                          $date AS list_date, " . User::nameSql('u') . " AS author_name
+                     FROM posts p
+                     JOIN users u ON u.id = p.author_id";
+
+        $ids = isset($q['ids']) && is_array($q['ids']) ? array_values(array_map('intval', $q['ids'])) : null;
+        if ($ids !== null && !empty($q['ids_ordered'])) {
+            // ALREADY FILTERED AND ORDERED: the page is a slice of them, its
+            // rows in that order. Integers, never text, so FIELD() takes them.
+            $slice = array_slice($ids, $offset, $perPage);
+            if ($slice === []) {
+                return ['rows' => [], 'total' => count($ids)];
+            }
+            $list = implode(',', $slice);
+            $stmt = $pdo->query("$select WHERE p.id IN ($list) ORDER BY FIELD(p.id, $list)");
+
+            return ['rows' => $stmt->fetchAll(PDO::FETCH_ASSOC), 'total' => count($ids)];
+        }
+        if ($ids !== null) {
+            $where .= ' AND p.id IN (' . ($ids === [] ? '0' : implode(',', $ids)) . ')';
+        }
 
         // THE SAME WHERE, so the count cannot report a different set than the
         // page it sits under.
@@ -223,10 +274,19 @@ class Post
         // breaks every tie so two entries with one date keep their places from
         // one page to the next; without it MySQL may return a tie in either
         // order, and a row can appear on page 1 and again on page 2.
-        $dir   = (($q['order'] ?? '') === 'asc') ? 'ASC' : 'DESC';
-        $order = match ($q['orderby'] ?? '') {
+        $dir     = (($q['order'] ?? '') === 'asc') ? 'ASC' : 'DESC';
+        $orderby = (string) ($q['orderby'] ?? '');
+        $join    = '';
+        if (str_starts_with($orderby, 'field:')) {
+            $join                = ' LEFT JOIN post_meta sm ON sm.post_id = p.id AND sm.meta_key = :sort_key';
+            $params[':sort_key'] = substr($orderby, 6);
+            $value               = !empty($q['sort_numeric']) ? 'CAST(sm.meta_value AS DECIMAL(20,6))' : 'sm.meta_value';
+            $orderby             = 'field';
+        }
+        $order = match ($orderby) {
             'title' => "p.title $dir, p.id $dir",
             'date'  => "$date $dir, p.id $dir",
+            'field' => "(sm.meta_value IS NULL OR sm.meta_value = '') ASC, $value $dir, p.id $dir",
             // Unsorted: the order the public archive uses. A roster the owner
             // arranged by hand reads the same here as on the site.
             default => !empty($q['hand_ordered'])
@@ -234,19 +294,8 @@ class Post
                 : "$date DESC, p.id DESC",
         };
 
-        // Integers produced here, never bound — MySQL will not take a
-        // placeholder for LIMIT under every driver setting.
-        $perPage = max(1, (int) ($q['per_page'] ?? 20));
-        $offset  = (max(1, (int) ($q['page'] ?? 1)) - 1) * $perPage;
-
-        // THE COLUMNS THE ROW DRAWS, not `p.*`: that carries every body on the
-        // page along with it, and the list prints none of them.
         $stmt = $pdo->prepare(
-            "SELECT p.id, p.post_type, p.title, p.slug, p.lang, p.status, p.published_at, p.unpublish_at,
-                    p.updated_at, p.created_at, p.author_id, p.parent_id, p.menu_order,
-                    $date AS list_date, " . User::nameSql('u') . " AS author_name
-               FROM posts p
-               JOIN users u ON u.id = p.author_id
+            "$select$join
               WHERE $where
            ORDER BY $order
               LIMIT " . $perPage . ' OFFSET ' . $offset
@@ -254,6 +303,35 @@ class Post
         $stmt->execute($params);
 
         return ['rows' => $stmt->fetchAll(PDO::FETCH_ASSOC), 'total' => $total];
+    }
+
+    /**
+     * AN EVENT TYPE'S UPCOMING AND PAST, under the list's filters: the ids of
+     * each, in the order its public list follows (`Content\Events::order()`):
+     * still to come, soonest first, and those with no date after them; over,
+     * newest first.
+     *
+     * @param array<string, mixed> $q see adminList()
+     * @return array{upcoming: list<int>, past: list<int>}
+     */
+    public static function eventGroups(array $q, ?\DateTimeImmutable $now = null): array
+    {
+        [$where, $params] = self::listWhere($q);
+        $stmt = Database::getInstance()->prepare(
+            "SELECT p.id, s.meta_value AS starts, e.meta_value AS ends
+               FROM posts p
+               LEFT JOIN post_meta s ON s.post_id = p.id AND s.meta_key = 'event_start_date'
+               LEFT JOIN post_meta e ON e.post_id = p.id AND e.meta_key = 'event_end_date'
+              WHERE $where
+           ORDER BY p.published_at DESC, p.id DESC"
+        );
+        $stmt->execute($params);
+        $groups = ['upcoming' => [], 'past' => []];
+        foreach (\Cms\Content\Events::order($stmt->fetchAll(PDO::FETCH_ASSOC), $now ?? new \DateTimeImmutable('now')) as $row) {
+            $groups[$row['past'] ? 'past' : 'upcoming'][] = (int) $row['id'];
+        }
+
+        return $groups;
     }
 
     /**
@@ -280,6 +358,11 @@ class Post
             $where[]           = 'p.author_id = :author';
             $params[':author'] = (int) $q['author'];
         }
+        // ONE PARENT'S ENTRIES, on a child type's list filtered by its parent.
+        if (($q['parent'] ?? null) !== null) {
+            $where[]           = 'p.parent_id = :parent';
+            $params[':parent'] = (int) $q['parent'];
+        }
 
         // THE CHIP'S RULE, NOT THE COLUMN'S. Scheduled is shown and not stored
         // (Status::forEntry()), so Published means published AND its date has
@@ -297,6 +380,8 @@ class Post
             'scheduled' => "p.status IN ('published', 'password') AND p.published_at > UTC_TIMESTAMP()",
             'ended'     => "p.status IN ('published', 'password') AND $come AND NOT $going",
             'private'   => "p.status = 'private'",
+            // Its chip says Sample whatever its dates (Status::forEntry()).
+            'sample'    => "p.status = 'sample'",
             default     => null,
         };
         if ($status !== null) {
@@ -496,9 +581,10 @@ class Post
 
     /**
      * Find a live post by slug for the public frontend.
-     * Returns posts with status published, password, or private. A slug is
-     * unique within its language: the one in `$lang`, or, when it is null, in
-     * the page being drawn's (`inLanguage()`).
+     * Returns posts with status published, password, private or sample, which
+     * the public controller treats as this copy treats it (`siteStatus()`). A
+     * slug is unique within its language: the one in `$lang`, or, when it is
+     * null, in the page being drawn's (`inLanguage()`).
      *
      * @return array<string, mixed>|null
      */
@@ -509,7 +595,7 @@ class Post
             "SELECT p.*, " . \Cms\Models\User::bylineSql('u') . " AS author_name
              FROM posts p
              JOIN users u ON u.id = p.author_id
-             WHERE p.slug = :slug AND p.status IN ('published', 'password', 'private')
+             WHERE p.slug = :slug AND p.status IN ('published', 'password', 'private', 'sample')
                AND " . self::inLanguage('p', $lang) . "
              LIMIT 1"
         );
@@ -752,8 +838,90 @@ class Post
     public static function live(string $alias = '', ?string $lang = null): string
     {
         $a = $alias !== '' ? $alias . '.' : '';
-        return "{$a}status = 'published' AND {$a}published_at <= UTC_TIMESTAMP() AND " . self::notEnded($alias)
+        return self::publishedSql($alias) . " AND {$a}published_at <= UTC_TIMESTAMP() AND " . self::notEnded($alias)
             . ' AND ' . self::inLanguage($alias, $lang);
+    }
+
+    /**
+     * The stored statuses this copy shows as Published, as SQL: `published`,
+     * and `sample` where samples are shown (`samplesShown()`). `$alias` is a
+     * literal the caller writes. Not the date or the language: `live()` adds
+     * those, for a list a visitor reads.
+     */
+    public static function publishedSql(string $alias = ''): string
+    {
+        $a = $alias !== '' ? $alias . '.' : '';
+        return self::samplesShown() ? "{$a}status IN ('published', 'sample')" : "{$a}status = 'published'";
+    }
+
+    /**
+     * WHETHER A SAMPLE ENTRY IS SHOWN, by this copy and this request: on a
+     * copy that is not production (`Site\Environment`), and not in a page
+     * drawn for a static copy (`Export\StaticCopy`), which is the published
+     * site's wherever it is made, as Google's tags take it (`Site\Google`).
+     */
+    public static function samplesShown(): bool
+    {
+        return !defined('CMS_EXPORT') && !\Cms\Site\Environment::isProduction();
+    }
+
+    /**
+     * An entry's status as this copy treats it: a sample entry's is
+     * `published` where samples are shown and `private` where they are not;
+     * any other status is itself. What a visitor may see is asked of this,
+     * never of the column (`onSite()`, the public controller, the shop).
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function siteStatus(array $row): string
+    {
+        $status = (string) ($row['status'] ?? '');
+        if ($status !== self::SAMPLE) {
+            return $status;
+        }
+        return self::samplesShown() ? 'published' : 'private';
+    }
+
+    /**
+     * ON THE SITE, for a visitor: published as this copy treats it
+     * (`siteStatus()`), its date come and its unpublish date not gone. The
+     * PHP twin of `live()`, without its language, for a row already in hand:
+     * a linked entry, a form's choice, a translation's other version.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function onSite(array $row): bool
+    {
+        return self::siteStatus($row) === 'published' && !self::isScheduled($row) && !self::hasEnded($row);
+    }
+
+    /**
+     * Every sample entry not in the Trash, of every type, for System health:
+     * newest first.
+     *
+     * @return list<array{id: int, post_type: string, title: string}>
+     */
+    public static function samples(): array
+    {
+        $rows = Database::getInstance()->query(
+            "SELECT id, post_type, title FROM posts WHERE status = 'sample' ORDER BY updated_at DESC, id DESC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(static fn (array $r): array => [
+            'id' => (int) $r['id'], 'post_type' => (string) $r['post_type'], 'title' => (string) $r['title'],
+        ], $rows);
+    }
+
+    /**
+     * Every sample entry to the Trash, in one statement, and how many went.
+     * Restored from it, each comes back Private (`restore()`), so a sample
+     * never returns to a site by being restored.
+     */
+    public static function trashSamples(): int
+    {
+        $stmt = Database::getInstance()->prepare("UPDATE posts SET status = 'trash' WHERE status = 'sample'");
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 
     /**
@@ -788,13 +956,13 @@ class Post
      * the state the admin shows as Ended. Derived like Scheduled: nothing runs
      * at that moment, and from it on the entry or page answers a visitor as a
      * private one does. Any row with `status` and `unpublish_at`, a page's
-     * too.
+     * too. A sample entry is asked as this copy treats it (`siteStatus()`).
      *
      * @param array<string, mixed> $row
      */
     public static function hasEnded(array $row): bool
     {
-        if (!in_array((string) ($row['status'] ?? ''), ['published', 'password'], true)) {
+        if (!in_array(self::siteStatus($row), ['published', 'password'], true)) {
             return false;
         }
         $at = trim((string) ($row['unpublish_at'] ?? ''));
@@ -805,13 +973,16 @@ class Post
      * Published or password-protected, with a date still to come — the state
      * the admin shows as Scheduled. Derived, not stored: the entry IS
      * published, it is just not time yet, and nothing has to run at the moment
-     * it becomes time (there is no cron on shared hosting to run it).
+     * it becomes time (there is no cron on shared hosting to run it). A
+     * sample entry is asked as this copy treats it (`siteStatus()`), so where
+     * samples are shown one with a date still to come waits for it, as
+     * `live()` has it wait; its chip says Sample all the same.
      *
      * @param array<string, mixed> $row
      */
     public static function isScheduled(array $row): bool
     {
-        if (!in_array((string) ($row['status'] ?? ''), ['published', 'password'], true)) {
+        if (!in_array(self::siteStatus($row), ['published', 'password'], true)) {
             return false;
         }
         $at = trim((string) ($row['published_at'] ?? ''));
@@ -822,6 +993,8 @@ class Post
      * A live entry always has a date. Given one, it is kept; given none, it
      * is "now" — the moment it went live — so a feed ordered by date never
      * meets a NULL, and "published" never quietly means "not on any list".
+     * A sample entry too, since where samples are shown it is listed as a
+     * published one is.
      */
     private static function liveDate(string $status, mixed $publishedAt): ?string
     {
@@ -829,7 +1002,7 @@ class Post
         if ($at !== '') {
             return $at;
         }
-        return in_array($status, ['published', 'password'], true) ? gmdate('Y-m-d H:i:s') : null;
+        return in_array($status, ['published', 'password', self::SAMPLE], true) ? gmdate('Y-m-d H:i:s') : null;
     }
 
     /**
@@ -890,7 +1063,7 @@ class Post
         if (array_key_exists('status', $data) || array_key_exists('published_at', $data)) {
             $pdo->prepare(
                 "UPDATE posts SET published_at = UTC_TIMESTAMP()
-                  WHERE id = :id AND status IN ('published', 'password') AND published_at IS NULL"
+                  WHERE id = :id AND status IN ('published', 'password', 'sample') AND published_at IS NULL"
             )->execute([':id' => $id]);
         }
     }
@@ -1139,6 +1312,80 @@ class Post
         $stmt->execute([':parent' => $parentId]);
 
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * The entries of one type that belong to `$parentId`, in their order
+     * there, as `childrenOf()` orders them: the rows of its panel on the
+     * parent's editor (`Ui\ChildRows`).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function childrenOfType(int $parentId, string $postType): array
+    {
+        $stmt = Database::getInstance()->prepare(
+            'SELECT * FROM posts
+              WHERE parent_id = :parent AND post_type = :type AND status != \'trash\'
+           ORDER BY menu_order ASC, title ASC'
+        );
+        $stmt->execute([':parent' => $parentId, ':type' => $postType]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Every entry of a type a hand-ordered list arranges at once, in its
+     * order: all of them but the trash's, as its list shows them with no
+     * filter.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function ofTypeInOrder(string $postType): array
+    {
+        $stmt = Database::getInstance()->prepare(
+            'SELECT * FROM posts WHERE post_type = :type AND status != \'trash\' ORDER BY menu_order ASC, created_at DESC'
+        );
+        $stmt->execute([':type' => $postType]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * The place a new entry of this type takes among the entries of one
+     * parent: after the last of them, since their order is kept within it.
+     */
+    public static function nextPositionUnder(string $postType, int $parentId): int
+    {
+        $stmt = Database::getInstance()->prepare(
+            "SELECT COALESCE(MAX(menu_order), 0) + 1 FROM posts
+              WHERE post_type = :type AND parent_id = :parent AND status != 'trash'"
+        );
+        $stmt->execute([':type' => $postType, ':parent' => $parentId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * THE ORDER, AS ARRANGED: each entry its place in `$ids`, from 1, written
+     * only where it moved, so an entry that kept its place keeps its "last
+     * updated". The caller has checked that `$ids` is the whole of what it
+     * orders and that each may be changed.
+     *
+     * @param list<int> $ids
+     * @return int how many moved
+     */
+    public static function setOrder(array $ids): int
+    {
+        $stmt  = Database::getInstance()->prepare(
+            'UPDATE posts SET menu_order = :n WHERE id = :id AND menu_order <> :m'
+        );
+        $moved = 0;
+        foreach (array_values($ids) as $i => $id) {
+            $stmt->execute([':n' => $i + 1, ':m' => $i + 1, ':id' => (int) $id]);
+            $moved += $stmt->rowCount();
+        }
+
+        return $moved;
     }
 
     /**

@@ -115,20 +115,20 @@ $end          = $slashOn ? '/' : '';
                     <div class="form-card__section">
                         <?= panel_title('Content types', 'content-types') ?>
                         <div class="kv-list">
-                            <?php foreach ($contentTypes as $type): ?>
+                            <?php foreach ($contentTypes as $typeKey => $type): ?>
                                 <?php
-                                $publicSlug = (string) ($type['public_slug'] ?? '');
+                                $publicSlug = (string) \Cms\ContentType\Registry::publicSlug((string) $typeKey);
                                 $label      = (string) ($type['label'] ?? $type['type_key'] ?? '');
                                 ?>
                                 <div class="kv-list__row">
                                     <span class="kv-list__key"><?= h($label) ?></span>
                                     <span class="kv-list__val">
                                         <?php if ($publicSlug === ''): ?>
-                                            <?php // A TYPE WITH NO PUBLIC SLUG HAS NO
-                                                  // PUBLIC URL — its entries are admin
-                                                  // -only. Printing a half-address for
+                                            <?php // A TYPE WHOSE ENTRIES HAVE NO PAGES
+                                                  // (`Registry::hasPages()`) has no public
+                                                  // address. Printing a half-address for
                                                   // it would invent a page that 404s. ?>
-                                            <span class="kv-list__val--muted">No public address</span>
+                                            <span class="kv-list__val--muted">No page of their own</span>
                                         <?php else: ?>
                                             <code><?= h($siteUrl . '/' . $publicSlug) ?>/<em>entry-slug</em><?= h($end) ?></code>
                                         <?php endif; ?>

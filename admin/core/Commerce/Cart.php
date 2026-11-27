@@ -142,8 +142,10 @@ final class Cart
             return false;
         }
 
+        // THE PRODUCT'S OWN ID, not the one posted: a translation sells its
+        // original's (`Content\Translation`), so its line is the original's.
         $cart = self::raw();
-        $key  = self::key($postId, $variationId);
+        $key  = self::key((int) $product['id'], $variationId);
         $have = (int) ($cart[$key] ?? 0);
 
         $want = self::clamp($have + $quantity);

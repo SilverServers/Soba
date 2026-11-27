@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cms\Security;
 
+use Cms\Http\Cache;
 use Cms\Models\Option;
 
 /**
@@ -170,7 +171,7 @@ final class AddressRules
     public static function turnAway(): never
     {
         http_response_code(403);
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         // The page uses h(). A site's tool is turned away before the front
         // controller loads the template functions (`Security\Door`), and the

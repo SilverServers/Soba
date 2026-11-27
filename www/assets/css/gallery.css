@@ -27,9 +27,10 @@
    no mirror to check and no second copy to forget.
 
    ── WHAT IT DEPENDS ON ──────────────────────────────────────────────────────
-   Tokens only, all of which both surfaces already define: --sp-3, --sp-5,
-   --r-none, --surface-2. Nothing here assumes the admin's chrome or the public
-   theme's typography, which is what lets one file serve both.
+   Tokens only, all of which both surfaces already define: --sp-2, --sp-3,
+   --sp-5, --r-none, --surface-2, --fw-semi. Nothing here assumes the admin's
+   chrome or the public theme's typography, which is what lets one file serve
+   both.
 
    ── THE TWO LAYOUTS ARE GENUINELY DIFFERENT ─────────────────────────────────
    Which is what makes the Layout control real rather than decorative: grid
@@ -94,6 +95,14 @@
   line-height: 1.4;
 }
 .cms-gallery__caption a { display: inline; text-decoration: underline; }
+
+/* AN ITEM'S TITLE (migration 127): its own line at the head of the caption,
+   such as the place a picture was taken, in the caption's type made heavier.
+   The weight falls back to 600 where a site's own theme has no tokens. */
+.cms-gallery__title {
+  display: block;
+  font-weight: var(--fw-semi, 600);
+}
 .cms-gallery__item a:hover img { opacity: 0.9; }
 
 /* Two columns is the widest a gallery reads at this width whatever the owner

@@ -8,6 +8,7 @@ use Cms\Auth\Auth;
 use Cms\Commerce\CustomerPrivacy;
 use Cms\Commerce\Customers;
 use Cms\Helpers\Url;
+use Cms\Http\Cache;
 
 /**
  * SHOP → CUSTOMERS: who has bought, how often, how much, and how to reach them
@@ -76,7 +77,7 @@ class CustomerController
         }
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename="customer-' . $key . '.json"');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo json_encode(CustomerPrivacy::export($email), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 

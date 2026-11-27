@@ -132,6 +132,21 @@ $navRow = function (array $it, int $depth = 0) use (&$navRow): void {
     <?php // The ONLY flexing child. ?>
     <div class="nav-top__spacer"></div>
 
+    <?php // ── FIND ANYTHING BY ITS NAME (`Ui\Find`) ─────────────────────────
+          // A tool, not a destination: what the account may open whose name
+          // holds what is typed, in this bar's own dropdown, each with its kind
+          // (`find.js`). A real form, so Enter before the list has come, or
+          // with no script, still opens the first thing found (/admin/find).
+          // Text only, as the bar is: the box says what it is for. It stays on
+          // a phone, taking the room the dropped tools leave (admin.css). ?>
+    <?php if ($user): ?>
+        <form class="nav-top__group nav-top__find" role="search" method="get" action="<?= h(Url::admin('find')) ?>" data-find>
+            <input class="input input--sm nav-top__find-input" type="search" name="q" placeholder="Find" aria-label="Find by name"
+                   autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="nav-find-results" data-find-input>
+            <div class="nav-top__group-menu nav-top__find-menu" id="nav-find-results" role="listbox" aria-label="Found" hidden data-find-menu></div>
+        </form>
+    <?php endif; ?>
+
     <?php // ── TOOLS: THINGS YOU DO, NOT PLACES YOU GO ─────────────────────
           // The sidebar answers "where am I / where can I go", so an action you
           // take from every screen has no honest row in it and belongs here.

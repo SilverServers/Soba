@@ -35,6 +35,35 @@ $description = trim((string) ($term['description'] ?? ''));
     <?php endif; ?>
 </div>
 
+<?php
+/* THE TERM'S OWN FIELDS (`ContentType\TermFields`, `Term::meta()`): a
+   location's address, phone and photo, each section a fact panel as an
+   entry's field groups are, its fields labelled, the empty ones left out and
+   a section with nothing filled in not drawn. `ContentType\FieldDisplay`
+   turns each stored value into what a visitor reads. */
+$termMeta = \Cms\Models\Term::meta((int) $term['id']);
+foreach (\Cms\ContentType\TermFields::sections((string) $taxonomy['key']) as $termSection):
+    $rows = [];
+    foreach ($termSection['fields'] as $field) {
+        $shown = \Cms\ContentType\FieldDisplay::html($field, $termMeta[(string) ($field['key'] ?? '')] ?? null);
+        if ($shown !== '') {
+            $rows[] = [(string) ($field['label'] ?? $field['key']), $shown];
+        }
+    }
+    if ($rows === []) {
+        continue;
+    }
+?>
+    <section class="entry-meta entry-fields" aria-label="<?= htmlspecialchars($termSection['label']) ?>">
+        <dl class="entry-fields__list">
+            <?php foreach ($rows as [$label, $shown]): ?>
+                <dt><?= htmlspecialchars($label) ?></dt>
+                <dd><?= $shown /* FieldDisplay escapes; rich text is sanitised there */ ?></dd>
+            <?php endforeach; ?>
+        </dl>
+    </section>
+<?php endforeach; ?>
+
 <?php if ($posts === []): ?>
 
     <?php // audit-ok: what an EMPTY list says. There is no entry to carry it.

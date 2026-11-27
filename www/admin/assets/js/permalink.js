@@ -46,14 +46,24 @@
     var linkEl  = root.querySelector('[data-permalink-link]');
     var input   = root.querySelector('[data-permalink-input]');
     var hidden  = root.querySelector('[data-permalink-value]');
+    /* `1` while the address is made from the title, '' once it is typed: the
+       save makes a made one unique, and refuses a typed one that is taken. */
+    var auto    = root.querySelector('[data-permalink-auto]');
     var title   = document.getElementById('entry-title');
 
     var editBtn   = root.querySelector('[data-permalink-edit]');
     var okBtn     = root.querySelector('[data-permalink-ok]');
     var cancelBtn = root.querySelector('[data-permalink-cancel]');
 
-    /* Once true, the title stops driving the slug — for good. */
-    var manual = !isNew;
+    /* Once true, the title stops driving the slug — for good. A failed save
+       that comes back with an address typed by hand keeps it so. */
+    var manual = !isNew || (auto !== null && auto.value === '');
+    /* The address is the author's now: the title stops driving it, and the
+       save takes it as typed. */
+    function typed() {
+        manual = true;
+        if (auto) { auto.value = ''; }
+    }
 
     /* THE SAME TRANSFORM THE SERVER APPLIES. Any divergence makes the preview a
        lie, because the hidden input posts exactly what is displayed. */
@@ -95,8 +105,9 @@
            URL ending in nothing until the save. So an empty commit reverts to
            whatever was there and lets Cancel mean Cancel. */
         if (slug !== '') {
+            /* An address committed as it was is still the title's. */
+            if (!hidden || slug !== hidden.value) { typed(); }
             apply(slug);
-            manual = true;
         } else if (hidden) {
             apply(hidden.value);
         }

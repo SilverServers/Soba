@@ -6,7 +6,7 @@ namespace Cms\ContentType;
 
 /**
  * ArchetypeDefaults — provides default field groups, supports, and icons
- * for each content archetype (Post, Event, Listing, Product).
+ * for each content archetype (Post, Event, Listing, Product, Announcement).
  *
  * When a Content Type is created via the admin UI and an archetype is selected,
  * the default fields are copied into a real DB field group. The user can then
@@ -14,6 +14,18 @@ namespace Cms\ContentType;
  */
 class ArchetypeDefaults
 {
+    /**
+     * EVERY ARCHETYPE, in the order the Content Types screen offers them: the
+     * one list its form draws and its controller accepts.
+     */
+    public const KEYS = ['post', 'event', 'listing', 'product', 'announcement'];
+
+    /**
+     * AN ARCHETYPE THAT STANDS ALONE: an announcement has no page and is in no
+     * list, so it is never also a post, an event, a listing or a product.
+     */
+    public const ALONE = ['announcement'];
+
     /**
      * Return the default fields for an archetype.
      * Returns an array of FieldRenderer-compatible field definitions.
@@ -192,6 +204,67 @@ class ArchetypeDefaults
                 ],
             ],
 
+            // AN ANNOUNCEMENT (`Site\Announcements`): how and where it shows.
+            // Its title and message are the entry's own, and so are the dates
+            // it runs between, its publish date and its unpublish date.
+            'announcement' => [
+                [
+                    'key'      => 'announcement_placement',
+                    'label'    => 'Shown as',
+                    'type'     => 'select',
+                    'required' => true,
+                    'width'    => 'half',
+                    'options'  => \Cms\Site\Announcements::PLACEMENTS,
+                ],
+                [
+                    'key'      => 'announcement_tone',
+                    'label'    => 'Tone',
+                    'type'     => 'select',
+                    'required' => true,
+                    'width'    => 'half',
+                    'options'  => \Cms\Site\Announcements::TONES,
+                ],
+                [
+                    'key'          => 'announcement_slot',
+                    'label'        => 'Slot',
+                    'type'         => 'text',
+                    'instructions' => 'The name the theme gives the place, such as sidebar.',
+                    'logic'        => ['action' => 'show', 'match' => 'all',
+                                       'rules' => [['field' => 'announcement_placement', 'op' => 'is', 'value' => 'slot']]],
+                ],
+                [
+                    'key'          => 'announcement_link',
+                    'label'        => 'Link',
+                    'type'         => 'text',
+                    'width'        => 'half',
+                    'instructions' => 'A page of this site, such as /menu, or a full address. Its button goes there.',
+                ],
+                [
+                    'key'          => 'announcement_button',
+                    'label'        => 'Its button says',
+                    'type'         => 'text',
+                    'width'        => 'half',
+                    'instructions' => 'Left blank, Read more (Settings → Words).',
+                    'logic'        => ['action' => 'show', 'match' => 'all',
+                                       'rules' => [['field' => 'announcement_link', 'op' => 'not_empty', 'value' => '']]],
+                ],
+                [
+                    'key'          => 'announcement_show_on',
+                    'label'        => 'Shows on',
+                    'type'         => 'textarea',
+                    'rows'         => 3,
+                    'instructions' => 'Left blank, every page. Or one address a line: / for the front page, /about for a page,'
+                        . ' and an address ending in * for every page under it, such as /events/* for every event.',
+                ],
+                [
+                    'key'          => 'announcement_never_on',
+                    'label'        => 'Never on',
+                    'type'         => 'textarea',
+                    'rows'         => 3,
+                    'instructions' => 'One address a line, written the same way. A page named here never shows it, even one Shows on names.',
+                ],
+            ],
+
             // Post archetype: no extra fields (uses supports: title, content, thumbnail, excerpt)
             default => [],
         };
@@ -209,6 +282,8 @@ class ArchetypeDefaults
             'event'   => ['title', 'content', 'thumbnail'],
             'listing' => ['title', 'thumbnail'],
             'product' => ['title', 'content', 'thumbnail'],
+            // Its heading and its message: drawn over the page, not on one.
+            'announcement' => ['title', 'content'],
             default   => ['title', 'content', 'thumbnail', 'excerpt'],
         };
     }
@@ -254,6 +329,8 @@ class ArchetypeDefaults
             'listing' => 'table-cells-large',
             // "something with a transaction".
             'product' => 'box-open',
+            // "a notice across the site".
+            'announcement' => 'bell',
         ];
     }
 
@@ -292,6 +369,7 @@ class ArchetypeDefaults
             'event'   => 'anchored to a time — start and end, location, a calendar view',
             'listing' => 'a record in a directory — people, places, clubs, shown as cards',
             'product' => 'something with a transaction — price, options, a buy action',
+            'announcement' => 'a notice on the site\'s pages — a banner, a pop-up or a slide-in, between its dates',
             default   => 'rich content in a feed — news, articles, anything dated',
         };
     }
@@ -310,6 +388,7 @@ class ArchetypeDefaults
             'event'   => 'Date and location',
             'listing' => 'Contact details',
             'product' => 'Price and plan',
+            'announcement' => 'Where and how it shows',
             default   => 'Article details',
         };
     }

@@ -296,6 +296,14 @@
             var opt = typeIn.options[typeIn.selectedIndex];
             typeOut.textContent = opt ? opt.text.trim() : '';
         }
+        // ITS GLYPH TOO, from the page's one set of them (`[data-type-glyphs]`):
+        // a row added as Text and made a File said File beside Text's pen.
+        var glyphOut = row.querySelector('[data-row-type-icon]');
+        var glyphs   = doc.querySelector('[data-type-glyphs]');
+        if (glyphOut && glyphs && typeIn) {
+            var glyph = glyphs.content.querySelector('[data-glyph="' + typeIn.value + '"]');
+            if (glyph && glyphOut.innerHTML !== glyph.innerHTML) { glyphOut.innerHTML = glyph.innerHTML; }
+        }
         if (reqOut && reqIn) { reqOut.hidden = !reqIn.checked; }
         if (logicOut) {
             var json = row.querySelector('[data-logic-json]');

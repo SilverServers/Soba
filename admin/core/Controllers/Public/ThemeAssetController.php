@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Public;
 
 use Cms\Helpers\Theme;
+use Cms\Http\Cache;
 
 /**
  * GET /assets/theme/{key}/{path} — what a theme's pages fetch: its stylesheet,
@@ -37,7 +38,7 @@ final class ThemeAssetController
 
         header('Content-Type: ' . Theme::ASSET_TYPES[$ext]);
         header('X-Content-Type-Options: nosniff');
-        header('Cache-Control: public, max-age=86400');
+        Cache::publicFor(86400);
         header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
         header('ETag: ' . $etag);
         // An SVG opened on its own is a document that can run script; one

@@ -67,6 +67,23 @@ $pageTitle = 'Field groups';
 // behind by a deleted type) and hiding it would make the group look attached to
 // nothing when it is attached to something gone.
 $resolve = static function (string $key): array {
+    // A SITE'S SETTINGS PAGE (`Site\SettingsPages`), named as its sidebar row names it.
+    $settingsKey = \Cms\Site\SettingsPages::fromLocation($key);
+    if ($settingsKey !== null) {
+        $settingsPage = \Cms\Site\SettingsPages::get($settingsKey);
+        return $settingsPage === null
+            ? ['label' => $settingsKey, 'icon' => null, 'admin' => null, 'gone' => true, 'what' => 'settings page']
+            : ['label' => (string) $settingsPage['label'], 'icon' => $settingsPage['icon'] !== '' ? (string) $settingsPage['icon'] : 'settings',
+               'admin' => null, 'gone' => false, 'what' => 'settings page'];
+    }
+    // A TAXONOMY'S TERMS (`ContentType\TermFields`), named as the taxonomy is.
+    $taxonomyKey = \Cms\ContentType\TermFields::fromLocation($key);
+    if ($taxonomyKey !== null) {
+        $taxonomy = \Cms\ContentType\TaxonomyRegistry::get($taxonomyKey);
+        return $taxonomy === null
+            ? ['label' => $taxonomyKey, 'icon' => null, 'admin' => null, 'gone' => true, 'what' => 'taxonomy']
+            : ['label' => (string) $taxonomy['label'], 'icon' => 'taxonomies', 'admin' => null, 'gone' => false, 'what' => 'taxonomy'];
+    }
     $ct = Registry::get($key);
     return $ct === null
         ? ['label' => $key, 'icon' => null, 'admin' => null, 'gone' => true]
@@ -167,7 +184,7 @@ $resolve = static function (string $key): array {
                                                   // is the worst kind. ?>
                                             <span class="alert-flag">
                                                 <?= icon('triangle-exclamation', 'icon', '', 11) ?><?= h($type['label']) ?>
-                                                — no such content type
+                                                — no such <?= h($type['what'] ?? 'content type') ?>
                                             </span>
                                         <?php else: ?>
                                             <?php if ($type['icon'] !== null): ?>

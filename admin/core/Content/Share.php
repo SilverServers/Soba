@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Content;
 
 use Cms\Database\Database;
+use Cms\Http\Cache;
 use PDO;
 
 /**
@@ -104,7 +105,7 @@ final class Share
         }
         if ($ok && !headers_sent()) {
             header('X-Robots-Tag: noindex, nofollow');
-            header('Cache-Control: private, no-store');
+            Cache::noStore(private: true);
         }
         return self::$granted[$key] = $ok;
     }

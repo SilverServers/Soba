@@ -7,11 +7,12 @@ namespace Cms\Ui;
 /**
  * The admin's themes, and which one a page wears.
  *
- * THE CMS SHIPS THREE: Tuxedo, the default, and Midnight and Pearl, its
- * full-dark and full-light versions (`tokens/signature-styles.css`). A site
- * adds its own as one stylesheet in `www/site/admin-themes/<key>.css`, the
- * site's folder, which no package ships and no update touches. Nothing
- * registers it: the file is the theme.
+ * THE CMS SHIPS FOUR (`SHIPPED`): Carton, the default, ink chrome over paper
+ * pages with cream panels; Tuxedo; and Midnight and Pearl, Tuxedo's full-dark
+ * and full-light versions (`tokens/signature-styles.css`). A site adds its own
+ * as one stylesheet in `www/site/admin-themes/<key>.css`, the site's folder,
+ * which no package ships and no update touches. Nothing registers it: the
+ * file is the theme.
  *
  * A SITE'S THEME is written the way Tuxedo's blocks are: a
  * `:root[data-theme="<key>"]` block with the full set of tokens, and, for
@@ -23,7 +24,7 @@ namespace Cms\Ui;
  * nothing to keep in step with them. `php admin/bin/admin-theme.php check
  * <file>` checks a new one.
  *
- * WHICH A SITE OFFERS (`offered()`): every one, Tuxedo first, unless
+ * WHICH A SITE OFFERS (`offered()`): every one, Carton first, unless
  * config.php names them — `'admin_themes' => ['clientname', 'tuxedo']` —
  * when it is those, in that order. The first offered is the default.
  *
@@ -34,9 +35,13 @@ namespace Cms\Ui;
  *
  * `data-theme` and `data-radius` are two independent attributes on `<html>`,
  * and BOTH MUST BE SERVER-RENDERED: if JavaScript stamps them after load,
- * every navigation paints the default for a frame and then swaps. The radius
- * is `classic`, square, unless a user's row says otherwise; no screen offers
- * it.
+ * every navigation paints the default for a frame and then swaps.
+ *
+ * CORNERS (`CORNERS`): an account's own too, set beside its admin theme
+ * (`users.radius_pref`, migration 037, NULL for the default). Square is
+ * `classic`, the default; Rounded is `modern`, which rounds the controls and
+ * the floaters (buttons, fields, menus, dialogs) while every panel, card and
+ * table stays square. The pages at the sign-in address are square.
  *
  * DESIGN-LINT: RAW-HEX-OK — this class IS the theme colour vocabulary. The
  * shipped themes' first-paint colours are declared here and mirrored by the
@@ -54,8 +59,17 @@ final class Theme
     /** The radius axis. Both values are legal on every theme. */
     public const RADII = ['modern', 'classic'];
 
+    /** The corners an account may choose, by their names on its page: Square, the default, first. */
+    public const CORNERS = ['classic' => 'Square', 'modern' => 'Rounded'];
+
     /** Where a site keeps its own admin themes, under its web root. */
     public const SITE_DIR = 'site/admin-themes';
+
+    /**
+     * The themes the CMS ships, by key, the default first: a site's own may
+     * not take one of these keys (`site()`, `admin/bin/admin-theme.php`).
+     */
+    public const SHIPPED = ['carton', 'tuxedo', 'midnight', 'pearl'];
 
     /** A site theme's key: its file name, plain enough for an attribute and a path. */
     private const KEY = '/^[a-z0-9][a-z0-9-]{0,40}$/';
@@ -67,7 +81,8 @@ final class Theme
     private static ?array $named = null;
 
     /**
-     * Every theme a page may wear: the three the CMS ships, then the site's own.
+     * Every theme a page may wear: the four the CMS ships, the default first,
+     * then the site's own.
      *
      * `bg` is the theme's `--bg`; `chrome` the top bar's and the sidebar's
      * backgrounds. All three are painted by the first-paint skeleton in
@@ -80,6 +95,8 @@ final class Theme
     public static function all(): array
     {
         return array_merge([
+            ['key' => 'carton',   'label' => 'Carton',   'kind' => 'light',
+             'bg' => '#f6f1e8', 'chrome' => ['nav' => '#1d1b16', 'rail' => '#1d1b16'], 'href' => null],
             ['key' => 'tuxedo',   'label' => 'Tuxedo',   'kind' => 'light',
              'bg' => '#edf1f5', 'chrome' => ['nav' => '#0d1218', 'rail' => '#06090c'], 'href' => null],
             ['key' => 'midnight', 'label' => 'Midnight', 'kind' => 'dark',
@@ -152,7 +169,12 @@ final class Theme
         return self::offers($stored) ? $stored : self::defaultKey();
     }
 
-    /** @param array<string, mixed>|null $user */
+    /**
+     * Which corners a signed-in user's pages wear: their own choice, else
+     * Square.
+     *
+     * @param array<string, mixed>|null $user
+     */
     public static function resolveRadius(?array $user): string
     {
         $stored = (string) ($user['radius_pref'] ?? '');
@@ -228,7 +250,7 @@ final class Theme
         $files  = defined('PUBLIC_PATH') ? (glob(PUBLIC_PATH . '/' . self::SITE_DIR . '/*.css') ?: []) : [];
         foreach ($files as $file) {
             $key = basename($file, '.css');
-            if (preg_match(self::KEY, $key) !== 1 || in_array($key, ['tuxedo', 'midnight', 'pearl'], true)
+            if (preg_match(self::KEY, $key) !== 1 || in_array($key, self::SHIPPED, true)
                 || !is_file($file) || filesize($file) > 512 * 1024) {
                 continue;
             }

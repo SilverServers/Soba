@@ -74,15 +74,15 @@ class Sitemap
             ];
         }
 
-        // Per Content Type sitemaps — skip CTs with no public URL (admin-only
-        // types like gallery_entry / media_item) so we don't emit
-        // sitemap-.xml entries or leak their existence.
+        // Per Content Type sitemaps — skip a type whose entries have no pages
+        // (`Registry::hasPages()`), so no sitemap-.xml is emitted and no
+        // entry with no address is listed.
         foreach (Registry::all() as $key => $ct) {
-            $publicSlug = $ct['public_slug'] ?? null;
-            if ($publicSlug === null || $publicSlug === '') {
+            if (!Registry::hasPages((string) $key)) {
                 continue;
             }
-            $lastmod = self::lastModifiedPosts($key);
+            $publicSlug = (string) Registry::publicSlug((string) $key);
+            $lastmod    = self::lastModifiedPosts($key);
             if ($lastmod !== null) {
                 $sitemaps[] = [
                     'loc'     => $siteUrl . '/sitemap-' . $publicSlug . '.xml',
@@ -182,7 +182,7 @@ class Sitemap
     public static function contentType(string $contentTypeKey): string
     {
         $ct = Registry::get($contentTypeKey);
-        if ($ct === null || trim((string) ($ct['public_slug'] ?? '')) === '') {
+        if ($ct === null || !Registry::hasPages($contentTypeKey)) {
             return self::emptyUrlSet();
         }
 
@@ -199,7 +199,7 @@ class Sitemap
         }
 
         $siteUrl    = defined('BASE_URL') ? BASE_URL : '';
-        $publicSlug = $ct['public_slug'];
+        $publicSlug = (string) Registry::publicSlug($contentTypeKey);
         $versions   = self::versions($rows, static fn (array $row): string => \Cms\Helpers\Url::entry($row, (string) $publicSlug));
 
         return self::buildUrlSet($rows, function (array $row) use ($siteUrl, $publicSlug, $versions) {
@@ -284,15 +284,17 @@ class Sitemap
      */
     private static function termRows(string $taxonomyKey, bool $hierarchical, string $lang = ''): array
     {
+        // Only entries with pages of their own: a term's archive lists no other (`Registry::withPagesSql()`).
+        [$paged, $pagedTypes] = Registry::withPagesSql('p');
         $stmt = Database::getInstance()->prepare(
             "SELECT ptr.term_id, MAX(p.updated_at) AS lastmod
                FROM post_term_relationships ptr
                JOIN terms t ON t.id = ptr.term_id
                JOIN posts p ON p.id = ptr.post_id
-              WHERE t.taxonomy_key = ? AND " . \Cms\Models\Post::live('p', $lang) . "
+              WHERE t.taxonomy_key = ? AND " . \Cms\Models\Post::live('p', $lang) . $paged . "
            GROUP BY ptr.term_id"
         );
-        $stmt->execute([$taxonomyKey]);
+        $stmt->execute(array_merge([$taxonomyKey], $pagedTypes));
         $direct = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $direct[(int) $row['term_id']] = (string) $row['lastmod'];

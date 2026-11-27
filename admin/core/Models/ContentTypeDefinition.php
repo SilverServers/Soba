@@ -129,7 +129,7 @@ class ContentTypeDefinition
                 $data['plural_label'],
                 $data['singular_label'],
                 $data['admin_slug'],
-                $data['public_slug'],
+                self::publicSlugOrNull($data['public_slug'] ?? null),
                 // NULL, NOT '' — migration 047 declares it nullable because
                 // "belongs to nothing" is the normal case, and an empty string
                 // is a key that matches no type while reading as though one was
@@ -152,7 +152,7 @@ class ContentTypeDefinition
                 $data['plural_label'],
                 $data['singular_label'],
                 $data['admin_slug'],
-                $data['public_slug'],
+                self::publicSlugOrNull($data['public_slug'] ?? null),
                 $data['menu_icon'] ?? 'file',
                 json_encode($data['supports'] ?? []),
                 $data['is_active'] ?? 1,
@@ -186,7 +186,7 @@ class ContentTypeDefinition
                 $data['plural_label'],
                 $data['singular_label'],
                 $data['admin_slug'],
-                $data['public_slug'],
+                self::publicSlugOrNull($data['public_slug'] ?? null),
                 self::parentTypeOrNull($data['parent_type'] ?? null),
                 $data['menu_icon'] ?? 'file',
                 json_encode($data['supports'] ?? []),
@@ -207,7 +207,7 @@ class ContentTypeDefinition
                 $data['plural_label'],
                 $data['singular_label'],
                 $data['admin_slug'],
-                $data['public_slug'],
+                self::publicSlugOrNull($data['public_slug'] ?? null),
                 $data['menu_icon'] ?? 'file',
                 json_encode($data['supports'] ?? []),
                 $data['is_active'] ?? 1,
@@ -235,6 +235,140 @@ class ContentTypeDefinition
     }
 
     /**
+     * What its entry list shows beside each title, and its order when nobody
+     * has chosen (migration 130, `ContentType\ListColumns`). One caller, the
+     * Content Type form. NULL keeps the type's own default.
+     *
+     * @param list<string>|null                          $columns
+     * @param array{field: string, order: string}|null   $sort
+     */
+    public static function setListView(int $id, ?array $columns, ?array $sort): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET list_columns = :c, list_sort = :s WHERE id = :id')
+            ->execute([
+                ':c'  => $columns === null ? null : json_encode(array_values($columns), JSON_UNESCAPED_UNICODE),
+                ':s'  => $sort === null ? null : json_encode($sort, JSON_UNESCAPED_UNICODE),
+                ':id' => $id,
+            ]);
+    }
+
+    /**
+     * The Status a new entry of the type starts at (migration 131): 'published'
+     * or Private, stored as NULL. One caller, the Content Type form.
+     */
+    public static function setDefaultStatus(int $id, string $status): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET default_status = :s WHERE id = :id')
+            ->execute([':s' => $status === 'published' ? 'published' : null, ':id' => $id]);
+    }
+
+    /**
+     * The type's own word for its entries' title (migration 150), such as
+     * Name; blank is stored as NULL, the word every type had before. One
+     * caller, the Content Type form.
+     */
+    public static function setTitleLabel(int $id, string $label): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET title_label = :t WHERE id = :id')
+            ->execute([':t' => trim($label) === '' ? null : trim($label), ':id' => $id]);
+    }
+
+    /**
+     * How its editor names each entry it may belong to (migration 148), or
+     * NULL for the parent's title. One caller, the Content Type form.
+     */
+    public static function setParentLabel(int $id, string $pattern): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET parent_label = :p WHERE id = :id')
+            ->execute([':p' => trim($pattern) === '' ? null : trim($pattern), ':id' => $id]);
+    }
+
+    /**
+     * What Copy makes of its entries (migration 147, `ContentType\CopyRules`),
+     * or NULL for the CMS's own. One caller, the Content Type form.
+     *
+     * @param array{suffix: string, status: string, skip: list<string>}|null $rules
+     */
+    public static function setCopyRules(int $id, ?array $rules): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET copy_rules = :c WHERE id = :id')
+            ->execute([':c' => $rules === null ? null : json_encode($rules, JSON_UNESCAPED_UNICODE), ':id' => $id]);
+    }
+
+    /**
+     * Where its fields go on its editor (migration 149): 'high', or NULL for
+     * after the text. One caller, the Content Type form.
+     */
+    public static function setFieldsPosition(int $id, string $at): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET fields_position = :p WHERE id = :id')
+            ->execute([':p' => $at === 'high' ? 'high' : null, ':id' => $id]);
+    }
+
+    /**
+     * The patterns its titles and addresses are made from (migration 146,
+     * `ContentType\Patterns`), each NULL for none. One caller, the Content
+     * Type form.
+     */
+    public static function setPatterns(int $id, string $title, string $slug): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET title_pattern = :t, slug_pattern = :s WHERE id = :id')
+            ->execute([':t' => trim($title) === '' ? null : trim($title), ':s' => trim($slug) === '' ? null : trim($slug), ':id' => $id]);
+    }
+
+    /**
+     * The child types its editor shows, each with its columns (migration 145,
+     * `ContentType\Children`), or none, stored as NULL. One caller, the
+     * Content Type form.
+     *
+     * @param array<string, array{columns: list<string>}> $children
+     */
+    public static function setChildren(int $id, array $children): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET children = :c WHERE id = :id')
+            ->execute([':c' => $children === [] ? null : json_encode($children, JSON_UNESCAPED_UNICODE), ':id' => $id]);
+    }
+
+    /**
+     * What staff see on the type's screens (migration 140, `ContentType\StaffView`):
+     * each panel's and each list part's least role, or false for no one, and
+     * what the list is grouped by. A part left as it was is not stored, and a
+     * type with nothing changed stores NULL. One caller, the Content Type form.
+     *
+     * @param array<string, string|false> $panels
+     * @param array<string, string|false> $list
+     */
+    public static function setStaffView(int $id, array $panels, array $list): void
+    {
+        $json = static fn (array $a): ?string => $a === [] ? null : json_encode($a, JSON_THROW_ON_ERROR);
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET panels = :p, list_view = :l WHERE id = :id')
+            ->execute([':p' => $json($panels), ':l' => $json($list), ':id' => $id]);
+    }
+
+    /**
+     * How many terms of each taxonomy the type's entries take (migration 151),
+     * by taxonomy, each `['min' => 0|1, 'max' => N|null]`; none is stored as
+     * NULL, every taxonomy's own rule. One caller, the Content Type form.
+     *
+     * @param array<string, array{min: int, max: int|null}> $rules
+     */
+    public static function setTermRules(int $id, array $rules): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE content_types SET term_rules = :r WHERE id = :id')
+            ->execute([':r' => $rules === [] ? null : json_encode($rules, JSON_UNESCAPED_UNICODE), ':id' => $id]);
+    }
+
+    /**
      * A parent key worth storing, or null.
      *
      * The legacy no-archetypes branches of `create()` and `update()` do not
@@ -246,6 +380,18 @@ class ContentTypeDefinition
         $key = is_string($value) ? trim($value) : '';
 
         return $key === '' ? null : $key;
+    }
+
+    /**
+     * The Public URL worth storing, or null: blank means the type's entries
+     * have no page of their own (`Registry::hasPages()`, migration 129), and
+     * the column is UNIQUE, which holds any number of NULLs and one ''.
+     */
+    private static function publicSlugOrNull(mixed $value): ?string
+    {
+        $slug = is_string($value) ? trim($value) : '';
+
+        return $slug === '' ? null : $slug;
     }
 
     /**

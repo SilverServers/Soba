@@ -10,6 +10,7 @@ use Cms\Forms\FieldTypes;
 use Cms\Forms\Guard;
 use Cms\Forms\Notify;
 use Cms\Forms\Upload;
+use Cms\Http\Cache;
 use Cms\Mail\Mailer;
 use Cms\Security\ClientIp;
 
@@ -71,7 +72,7 @@ final class Handler
         self::$forms  = is_array($forms) ? $forms : [];
         Store::open($dir . '/data');
 
-        header('Cache-Control: no-store');
+        Cache::noStore();
         header('X-Content-Type-Options: nosniff');
 
         $id   = is_string($_GET['form'] ?? null) && ctype_digit($_GET['form']) ? (int) $_GET['form'] : 0;

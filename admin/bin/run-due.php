@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 /**
- * THE SITE'S DUE WORK, FROM A REAL CRON: the shop's unpaid orders, and the
- * backups (Tools → Backups).
+ * THE SITE'S DUE WORK, FROM A REAL CRON: the shop's unpaid orders, the
+ * backups (Tools → Backups), and the site's own scheduled tasks
+ * (`admin/config/tasks.php`, `Site\Tasks`).
  *
  *   php admin/bin/run-due.php
+ *   php admin/bin/run-due.php --task=<key>   that task alone, now, whatever its time
  *
  * A page request runs it at most every ten minutes (`Commerce\Lapse`,
  * `Site\Backups`), which is all shared hosting allows. Where the host has cron, this runs it on a
@@ -35,6 +37,23 @@ defined('ADMIN_URL') || define('ADMIN_URL', BASE_URL . '/' . ADMIN_URL_SLUG);
 \Cms\Database\Database::init($settings);
 \Cms\Database\Database::runMigrations(ROOT_PATH . '/core/Database/migrations', ROOT_PATH . '/site/migrations');
 
+// ONE TASK, NOW: a site's developer trying a task, or a person running one
+// by hand. Nothing else is done.
+foreach (array_slice($argv, 1) as $arg) {
+    if (str_starts_with($arg, '--task=')) {
+        $key = substr($arg, 7);
+        if (!isset(\Cms\Site\Tasks::all()[$key])) {
+            fwrite(STDERR, 'There is no task "' . $key . "\" in admin/config/tasks.php.\n");
+            exit(1);
+        }
+        $run = \Cms\Site\Tasks::runNow($key);
+        echo $run === null ? "Another run holds the tasks' lock, so nothing was run.\n" : 'Ran ' . $key . ': ' . \Cms\Site\Tasks::sentence($run) . "\n";
+        exit($run !== null && $run['outcome'] === 'done' ? 0 : 1);
+    }
+    fwrite(STDERR, "Usage: php admin/bin/run-due.php [--task=<key>]\n");
+    exit(2);
+}
+
 $days = \Cms\Commerce\Lapse::days();
 if ($days <= 0) {
     echo "Unpaid orders are kept until somebody cancels them (Settings → Shop).\n";
@@ -56,3 +75,23 @@ if (\Cms\Site\Backups::every() === 'never') {
     $newest = \Cms\Site\Backups::all()[0] ?? null;
     echo $newest === null ? "No backup yet.\n" : 'The newest backup is ' . $newest['id'] . ".\n";
 }
+
+// THE SITE'S OWN TASKS, each due one run in turn (`Site\Tasks`).
+if (\Cms\Site\Tasks::all() === []) {
+    echo "The site declares no scheduled tasks (admin/config/tasks.php).\n";
+} else {
+    $runs = \Cms\Site\Tasks::runDue('cron');
+    if ($runs === null) {
+        echo "Another run holds the tasks' lock, so no task was run.\n";
+    } elseif ($runs === []) {
+        echo "No scheduled task was due.\n";
+    }
+    foreach ($runs ?? [] as $run) {
+        echo 'Ran ' . $run['task'] . ': ' . \Cms\Site\Tasks::sentence($run) . "\n";
+    }
+}
+
+// THAT A CRON RAN THIS, for System health (`Site\GoingLive`), and the
+// address the site runs at (`Site\OldAddresses`).
+\Cms\Models\Option::set(\Cms\Site\GoingLive::CRON_KEY, (string) time());
+\Cms\Site\OldAddresses::note();

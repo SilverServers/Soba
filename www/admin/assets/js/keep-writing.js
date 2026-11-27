@@ -170,6 +170,9 @@
         if (!e.isTrusted) { return; }
         var el = e.target;
         if (!(el.form === form || form.contains(el))) { return; }
+        // A PART THAT SAVES ITSELF, such as a child's rows on its parent's
+        // editor (child-rows.js), is not writing Save has to keep.
+        if (el.closest && el.closest('[data-saves-itself]')) { return; }
         dirty = true;
         typed = true;
         if (!timer) { timer = window.setTimeout(keep, 600); }

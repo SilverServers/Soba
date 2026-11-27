@@ -573,10 +573,10 @@ final class Import
 
     /**
      * HOW A ROW WAS THERE, AS IT CAN BE HERE: published, behind a password with
-     * the password's hash the file carries, or Private. A row behind a
-     * password whose file carries no usable hash (a file made before exports
-     * carried one) is Private: kept behind a password nobody knows, it could
-     * never be opened.
+     * the password's hash the file carries, a sample (`Post::SAMPLE`), or
+     * Private. A row behind a password whose file carries no usable hash (a
+     * file made before exports carried one) is Private: kept behind a password
+     * nobody knows, it could never be opened.
      *
      * @param  array<string, mixed> $row
      * @return array{0: string, 1: ?string} the status, and the hash for 'password'
@@ -589,6 +589,7 @@ final class Import
         return match ((string) ($row['status'] ?? '')) {
             'published' => ['published', null],
             'password'  => $hash !== null ? ['password', $hash] : ['private', null],
+            'sample'    => ['sample', null],
             default     => ['private', null],
         };
     }
@@ -609,6 +610,7 @@ final class Import
             $status === 'published' && $at !== null && $at > gmdate('Y-m-d H:i:s') => 'scheduled there for ' . \Cms\Helpers\Dates::short($at),
             $status === 'published' => 'published there' . ($at !== null ? ', ' . \Cms\Helpers\Dates::short($at) : ''),
             $status === 'password'  => self::statusOf($row)[0] === 'password' ? 'behind a password there' : 'behind a password there that the file does not carry',
+            $status === 'sample'    => 'a sample there',
             $status !== ''          => 'private there',
             default                 => '',
         }];

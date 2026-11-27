@@ -269,12 +269,16 @@ final class Accounts
             ->execute([':id' => $id]);
     }
 
-    /** At a sign-in. */
+    /**
+     * At a sign-in: the account is seen, and the address the site was signed
+     * in at is noted, should the site have moved (`Site\OldAddresses`).
+     */
     public static function signedIn(int $id): void
     {
         Database::getInstance()
             ->prepare('UPDATE users SET last_seen_at = UTC_TIMESTAMP() WHERE id = :id')
             ->execute([':id' => $id]);
+        \Cms\Site\OldAddresses::note();
     }
 
     /**

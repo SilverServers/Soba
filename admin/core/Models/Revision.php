@@ -79,7 +79,7 @@ class Revision
             ':title'             => (string) ($row['title'] ?? ''),
             ':slug'              => (string) ($row['slug'] ?? ''),
             ':content'           => $row['content'] ?? null,
-            // Migration 053. Pages have no excerpt, so theirs snapshots as NULL.
+            // Migration 053; a page's, migration 135.
             ':excerpt'           => $row['excerpt'] ?? null,
             ':status'            => (string) ($row['status'] ?? 'private'),
             ':featured_image_id' => $row['featured_image_id'] ?? null,
@@ -226,6 +226,7 @@ class Revision
                 'title'             => $revision['title'],
                 'slug'              => $revision['slug'],
                 'content'           => $revision['content'] ?? '',
+                'excerpt'           => $revision['excerpt'] ?? null,
                 'menu_order'        => $revision['menu_order'],
                 'status'            => $revision['status'],
                 'unpublish_at'      => $revision['unpublish_at'] ?? null,

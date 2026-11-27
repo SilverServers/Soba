@@ -32,7 +32,7 @@ final class Calendar
     {
         $out = [];
         foreach (Registry::all() as $key => $type) {
-            if ((string) ($type['public_slug'] ?? '') !== '' && in_array('event', (array) ($type['archetypes'] ?? []), true)) {
+            if (Registry::hasPages((string) $key) && in_array('event', (array) ($type['archetypes'] ?? []), true)) {
                 $out[] = (string) $key;
             }
         }
@@ -202,6 +202,6 @@ final class Calendar
 
     private static function slugOf(string $typeKey): string
     {
-        return (string) (Registry::get($typeKey)['public_slug'] ?? '');
+        return (string) Registry::publicSlug($typeKey);
     }
 }

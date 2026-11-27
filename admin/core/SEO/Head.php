@@ -169,6 +169,10 @@ class Head
             $html .= '<script type="application/ld+json">' . $schemaJson . '</script>' . "\n";
         }
 
+        // 8. EDITING FROM THE PUBLIC SITE (`Site\EditBar`): for a signed-in
+        // account alone, the bar's stylesheet, script and links.
+        $html .= \Cms\Site\EditBar::head();
+
         return $html;
     }
 
@@ -190,8 +194,10 @@ class Head
         foreach ($tokens as $key => $value) {
             $result = str_replace('{' . $key . '}', $value, $result);
         }
-        // Clean up empty tokens and double separators
-        $result = preg_replace('/\{[a-z_]+\}/', '', $result) ?? $result;
+        // Clean up empty tokens and double separators. A variable's name is a
+        // letter, then letters, digits and underscores ({phone_line_2}), so a
+        // "{2024}" typed into a title is left as it is.
+        $result = preg_replace('/\{[a-z][a-z0-9_]*\}/', '', $result) ?? $result;
         // AN EMPTY TOKEN IN THE MIDDLE leaves two separators with nothing
         // between them — "Articles |  | Site" on page 1 of a pattern that says
         // "{content_type_label} {sep} {page_num} {sep} {site_name}". One of the
@@ -262,13 +268,16 @@ class Head
             'description' => $description,
             'robots'      => (string) ($meta['_seo_robots'] ?? 'index, follow'),
             'image'       => $image,
-            // `Url::entry()`: the one builder of an entry's address, in its language.
-            'canonical'   => \Cms\Helpers\Url::entry($post, (string) ($type['public_slug'] ?? $key)),
+            // `Url::entry()`: the one builder of an entry's address, in its
+            // language; none for an entry whose type has no pages.
+            'canonical'   => \Cms\ContentType\Registry::hasPages($key)
+                ? \Cms\Helpers\Url::entry($post, (string) \Cms\ContentType\Registry::publicSlug($key)) : '',
         ];
     }
 
     /**
-     * Get global SEO tokens from the options table.
+     * Get global SEO tokens from the options table: the site's own, and its
+     * Business details (`businessTokens()`).
      *
      * @return array<string, string>
      */
@@ -295,7 +304,41 @@ class Head
             'site_name' => $name,
             'tagline'   => \Cms\Site\Language::words('site_tagline', (string) ($opts['site_tagline'] ?? '')),
             'sep'       => self::separatorFrom((string) ($opts['seo_separator'] ?? '')),
+        ] + self::businessTokens();
+    }
+
+    /**
+     * BUSINESS DETAILS AS VARIABLES, so a number changed on Settings →
+     * Business details reaches every search title and description at once,
+     * as [phone] does in a page's text: {phone}, the main number, each number
+     * by its key ({phone_office}, a key's hyphens as underscores), {sms}, the
+     * number that takes texts, {email}, {hours} as written, and {town}. Plain
+     * text, as a title or a description is: a number, never a link.
+     *
+     * @return array<string, string>
+     */
+    public static function businessTokens(): array
+    {
+        $b      = \Cms\Site\Business::get();
+        $number = static fn (string $key): string => (string) ($b['phones'][$key]['number'] ?? '');
+        $out    = [
+            'phone' => $number((string) $b['phone']),
+            'sms'   => $number((string) $b['sms']),
+            'email' => (string) $b['email'],
+            'hours' => (string) $b['hours']['text'],
+            'town'  => (string) $b['place']['city'],
         ];
+        foreach ($b['phones'] as $key => $phone) {
+            $out[self::phoneToken((string) $key)] = (string) $phone['number'];
+        }
+
+        return $out;
+    }
+
+    /** The variable for one phone, by its key: "main-office" → "phone_main_office". */
+    public static function phoneToken(string $key): string
+    {
+        return 'phone_' . str_replace('-', '_', $key);
     }
 
     /**
@@ -350,9 +393,14 @@ class Head
      * `contexts` IS A PROMISE. A variable offered where nothing supplies it is
      * removed when the title is built, so the pill would do nothing — it would
      * be a control that lies. Per controller: every context gets
-     * `globalTokens()` (site_name, tagline, sep); Page and Post add title,
-     * Post and the type archive add content_type_label, Term adds term_name and
-     * taxonomy_label, and the three paged lists add page_num.
+     * `globalTokens()` (site_name, tagline, sep and the Business details);
+     * Page and Post add title, Post and the type archive add
+     * content_type_label, Term adds term_name and taxonomy_label, and the
+     * three paged lists add page_num.
+     *
+     * A BUSINESS DETAIL WITH NOTHING IN IT is offered nowhere, since its pill
+     * would print nothing; it keeps its label, so a pill already placed
+     * reads as one that does nothing here.
      *
      * @return array<string, array{label: string, contexts: list<string>}>
      */
@@ -360,7 +408,7 @@ class Head
     {
         $everywhere = array_keys(self::titlePatterns());
 
-        return [
+        $variables = [
             'title'              => ['label' => 'Title',        'contexts' => ['page', 'content_type']],
             'site_name'          => ['label' => 'Site title',   'contexts' => $everywhere],
             'tagline'            => ['label' => 'Tagline',      'contexts' => $everywhere],
@@ -370,6 +418,16 @@ class Head
             'content_type_label' => ['label' => 'Content type', 'contexts' => ['content_type', 'archive']],
             'page_num'           => ['label' => 'Page',         'contexts' => ['archive', 'term', 'home']],
         ];
+        $business = self::businessTokens();
+        $labels   = ['phone' => 'Phone', 'sms' => 'Texting number', 'email' => 'Email', 'hours' => 'Hours', 'town' => 'Town'];
+        foreach (\Cms\Site\Business::get()['phones'] as $key => $phone) {
+            $labels[self::phoneToken((string) $key)] = 'Phone: ' . $phone['label'];
+        }
+        foreach ($labels as $name => $label) {
+            $variables[$name] = ['label' => $label, 'contexts' => $business[$name] !== '' ? $everywhere : []];
+        }
+
+        return $variables;
     }
 
     /**

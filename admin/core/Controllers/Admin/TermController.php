@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
+use Cms\ContentType\FieldRenderer;
 use Cms\ContentType\TaxonomyRegistry;
+use Cms\ContentType\TermFields;
+use Cms\Forms\Logic;
 use Cms\Models\Term;
 
 /**
@@ -53,6 +56,8 @@ class TermController
         $pageTitle           = $taxonomy['label'];
         $currentPage         = 'taxonomies';
         $currentTaxonomySlug = $this->taxonomy['admin_slug'];
+        // Add only for whoever may add a term here (`StaffView::addsTerms()`).
+        $canAdd              = \Cms\ContentType\StaffView::addsTerms((string) $taxonomy['key']);
 
         // What the last bulk Delete or Merge did — once.
         $bulkReport = $_SESSION['term_bulk_report'] ?? null;
@@ -70,11 +75,26 @@ class TermController
 
     // ----------------------------------------------------------------
     // Create
+    /**
+     * WHO MAY ADD A TERM HERE is the taxonomy's (`ContentType\StaffView::
+     * addsTerms()`), asked by the entry's row and the API alike; anyone else is
+     * sent back to the terms, where editing the ones there are stays an
+     * editor's. Nothing is made.
+     */
+    private function requireAdds(): void
+    {
+        if (!\Cms\ContentType\StaffView::addsTerms((string) $this->taxonomy['key'])) {
+            header('Location: ' . ADMIN_URL . '/taxonomies/' . $this->taxonomy['admin_slug'] . '/terms', true, 303);
+            exit;
+        }
+    }
+
     // ----------------------------------------------------------------
 
     public function showCreate(array $vars = []): void
     {
         Auth::requireRole('editor');
+        $this->requireAdds();
 
         $taxonomy            = $this->taxonomy;
         $term                = null;
@@ -95,6 +115,7 @@ class TermController
     public function handleCreate(array $vars = []): void
     {
         Auth::requireRole('editor');
+        $this->requireAdds();
 
         [$errors, $data] = $this->validateAndSanitize($_POST);
 
@@ -115,7 +136,9 @@ class TermController
             return;
         }
 
-        Term::create($data);
+        $meta = $data['meta'];
+        unset($data['meta']);
+        Term::setMeta(Term::create($data), $meta);
 
         $adminSlug = $this->taxonomy['admin_slug'];
         header('Location: ' . ADMIN_URL . '/taxonomies/' . $adminSlug . '/terms');
@@ -206,7 +229,10 @@ class TermController
             return;
         }
 
+        $meta = $data['meta'];
+        unset($data['meta']);
         Term::update((int) $vars['id'], $data);
+        Term::setMeta((int) $vars['id'], $meta);
 
         // A PUBLIC TERM, RENAMED, LEAVES A 301 BEHIND IT — the same rule as an
         // entry (Redirects::moved()). Its archive's address is the one thing a
@@ -402,6 +428,24 @@ class TermController
             }
         }
 
+        // ITS OWN FIELDS (`TermFields`), checked as an entry's are, in two
+        // passes: every one sanitized, then those its logic shows validated,
+        // since a rule may name a field further down.
+        $fields = TermFields::fields((string) $taxonomyKey);
+        $meta   = [];
+        foreach ($fields as $field) {
+            $meta[(string) $field['key']] = FieldRenderer::sanitizeField($field, $post);
+        }
+        foreach ($fields as $field) {
+            if (!Logic::isVisible(Logic::parse($field['logic'] ?? null), $meta)) {
+                continue;
+            }
+            $error = FieldRenderer::validateField($field, $meta[(string) $field['key']]);
+            if ($error !== null) {
+                $errors['field_' . $field['key']] = $error;
+            }
+        }
+
         $data = [
             'taxonomy_key' => $taxonomyKey,
             // RAW, NOT ESCAPED — every reader escapes at output. Storing escaped
@@ -414,6 +458,7 @@ class TermController
             'description'  => $description,
             'parent_id'    => $parentId,
             'sort_order'   => $sortOrder,
+            'meta'         => $meta,
         ];
 
         return [$errors, $data];

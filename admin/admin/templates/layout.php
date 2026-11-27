@@ -121,5 +121,6 @@ require ROOT_PATH . '/admin/templates/partials/head.php';
 <script src="<?= h(Asset::admin('js/sidebar.js')) ?>"></script>
 <script src="<?= h(Asset::admin('js/nav.js')) ?>"></script>
 <script src="<?= h(Asset::admin('js/appearance.js')) ?>"></script>
+<script src="<?= h(Asset::admin('js/find.js')) ?>"></script>
 </body>
 </html>

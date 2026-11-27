@@ -1,9 +1,13 @@
 /**
- * type-form.js — the Content Type form's three behaviours.
+ * type-form.js — the Content Type form's four behaviours.
  *
  *   1. [data-icon-select]    swap the previewed glyph when the picker changes
  *   2. [data-type-plural]    suggest the key from the plural label, on CREATE only
  *   3. [data-archetype]      show an archetype's starter fields while it is ticked
+ *   4. [data-type-public]    fill the Public URL from the plural label, on CREATE
+ *                            only: a type has pages unless that box is cleared
+ *   5. [data-archetype-alone] a kind with no page (an announcement): while it is
+ *                            ticked, the Public URL box gives way to that fact
  *
  * ── WHY THE PREVIEW SWAPS REAL MARKUP ───────────────────────────────────────
  * The server renders every candidate glyph into a `<template data-icon-set>`,
@@ -92,6 +96,28 @@
         });
     }
 
+    /* ═══ 4. THE PUBLIC URL, FROM THE PLURAL NAME ════════════════════════ */
+    /* A BLANK PUBLIC URL MEANS NO PAGES, so a new type's box is filled as the
+       plural name is typed, by the rule the server uses for the admin URL
+       (lower case, a dash for each run of anything else). It stops the moment
+       the box itself is typed into: emptying it is how a type is made with no
+       page for its entries. */
+    var publicBox = doc.querySelector('[data-type-public]');
+
+    if (plural && publicBox) {
+        var publicTouched = publicBox.value !== '';
+
+        publicBox.addEventListener('input', function () { publicTouched = true; });
+
+        plural.addEventListener('input', function () {
+            if (publicTouched) { return; }
+            publicBox.value = plural.value
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+        });
+    }
+
     /* ═══ 3. AN ARCHETYPE'S STARTER FIELDS ════════════════════════════════ */
     /* The list under each archetype follows its box. Ticking Event opens the
        four fields it brings so you can decline any of them before saving;
@@ -112,8 +138,29 @@
             box.addEventListener('change', function () {
                 if (seed) { seed.hidden = !box.checked; }
                 if (box.checked) { bring(box); }
+                pages();
             });
         }(boxes[i]));
+    }
+
+    /* ═══ 5. A KIND WITH NO PAGE ══════════════════════════════════════════ */
+    /* An announcement shows on the pages it names and has none of its own, so
+       its type has no Public URL and no archive: the server stores no address
+       for it, and while it is ticked the box gives way to the sentence that
+       says so, and the Archive panel steps aside. */
+    function pages() {
+        var field   = doc.querySelector('[data-type-public-field]');
+        var fact    = doc.querySelector('[data-type-pageless]');
+        var archive = doc.querySelector('[data-type-archive]');
+        if (!field || !fact) { return; }
+        var alone = doc.querySelectorAll('[data-archetype-alone]');
+        var none  = false;
+        for (var k = 0; k < alone.length; k++) {
+            if (alone[k].checked) { none = true; }
+        }
+        field.hidden = none;
+        fact.hidden  = !none;
+        if (archive) { archive.hidden = none; }
     }
 
     /* AND WHAT IT BRINGS TO THE ENTRY FORM. A product has a photo, so ticking

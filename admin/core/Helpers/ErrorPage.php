@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cms\Helpers;
 
+use Cms\Http\Cache;
+
 /**
  * What a visitor gets when something throws, outside development (kept by
  * this name because a site's own tools call it).
@@ -37,7 +39,7 @@ final class ErrorPage
 
         if (!headers_sent()) {
             http_response_code(500);
-            header('Cache-Control: no-store');
+            Cache::noStore();
             header('Content-Type: ' . ($api ? 'application/json' : 'text/html; charset=utf-8'));
         }
 

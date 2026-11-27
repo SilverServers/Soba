@@ -128,15 +128,32 @@ class Shortcode
             return '<!-- Gallery #' . $galleryId . ' not found -->';
         }
 
-        $items    = Gallery::getItems($galleryId);
-        $settings = $gallery['settings'] ?? [];
-        $layout   = $settings['layout'] ?? 'grid';
-        $columns  = (int) ($settings['columns'] ?? 3);
-        $lightbox = !empty($settings['lightbox']);
-
+        $items = Gallery::getItems($galleryId);
         if (empty($items)) {
             return '<!-- Gallery #' . $galleryId . ' is empty -->';
         }
+
+        return self::galleryHtml($items, is_array($gallery['settings'] ?? null) ? $gallery['settings'] : [], 'gallery-' . $galleryId);
+    }
+
+    /**
+     * A GALLERY AS A VISITOR SEES IT, the one renderer: a gallery's items
+     * (`[gallery]`), and a gallery field's pictures (`FieldDisplay`).
+     *
+     * Each item is as `Gallery::getItems()` gives one: its attachment_id, its
+     * file's visibility, filename, site_path, original_name and alt_text, and
+     * its title, caption, link_url and thumb_attachment_id, any of which may be
+     * missing. The settings are a gallery's own: `layout`, `columns` and
+     * `lightbox`. `$group` names the pictures that open in full together.
+     *
+     * @param list<array<string, mixed>> $items
+     * @param array<string, mixed>       $settings
+     */
+    public static function galleryHtml(array $items, array $settings, string $group): string
+    {
+        $layout   = (string) ($settings['layout'] ?? 'grid');
+        $columns  = (int) ($settings['columns'] ?? 3);
+        $lightbox = !empty($settings['lightbox']);
 
         $html = '<div class="cms-gallery cms-gallery--' . htmlspecialchars($layout) . '"'
               . ' style="--gallery-columns: ' . $columns . '">';
@@ -147,12 +164,14 @@ class Shortcode
             $url = Media::urlOf(['id' => $item['attachment_id']] + $item);
             $alt = htmlspecialchars($item['alt_text'] ?? $item['original_name']);
 
-            // AN ITEM'S DETAILS (migration 091). The grid shows the thumbnail
-            // when there is one. The image opens the full file
+            // AN ITEM'S DETAILS (migrations 091, 127). The grid shows the
+            // thumbnail when there is one. The image opens the full file
             // when the lightbox is on, or else goes where the item links; with
-            // the lightbox on, the link moves to the caption so both stay
+            // the lightbox on, the link moves to the words under it — its
+            // title, on a line of its own, and its caption — so both stay
             // reachable. `Url::resolve()` turns a `javascript:` link into `#`.
             $thumb   = !empty($item['thumb_attachment_id']) ? Media::getUrl((int) $item['thumb_attachment_id']) : '';
+            $title   = trim((string) ($item['title'] ?? ''));
             $caption = trim((string) ($item['caption'] ?? ''));
             $link    = trim((string) ($item['link_url'] ?? ''));
             $link    = $link !== '' ? Url::resolve($link) : '';
@@ -161,7 +180,7 @@ class Shortcode
             $html .= '<figure class="cms-gallery__item">';
             if ($href !== '') {
                 $html .= '<a href="' . htmlspecialchars($href) . '"'
-                       . ($lightbox ? ' data-lightbox="gallery-' . $galleryId . '"' : '') . '>';
+                       . ($lightbox ? ' data-lightbox="' . htmlspecialchars($group) . '"' : '') . '>';
             }
             // Without a thumbnail, the image's own smaller widths, at a column's width.
             $set   = $thumb === '' && $visibility !== 'private' ? \Cms\Media\Sizes::srcset((int) $item['attachment_id']) : '';
@@ -172,8 +191,9 @@ class Shortcode
             if ($href !== '') {
                 $html .= '</a>';
             }
-            if ($caption !== '') {
-                $text = htmlspecialchars($caption);
+            if ($title !== '' || $caption !== '') {
+                $text = ($title !== '' ? '<span class="cms-gallery__title">' . htmlspecialchars($title) . '</span>' : '')
+                      . htmlspecialchars($caption);
                 if ($lightbox && $link !== '') {
                     $text = '<a href="' . htmlspecialchars($link) . '">' . $text . '</a>';
                 }

@@ -77,7 +77,11 @@ use Cms\Ui\VariableEditor;
 $label       = (string) $contentType['label'];
 $labelSingle = (string) $contentType['label_single'];
 $adminSlug   = (string) $contentType['admin_slug'];
-$publicSlug  = (string) ($contentType['public_slug'] ?? '');
+// The type's Public URL, '' when its entries have no page of their own
+// (`Registry::hasPages()`): then the title card is the title alone, and there
+// is no View, no share link and no Search engines panel.
+$publicSlug  = (string) \Cms\ContentType\Registry::publicSlug((string) $contentType['key']);
+$hasPages    = $publicSlug !== '';
 $supports    = (array) ($contentType['supports'] ?? []);
 $fields      = (array) ($contentType['fields'] ?? []);
 $archetypes  = (array) ($contentType['archetypes'] ?? []);
@@ -131,7 +135,9 @@ $val = static function (string $key, mixed $fallback = '') use ($post, $saved): 
     return (string) ($post[$key] ?? $fallback ?? '');
 };
 
-$status = $val('status', 'private');
+// A NEW ENTRY STARTS AT ITS TYPE'S STATUS (`Registry::defaultStatus()`):
+// Private unless the type says Published.
+$status = $val('status', $isNew ? \Cms\ContentType\Registry::defaultStatus((string) $contentType['key']) : 'private');
 
 $action    = $isNew
     ? Url::admin($adminSlug . '/new')
@@ -152,7 +158,13 @@ $pageTitle = $isNew ? 'Add ' . $labelSingle : (string) $post['title'];
 // because the controller asks for the password and lets them in. Only `trash`
 // is excluded by `findBySlug()` and genuinely 404s, and a new entry has no
 // address yet because it has no saved slug.
-$viewUrl = (!$isNew && $publicSlug !== '' && (string) $post['status'] !== 'trash')
+// A TRANSLATION OF ONE THAT SELLS (`Content\Translation::sellsOriginal()`)
+// sells its original's product: no product field or option of its own here,
+// and a line saying whose it sells, linked.
+$sellsOriginal = !$isNew && \Cms\Content\Translation::sellsOriginal($post);
+$soldAs        = $sellsOriginal ? \Cms\Content\Translation::original('posts', $post) : null;
+
+$viewUrl = (!$isNew && $hasPages && (string) $post['status'] !== 'trash')
     ? Url::entry($post, $publicSlug)
     : null;
 
@@ -222,8 +234,28 @@ ob_start();
                     // THE TITLE CARD, full width above the grid — the same partial the Pages
                     // form uses. The title is the entry's substance and the slug is a URL,
                     // not a field; see partials/title-card.php.
-                    $titleLabel = $labelSingle . ' title';
+                    // THE TYPE'S OWN WORD for it, such as Name, else "{Singular} title"
+                    // (`Registry::titleLabel()`).
+                    $titleLabel = \Cms\ContentType\Registry::titleLabel((string) $contentType['key']);
                     $titleValue = $val('title');
+                    // A TITLE MADE FROM FIELDS (`ContentType\Patterns`): the box
+                    // may be left blank and shows what the pattern makes, and
+                    // an entry still titled by it shows its title there, so its
+                    // next save makes it again from what its fields hold then.
+                    $titlePattern     = \Cms\ContentType\Patterns::titlePattern((string) $contentType['key']);
+                    $titleRequired    = $titlePattern === '';
+                    $titlePlaceholder = $titlePattern === '' ? null : \Cms\ContentType\Patterns::hint($titlePattern, (string) $contentType['key']);
+                    if ($titlePattern !== '' && !$isNew && $titleValue !== '' && ($saved || !isset($_POST['title']))
+                        && $titleValue === \Cms\ContentType\Patterns::fill($titlePattern, (string) $contentType['key'], $meta,
+                            array_map(static fn (array $rows): array => array_map(static fn (array $t): int => (int) $t['id'], $rows), $assignedTerms ?? []), $id)) {
+                        $titlePlaceholder = $titleValue;
+                        $titleValue       = '';
+                    }
+                    // AN ADDRESS MADE BY ITS PATTERN does not follow the title as
+                    // it is typed; until the first save, the row shows its shape.
+                    $slugPattern      = \Cms\ContentType\Patterns::slugPattern((string) $contentType['key']);
+                    $permalinkFollows = $slugPattern === '';
+                    $slugHint         = $slugPattern === '' ? '' : \Cms\Helpers\Slug::clean(\Cms\ContentType\Patterns::hint($slugPattern, (string) $contentType['key']));
                     // Under its language's prefix, for a translation (/fr/news/).
                     $slugLang   = (string) ($post['lang'] ?? '');
                     $slugPrefix = rtrim(Url::public(trim(($slugLang !== '' ? $slugLang . '/' : '') . $publicSlug, '/')), '/') . '/';
@@ -233,6 +265,15 @@ ob_start();
                     $slugSuffix = Url::trailingSlash() ? '/' : '';
                     // A LINK ONLY IF IT RESOLVES — the same condition $viewUrl uses above.
                     $slugIsLive = $viewUrl !== null;
+                    // NO ADDRESS ROW for a type whose entries have no pages: the
+                    // slug is still kept, as data, in the card's hidden input.
+                    $titleHasAddress = $hasPages;
+                    // AN ANNOUNCEMENT HAS NO PAGE, but it shows on the site's:
+                    // its screen links to one with it shown, for the signed-in.
+                    $titlePreview = !$isNew && in_array(\Cms\Site\Announcements::ARCHETYPE, $archetypes, true)
+                        && (string) $post['status'] !== 'trash'
+                        ? \Cms\Site\Announcements::previewUrl($id, (string) (\Cms\Models\Meta::get($id, 'announcement_show_on') ?? ''))
+                        : null;
                     // $viewUrl is already computed above; the partial puts the
                     // view-on-site control next to the address it opens.
                     require ROOT_PATH . '/admin/templates/partials/title-card.php';
@@ -240,6 +281,71 @@ ob_start();
 
                 <div class="form-card">
 
+                    <?php
+                    // ONE SECTION PER FIELD GROUP, HEADED BY THE GROUP'S NAME.
+                    //
+                    // The field group editor tells its author, in help text
+                    // under the box, that the name "appears as the heading above
+                    // these fields on the entry form", and this is where that
+                    // holds. `_group_title` is put on each field by
+                    // ContentTypeSchema::mergeFields(), the one place the merge
+                    // happens. Code-registered fields carry no group, so they
+                    // keep the "<Type> details" heading.
+                    //
+                    // AND THE MARK EACH SECTION WEARS: an archetype's group its
+                    // archetype's own mark, a group somebody wrote the generic
+                    // list mark (`Sections::glyphs()`).
+                    //
+                    // AND WHERE EACH GOES (migration 149): a group's own Position
+                    // (`_group_position`), else its type's (`'fields_position'`,
+                    // `Registry::fieldsPosition()`): High between the title and
+                    // the text, Normal after it, Side in the column beside. A
+                    // type whose fields are the point opens on them, on a phone
+                    // as on a desk.
+                    $sections    = [];
+                    $sectionIcon = [];
+                    $sectionAt   = [];
+                    $typeAt      = \Cms\ContentType\Registry::fieldsPosition((string) $contentType['key']);
+                    $shownFields = $sellsOriginal
+                        ? array_filter($fields, static fn (array $f): bool => ($f['_archetype_key'] ?? '') !== 'product' && !str_starts_with((string) ($f['key'] ?? ''), 'product_'))
+                        : $fields;
+                    foreach ($shownFields as $field) {
+                        $heading = (string) ($field['_group_title'] ?? ($labelSingle . ' details'));
+                        $sections[$heading][] = $field;
+                        if (!isset($sectionIcon[$heading])) {
+                            $key = (string) ($field['_archetype_key'] ?? '');
+                            $sectionIcon[$heading] = $key !== ''
+                                ? ArchetypeDefaults::getIcon($key)
+                                : \Cms\Ui\Sections::glyphs()['fields'];
+                            $at = (string) ($field['_group_position'] ?? '');
+                            $sectionAt[$heading] = in_array($at, ['high', 'normal', 'side'], true) ? $at : $typeAt;
+                        }
+                    }
+                    // EACH SECTION AT ONE PLACE, rendered by the one renderer that
+                    // also sanitizes and validates its fields.
+                    //
+                    // A TWELVE-COLUMN GRID: the Presentation tab offers four
+                    // widths, and halves and thirds share no denominator below
+                    // twelve. A width written to the database and consumed by
+                    // nothing would be help text making a claim about behaviour
+                    // that is not true. A failed submit re-renders with $_POST.
+                    $drawFields = static function (string $where) use ($sections, $sectionIcon, $sectionAt, $meta): void {
+                        foreach ($sections as $heading => $sectionFields) {
+                            if ($sectionAt[$heading] !== $where) {
+                                continue;
+                            }
+                            echo '<div class="form-card__section" data-fields-at="' . h($where) . '">'
+                               . '<h2 class="form-card__title">' . icon($sectionIcon[$heading], 'icon icon--sm') . h((string) $heading) . '</h2>'
+                               . '<div class="form-grid form-grid--12">';
+                            foreach ($sectionFields as $field) {
+                                $postKey = 'field_' . $field['key'];
+                                echo FieldRenderer::renderField($field, array_key_exists($postKey, $_POST) ? $_POST[$postKey] : ($meta[$field['key']] ?? null));
+                            }
+                            echo '</div></div>';
+                        }
+                    };
+                    $drawFields('high');
+                    ?>
 
                     <?php if (in_array('content', $supports, true)): ?>
                     <?php // `--fill` HANDS THE LEFTOVER HEIGHT DOWN to the
@@ -329,94 +435,19 @@ ob_start();
                     <?php endif; ?>
 
                     <?php if ($fields !== []): ?>
-                        <?php
-                        // ONE SECTION PER FIELD GROUP, HEADED BY THE GROUP'S NAME.
-                        //
-                        // The field group editor tells its author, in help text
-                        // under the box, that the name "appears as the heading
-                        // above these fields on the entry form", and this is
-                        // where that holds. In one shared section, two groups
-                        // attached to one type would be one undifferentiated run
-                        // of fields with no way to tell where Date and location
-                        // ended and Contact details began.
-                        //
-                        // `_group_title` is put on each field by
-                        // ContentTypeSchema::mergeFields(), which is the one place
-                        // the merge happens — so this template never has to know
-                        // that a Content Type's fields come from two sources.
-                        //
-                        // Code-registered fields carry no group, so they keep the
-                        // "<Type> details" heading: they are declared inside the
-                        // type's own registration and that IS what they belong to.
-                        $sections = [];
-                        // AND THE MARK EACH SECTION WEARS. Every other heading
-                        // band on this screen carries a glyph, through
-                        // `panel_title()`, so these do too: a bare `<h2>` among
-                        // them is visible the moment two sections sit next to
-                        // each other.
-                        //
-                        // A group generated by an archetype wears THAT
-                        // ARCHETYPE'S OWN MARK — the clock on Date and location,
-                        // the box on Price and plan — so the entry form shows
-                        // the same mark the owner ticked on the type form.
-                        // `ContentTypeSchema` already tags the fields with
-                        // `_archetype_key`; nothing new is stored for this. A
-                        // group somebody WROTE has no kind, so it takes the
-                        // generic list mark from `Sections::glyphs()`.
-                        $sectionIcon = [];
-                        foreach ($fields as $field) {
-                            $heading = (string) ($field['_group_title'] ?? ($labelSingle . ' details'));
-                            $sections[$heading][] = $field;
-                            if (!isset($sectionIcon[$heading])) {
-                                $key = (string) ($field['_archetype_key'] ?? '');
-                                $sectionIcon[$heading] = $key !== ''
-                                    ? ArchetypeDefaults::getIcon($key)
-                                    : \Cms\Ui\Sections::glyphs()['fields'];
-                            }
-                        }
-                        ?>
-                        <?php foreach ($sections as $heading => $sectionFields): ?>
-                            <?php // Rendered by the one renderer that also
-                                  // sanitizes and validates them. See
-                                  // FieldRenderer's header for why the simple
-                                  // types are not inlined here. ?>
-                            <div class="form-card__section">
-                                <h2 class="form-card__title">
-                                    <?= icon($sectionIcon[$heading], 'icon icon--sm') ?><?= h($heading) ?>
-                                </h2>
-                                <?php // A TWELVE-COLUMN GRID. `.form-grid--2`,
-                                      // where a full-width field spans both
-                                      // columns and half is the default cell,
-                                      // works for exactly two widths. The
-                                      // Presentation tab offers four, and
-                                      // halves and thirds share no denominator
-                                      // below twelve, so twelve is the smallest
-                                      // grid that can express both.
-                                      // `.form-grid--2` is still used by six
-                                      // other screens; this is the only one
-                                      // that reads a per-field width.
-                                      //
-                                      // The setting reaching a renderer at all
-                                      // is the point: a width written to the
-                                      // database and consumed by nothing would
-                                      // be help text making a claim about
-                                      // behaviour that is not true. ?>
-                                <div class="form-grid form-grid--12">
-                                <?php foreach ($sectionFields as $field): ?>
-                                    <?php
-                                    // A failed submit re-renders with $_POST, same
-                                    // rule as the base fields above.
-                                    $postKey = 'field_' . $field['key'];
-                                    $value   = array_key_exists($postKey, $_POST)
-                                        ? $_POST[$postKey]
-                                        : ($meta[$field['key']] ?? null);
-                                    ?>
-                                    <?= FieldRenderer::renderField($field, $value) ?>
-                                <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
+                        <?php $drawFields('normal'); ?>
                     <?php endif; ?>
+
+                    <?php // ── ITS CHILDREN, ON ITS OWN SCREEN ─────────────────
+                          // Each child type its definition names
+                          // (`ContentType\Children`), as a panel of rows, each
+                          // saved by itself through the child's own checks
+                          // (`Ui\ChildRows`, child-rows.js). On a new entry, the
+                          // line that says they come once it is saved: a row
+                          // belongs to an id it has not got yet. ?>
+                    <?php foreach (\Cms\ContentType\Children::forType((string) $contentType['key']) as $childPanel): ?>
+                        <?= \Cms\Ui\ChildRows::panel($isNew ? null : $post, $childPanel, $labelSingle) ?>
+                    <?php endforeach; ?>
 
 
                     <?php // ── SOLD IN MORE THAN ONE FORM ──────────────────────
@@ -447,7 +478,15 @@ ob_start();
                           // save, so a product sold in sizes was saved once without
                           // them; `handleCreate()` keeps the rows now as
                           // `handleUpdate()` does. ?>
-                    <?php if (in_array('product', $archetypes, true)): ?>
+                    <?php if ($soldAs !== null): ?>
+                        <div class="form-card__section" data-sells-original>
+                            <h2 class="form-card__title">
+                                <?= icon(ArchetypeDefaults::getIcon('product'), 'icon icon--sm') ?><?= h(ArchetypeDefaults::getGroupTitle('product')) ?>
+                            </h2>
+                            <p class="form-help">Sells <a class="link" href="<?= h(Url::admin($adminSlug . '/' . (int) $soldAs['id'] . '/edit')) ?>"><?= h((string) $soldAs['title']) ?></a>, with its price, code, stock and options.</p>
+                        </div>
+                    <?php endif; ?>
+                    <?php if (in_array('product', $archetypes, true) && !$sellsOriginal): ?>
                         <?php // AFTER A REFUSED SAVE, THE ROWS AS TYPED — see
                               // `Variation::fromPost()`. Otherwise the stored ones. ?>
                         <?php $variants = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['variations_panel'])
@@ -615,19 +654,24 @@ ob_start();
                                     </option>
                                 <?php endforeach; ?>
                             </select>
-                            <?php // ALL THREE, each as the public controller
+                            <?php // ALL FOUR, each as the public controller
                                   // treats it. Published: reachable. Private:
                                   // PostController 404s it unless `Auth::check()`
                                   // passes, which is any signed-in account and not
                                   // "staff only". Password: the same controller
                                   // asks for the password and remembers it for
-                                  // the session. Hidden and Private are one state
-                                  // — see `Ui\Status` and migration 043. ?>
+                                  // the session. Sample: Published on a copy that
+                                  // is not production and Private in production
+                                  // (`Post::siteStatus()`). Hidden and Private are
+                                  // one state — see `Ui\Status` and migration 043. ?>
                             <p class="form-help">
                                 Published is reachable by anyone. Private makes the address
                                 404 for everyone except a signed-in account, so you can
                                 read it back before it goes out. Password asks any visitor
-                                for the password below.
+                                for the password below. Sample shows as Published only on a
+                                copy of the site that is not in production, to fill a layout
+                                before the real content exists; in production it is never
+                                shown, and System health lists it.
                             </p>
                         </div>
 
@@ -698,14 +742,18 @@ ob_start();
                         </div>
                     </div>
 
+                    <?php // FIELDS PLACED BESIDE, by their group's Position (Side). ?>
+                    <?php $drawFields('side'); ?>
+
                     <?php // AN ENTRY NOT ON THE SITE, SHARED BY A LINK
-                          // (`Content\Share`): Private, its publish date still to
+                          // (`Content\Share`): Private, a sample in production
+                          // (`Post::siteStatus()`), its publish date still to
                           // come, or its unpublish date gone by. A live entry
                           // needs none, and a type with no address has nowhere
                           // to send anyone. ?>
                     <?php
                     $shareable = !$isNew && $viewUrl !== null
-                        && ((string) $post['status'] === 'private' || \Cms\Models\Post::isScheduled($post) || \Cms\Models\Post::hasEnded($post));
+                        && (\Cms\Models\Post::siteStatus($post) === 'private' || \Cms\Models\Post::isScheduled($post) || \Cms\Models\Post::hasEnded($post));
                     ?>
                     <?php if ($shareable): ?>
                         <?php [$sharePart, $shareType, $shareId, $shareAdmin, $shareUrl] = ['panel', 'post', $id, $adminSlug . '/' . $id, (string) $viewUrl]; ?>
@@ -761,6 +809,15 @@ ob_start();
                             <input type="hidden" name="parent_panel" value="1">
                             <div class="field">
                                 <label class="label" for="f-parent"><?= h((string) $parentType['label_single']) ?></label>
+                                <?php // A LONG LIST IS SEARCHED AS ONE TYPES: the words
+                                      // narrow the list below to the entries whose
+                                      // names hold them, the first chosen
+                                      // (entry-form.js). The list is still what posts. ?>
+                                <?php if (count($parentOptions) > 10): ?>
+                                    <input class="input" type="search" data-parent-find aria-controls="f-parent" autocomplete="off"
+                                           aria-label="Find <?= h(strtolower((string) $parentType['label_single'])) ?>"
+                                           placeholder="Find <?= h(strtolower((string) $parentType['label_single'])) ?>">
+                                <?php endif; ?>
                                 <select class="select" id="f-parent" name="parent_id">
                                     <?php // NAMED, never a blank row: an empty
                                           // line cannot say whether this belongs
@@ -772,7 +829,7 @@ ob_start();
                                     <?php foreach ($parentOptions as $option): ?>
                                         <option value="<?= (int) $option['id'] ?>"
                                             <?= $parentId === (int) $option['id'] ? ' selected' : '' ?>>
-                                            <?= h((string) $option['title']) ?>
+                                            <?= h((string) ($option['label'] ?? $option['title'])) ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -848,12 +905,17 @@ ob_start();
                                       // is a chip-picker. TaxonomyRegistry's own
                                       // docblock draws that line. ?>
                                 <?= $hierarchical
-                                    ? TermRenderer::checkboxTree(Term::treeForTaxonomy((string) $taxKey), $assigned, (string) $taxKey)
+                                    ? TermRenderer::checkboxTree(Term::treeForTaxonomy((string) $taxKey), $assigned, (string) $taxKey, (string) $contentType['key'])
                                     : TermRenderer::tagPicker(Term::allForTaxonomy((string) $taxKey), $assigned, (string) $taxKey, (string) $tax['label_single']) ?>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
 
+                    <?php // NO SEARCH ENGINES PANEL for a type whose entries have
+                          // no pages: there is no page for an engine to show, and
+                          // the save leaves its stored values alone. Nor for a
+                          // role the type does not show it to (`StaffView`). ?>
+                    <?php if ($hasPages && \Cms\ContentType\StaffView::panel((string) $contentType['key'], 'seo')): ?>
                     <div class="form-card__section">
                         <?= panel_title('Search engines', 'seo') ?>
 
@@ -943,6 +1005,7 @@ ob_start();
                             </p>
                         </div>
                     </div>
+                    <?php endif; ?>
 
                     <?php if (!$isNew && $revisions !== []): ?>
                         <?php // A LIST OF ROWS, the same vocabulary as every other
@@ -1054,6 +1117,19 @@ ob_start();
 <?= VariableEditor::template() ?>
 <script src="<?= h(Asset::admin('js/reorder.js')) ?>"></script>
 <script src="<?= h(Asset::admin('js/variable-editor.js')) ?>" defer></script>
+<?php if (FieldRenderer::drewGallery()): ?>
+    <?php // A GALLERY FIELD'S TILES are the Galleries screen's: its script, after
+          // reorder.js, and the public gallery's own stylesheet, which lays them out. ?>
+    <link rel="stylesheet" href="<?= h(Asset::site('assets/css/gallery.css')) ?>">
+    <script src="<?= h(Asset::admin('js/gallery-images.js')) ?>"></script>
+<?php endif; ?>
+<?php if (!$isNew && \Cms\ContentType\Children::forType((string) $contentType['key']) !== []): ?>
+    <?php // ITS CHILDREN'S ROWS, after reorder.js and the gallery's script,
+          // which a row's gallery and its grip use, and the dialog a row's
+          // Trash asks in. ?>
+    <script src="<?= h(Asset::admin('js/confirm.js')) ?>"></script>
+    <script src="<?= h(Asset::admin('js/child-rows.js')) ?>"></script>
+<?php endif; ?>
 <script>
 (function () {
     var form = document.querySelector('.editor-form');

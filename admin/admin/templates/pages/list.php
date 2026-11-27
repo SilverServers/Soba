@@ -95,8 +95,8 @@ ob_start();
                     <option value="">Any status</option>
                     <?php // What can be stored, and Ended: a page has no publish
                           // date, so never Scheduled, but its unpublish date can
-                          // have come (Status::forEntry()). ?>
-                    <?php foreach (array_diff_key(Status::filterLabels(), ['scheduled' => 1]) as $key => $statusLabel): ?>
+                          // have come (Status::forEntry()). Sample is an entry's. ?>
+                    <?php foreach (array_diff_key(Status::filterLabels(), ['scheduled' => 1, 'sample' => 1]) as $key => $statusLabel): ?>
                         <?php if ($key === 'trash') { continue; } ?>
                         <option value="<?= h($key) ?>"><?= h($statusLabel) ?></option>
                     <?php endforeach; ?>

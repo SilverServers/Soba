@@ -359,14 +359,14 @@ class SettingsController
      */
     public function showWords(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('words');
         $this->renderWords(false);
     }
 
     /** Keep the owner's words for each language the screen drew. */
     public function handleWords(array $vars = []): void
     {
-        Auth::requireRole('admin');
+        Auth::requireCan('words');
         \Cms\Site\Words::save(false, is_array($_POST['own'] ?? null) ? $_POST['own'] : []);
         if (\Cms\Site\Language::second() !== '') {
             \Cms\Site\Words::save(true, is_array($_POST['second'] ?? null) ? $_POST['second'] : []);
@@ -1293,11 +1293,14 @@ class SettingsController
             ? $_POST['seo_org_type']
             : 'Organization';
         $logo = self::siteImage('seo_org_logo');
+        // Blank means this site's own address (`SEO\Schema`), so the address
+        // itself is kept as blank, and follows the site when it moves.
+        $orgUrl = trim($_POST['seo_org_url'] ?? '');
 
         Option::setMany(array_filter([
             'seo_org_type' => $orgType,
             'seo_org_name' => trim($_POST['seo_org_name'] ?? ''),
-            'seo_org_url'  => trim($_POST['seo_org_url'] ?? ''),
+            'seo_org_url'  => \Cms\SEO\Schema::isOwnAddress($orgUrl) ? '' : $orgUrl,
             'seo_org_logo' => $logo,
         ], static fn (?string $v): bool => $v !== null));
 

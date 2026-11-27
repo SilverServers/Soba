@@ -8,6 +8,7 @@ use Cms\ContentType\Registry;
 use Cms\Database\Database;
 use Cms\Helpers\Template;
 use Cms\Helpers\Words;
+use Cms\Http\Cache;
 use Cms\Models\Meta;
 use Cms\SEO\Head;
 use PDO;
@@ -119,6 +120,7 @@ final class SearchController
             ];
         }
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         echo json_encode(['items' => $items], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
@@ -141,15 +143,16 @@ final class SearchController
         $rank = $q === null ? [] : ['%' . addcslashes(self::squash($q), '%_\\') . '%'];
         $out  = [];
 
-        [$narrow, $args] = self::narrowing($q, ['title', 'content']);
+        // A PAGE'S SUMMARY IS SEARCHED TOO (migration 135), as an entry's excerpt is.
+        [$narrow, $args] = self::narrowing($q, ['title', 'excerpt', 'content']);
         $pages = self::kept(
-            "SELECT id, title, slug, lang, content, featured_image_id, updated_at
+            "SELECT id, title, slug, lang, content, excerpt, featured_image_id, updated_at
                FROM pages
               WHERE " . \Cms\Models\Page::live() . $narrow . "
            ORDER BY " . ($q === null ? '' : '(title LIKE ?) DESC, ') . 'updated_at DESC, id DESC',
             array_merge($args, $rank),
             $want,
-            static fn (array $row): string => (string) $row['content']
+            static fn (array $row): string => (string) ($row['excerpt'] ?? '') . ' ' . (string) $row['content']
         );
         foreach ($pages as [$row, $inTitle]) {
             $out[] = [
@@ -161,13 +164,11 @@ final class SearchController
             ];
         }
 
-        // ONLY TYPES WITH PAGES ON THE SITE — the same test `www/index.php`
-        // uses to give a type its public routes.
+        // ONLY TYPES WITH PAGES ON THE SITE — the question `www/index.php`
+        // asks to give a type its public routes (`Registry::hasPages()`).
         $types = [];
-        foreach (Registry::all() as $key => $type) {
-            if (($type['public_slug'] ?? '') !== '' && $type['public_slug'] !== null) {
-                $types[(string) $key] = $type;
-            }
+        foreach (Registry::withPages() as $key => $type) {
+            $types[(string) $key] = $type;
         }
 
         if ($types !== []) {

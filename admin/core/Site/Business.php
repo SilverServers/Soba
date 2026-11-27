@@ -312,10 +312,7 @@ final class Business
             if ($number === '') {
                 $errors[] = $named . ' has no number.';
             } elseif (self::dialable($number, $country) === '') {
-                $errors[] = $named . ', ' . $number . ', cannot be dialled as written: '
-                    . (in_array($country, self::PLUS_ONE, true)
-                        ? 'a number here is ten digits, the area code first.'
-                        : 'write it with + and the country\'s code, as +44 20 7946 0000 is.');
+                $errors[] = $named . ', ' . $number . ', cannot be dialled as written: ' . self::howToWrite($country);
             }
             $key = $key !== '' ? $key : (self::slug($label) !== '' ? self::slug($label) : 'phone');
             for ($n = 2, $base = $key; isset($keys[$key]); $n++) {
@@ -486,6 +483,19 @@ final class Business
         }
 
         return preg_match('/^[2-9]\d{2}[2-9]\d{6}$/', $digits) === 1 ? '+1' . $digits . $ext : '';
+    }
+
+    /**
+     * How a number is written to be dialled from `$country`, in the words a
+     * refusal ends with: ten digits in +1, else a + and the country's code.
+     * Business details and a phone field (`ContentType\FieldRenderer`) say it
+     * alike.
+     */
+    public static function howToWrite(string $country): string
+    {
+        return in_array($country, self::PLUS_ONE, true)
+            ? 'a number here is ten digits, the area code first.'
+            : 'write it with + and the country\'s code, as +44 20 7946 0000 is.';
     }
 
     /** The network an address is a profile on, by its host; the host itself for one not known. */

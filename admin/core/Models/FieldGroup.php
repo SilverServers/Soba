@@ -128,6 +128,17 @@ class FieldGroup
     }
 
     /**
+     * A group's Position on the entry editor (migration 149): 'high', 'normal'
+     * or 'side', or NULL to follow its content type.
+     */
+    public static function setPosition(int $id, ?string $position): void
+    {
+        Database::getInstance()
+            ->prepare('UPDATE field_groups SET position = ? WHERE id = ?')
+            ->execute([in_array($position, ['high', 'normal', 'side'], true) ? $position : null, $id]);
+    }
+
+    /**
      * Update an existing field group and replace all its fields.
      *
      * @param array<string, mixed> $data
@@ -358,6 +369,9 @@ class FieldGroup
             if (isset($field['content_type_target'])) $settings['content_type_target'] = (string) $field['content_type_target'];
             if (isset($field['post_type_target']))    $settings['post_type_target']    = (string) $field['post_type_target'];
             if (isset($field['sub_fields']))          $settings['sub_fields']          = (array)  $field['sub_fields'];
+            // A repeater drawn as a table, and the Choice column whose choices are its rows.
+            if (isset($field['layout']))              $settings['layout']              = (string) $field['layout'];
+            if (isset($field['preset_rows']))         $settings['preset_rows']         = (array)  $field['preset_rows'];
             // A taxonomy field's three settings. This list is a WHITELIST — a
             // setting that is not named here is dropped on save, silently, and
             // the field comes back from the database missing it — a taxonomy
@@ -368,6 +382,11 @@ class FieldGroup
             if (isset($field['taxonomy_key']))        $settings['taxonomy_key']        = (string) $field['taxonomy_key'];
             if (isset($field['field_mode']))          $settings['field_mode']          = (string) $field['field_mode'];
             if (isset($field['multiple']))            $settings['multiple']            = (int)    $field['multiple'];
+            // A file field's kinds ("pdf, docx"), in the library's own words.
+            if (isset($field['accept']))              $settings['accept']              = (string) $field['accept'];
+            // A gallery field's columns and full-size pictures (its layout is `layout`, above).
+            if (isset($field['columns']))             $settings['columns']             = (int)    $field['columns'];
+            if (isset($field['lightbox']))            $settings['lightbox']            = (int)    $field['lightbox'];
 
             // ── THE FOUR EVERY TYPE HAS ─────────────────────────────────────
             // Presentation, Validation and Conditional Logic are per-field on
@@ -429,6 +448,19 @@ class FieldGroup
 
         return array_map(static function (array $row): array {
             $settings = $row['settings'];
+            // A REPEATER'S COLUMNS, FLATTENED THE SAME WAY: the editor keeps each
+            // sub-field's own settings under `settings` (a Choice's options, a
+            // Number's limits), and every reader takes them at the top level, as
+            // a sub-field written in code has them. Read nested, a Choice column
+            // made on screen offered only None.
+            if (isset($settings['sub_fields']) && is_array($settings['sub_fields'])) {
+                $settings['sub_fields'] = array_map(
+                    static fn (mixed $sub): mixed => is_array($sub) && is_array($sub['settings'] ?? null)
+                        ? array_merge($sub['settings'], array_diff_key($sub, ['settings' => true]))
+                        : $sub,
+                    $settings['sub_fields']
+                );
+            }
 
             return array_merge($settings, [
                 'key'      => $row['field_key'],

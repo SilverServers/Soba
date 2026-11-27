@@ -84,6 +84,10 @@ final class Words
             'cookie_decline'  => ['Decline', 'Its button that declines'],
             'cookie_settings' => ['Cookie settings', 'The footer\'s button that asks again'],
         ],
+        'Announcements' => [
+            'announcement_more'    => ['Read more', 'An announcement\'s button, when its own words are left blank'],
+            'announcement_dismiss' => ['Dismiss', 'The button that closes an announcement, to a screen reader'],
+        ],
         'Opening hours' => [
             'hours_and'   => ['and', 'Between days: Monday and Wednesday'],
             'hours_days'  => ['to', 'Between the first and last of days in a row: Monday to Friday'],
@@ -144,6 +148,8 @@ final class Words
         'cookie_accept'      => 'Accepter',
         'cookie_decline'     => 'Refuser',
         'cookie_settings'    => 'Paramètres des témoins',
+        'announcement_more'    => 'En savoir plus',
+        'announcement_dismiss' => 'Fermer',
         'hours_and'          => 'et',
         'hours_days'         => 'au',
         'hours_times'        => 'à',

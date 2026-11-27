@@ -5,15 +5,7 @@ declare(strict_types=1);
 namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
-use Cms\Database\Database;
-use Cms\ContentType\Registry;
-use Cms\Models\Media;
-use Cms\Models\Page;
 use Cms\Models\Post;
-use Cms\Models\User;
-use Cms\Security\FileCheck;
-use Cms\Update\Manifest;
-use Cms\Update\Release;
 
 class ToolsController
 {
@@ -50,158 +42,60 @@ class ToolsController
     // Tools entirely. See that controller's header.
 
     /**
-     * Tools → System Health — read-only diagnostic page.
+     * Tools → System health: what this site runs on (`Site\Health`), what
+     * going to production changes (`Site\GoingLive`), its sample entries and
+     * what it holds. `php admin/bin/health.php` prints the same rows.
      */
     public function systemHealth(array $vars = []): void
     {
         Auth::requireRole('admin');
+        // The address this is opened at, should the site have moved (`Site\OldAddresses`).
+        \Cms\Site\OldAddresses::note();
 
-        $checks = [];
+        $checks    = \Cms\Site\Health::environment();
+        $goingLive = \Cms\Site\GoingLive::rows();
+        $liveTitle = \Cms\Site\GoingLive::title();
+        $samples   = Post::samples();
+        $counts    = \Cms\Site\Health::counts();
+        // The site's own scheduled tasks, and a line for each of their runs.
+        $tasks     = \Cms\Site\Tasks::rows();
+        $taskRuns  = $tasks !== [] ? \Cms\Site\Tasks::runs(null, 20) : [];
+        $problems  = \Cms\Site\Health::attention($checks, $goingLive, $tasks);
 
-        // Which release this is, first: the question behind most visits here.
-        $checks['cms'] = Release::health(Release::version(), FileCheck::site() . '/' . Manifest::FILE);
-
-        // PHP version
-        $phpVersion = PHP_VERSION;
-        $phpOk      = version_compare($phpVersion, '8.2.0', '>=');
-        $checks['php'] = [
-            'label'  => 'PHP version',
-            'value'  => $phpVersion,
-            'status' => $phpOk ? 'ok' : 'error',
-            'hint'   => $phpOk ? 'PHP 8.2+ required' : 'PHP 8.2+ required — current version is too old',
-        ];
-
-        // Required extensions
-        $requiredExts = ['pdo', 'pdo_mysql', 'mbstring', 'json', 'fileinfo', 'gd'];
-        foreach ($requiredExts as $ext) {
-            $loaded = extension_loaded($ext);
-            $checks['ext_' . $ext] = [
-                'label'  => 'Extension: ' . $ext,
-                'value'  => $loaded ? 'Loaded' : 'Missing',
-                'status' => $loaded ? 'ok' : 'error',
-                'hint'   => '',
-            ];
-        }
-
-        // MariaDB / MySQL version
-        try {
-            $pdo       = Database::getInstance();
-            $dbVersion = $pdo->query("SELECT VERSION()")->fetchColumn();
-            $checks['db'] = [
-                'label'  => 'Database',
-                'value'  => (string) $dbVersion,
-                'status' => 'ok',
-                'hint'   => '',
-            ];
-        } catch (\Throwable $e) {
-            $checks['db'] = [
-                'label'  => 'Database',
-                'value'  => 'Connection failed',
-                'status' => 'error',
-                'hint'   => $e->getMessage(),
-            ];
-        }
-
-        // Uploads directory
-        $uploadsPath = PUBLIC_PATH . '/uploads';
-        $uploadsWritable = is_dir($uploadsPath) && is_writable($uploadsPath);
-        $checks['uploads_writable'] = [
-            'label'  => 'Uploads folder',
-            'value'  => $uploadsWritable ? 'Writable' : 'Not writable',
-            'status' => $uploadsWritable ? 'ok' : 'error',
-            'hint'   => $uploadsPath,
-        ];
-
-        // Disk usage on uploads/
-        $diskUsage = '—';
-        if (is_dir($uploadsPath)) {
-            $bytes = 0;
-            $iter  = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($uploadsPath, \FilesystemIterator::SKIP_DOTS)
-            );
-            foreach ($iter as $file) {
-                if ($file->isFile()) {
-                    $bytes += $file->getSize();
-                }
-            }
-            if ($bytes < 1024 * 1024) {
-                $diskUsage = round($bytes / 1024, 1) . ' KB';
-            } elseif ($bytes < 1024 * 1024 * 1024) {
-                $diskUsage = round($bytes / (1024 * 1024), 1) . ' MB';
-            } else {
-                $diskUsage = round($bytes / (1024 * 1024 * 1024), 2) . ' GB';
-            }
-        }
-        $checks['disk_usage'] = [
-            'label'  => 'Uploads disk usage',
-            'value'  => $diskUsage,
-            'status' => 'info',
-            'hint'   => '',
-        ];
-
-        // ── MODULE SWITCHES, as config.php's `modules` has them ─────────────
-        // Which are off, and any switch that is neither yes nor no, which
-        // leaves its module on (`Helpers\Modules::notes()`).
-        $config   = \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php');
-        $switches = is_array($config) && is_array($config['modules'] ?? null) ? $config['modules'] : [];
-        $off      = array_values(array_filter(array_keys(\Cms\Helpers\Modules::ALL),
-            static fn (string $m): bool => !\Cms\Helpers\Modules::enabled($m)));
-        $notes    = \Cms\Helpers\Modules::notes($switches);
-        $checks['modules'] = [
-            'label'  => 'Modules',
-            'value'  => $off === [] ? 'All on' : 'Switched off: ' . implode(', ', $off),
-            'status' => $notes !== [] ? 'warning' : 'info',
-            'hint'   => implode(' ', $notes),
-        ];
-
-        // ── MIGRATIONS, BY NAME — the CMS's and the site's own ──────────────
-        // Asked of the Migrator that runs them, which knows both directories
-        // (`admin/site/migrations/`). Counting the files in the CMS's
-        // directory against the rows in the table could not say WHICH were
-        // waiting, and on a site with migrations of its own read "9 applied /
-        // 7 available". A row recorded with no file is named too: nothing in
-        // a release removes a migration, so it means code rolled back
-        // without its database.
-        try {
-            $migrator = \Cms\Database\Migrator::forInstall(Database::getInstance(), ROOT_PATH);
-            $pending  = $migrator->pending();
-            $orphans  = $migrator->orphans();
-            $applied  = count($migrator->applied());
-            $checks['migrations'] = [
-                'label'  => 'Migrations',
-                'value'  => $applied . ' applied' . ($pending !== [] ? ', ' . count($pending) . ' waiting' : ''),
-                'status' => $pending === [] && $orphans === [] ? 'ok' : 'warning',
-                'hint'   => $pending !== []
-                    ? 'Waiting: ' . implode(', ', $pending) . '.'
-                    : ($orphans !== []
-                        ? 'Recorded as applied but not in this release: ' . implode(', ', $orphans)
-                          . '. Was the code rolled back without its database?'
-                        : ''),
-            ];
-        } catch (\Throwable $e) {
-            // A site migration named like one of the CMS's own (Migrator::
-            // files() refuses it) — the message says which to rename.
-            $checks['migrations'] = [
-                'label'  => 'Migrations',
-                'value'  => 'Cannot be read',
-                'status' => 'error',
-                'hint'   => $e->getMessage(),
-            ];
-        }
-
-        // Content counts
-        $counts = [];
-        foreach (Registry::all() as $key => $ct) {
-            $counts[$ct['label']] = count(Post::all($key));
-        }
-        if (\Cms\Helpers\Modules::enabled('pages')) {
-            $counts['Pages'] = count(Page::all());
-        }
-        $counts['Users'] = User::count();
+        // What a button did, on the way back here.
+        $trashed  = isset($_GET['trashed']) && ctype_digit((string) $_GET['trashed']) ? (int) $_GET['trashed'] : null;
+        $replaced = isset($_GET['replaced']) && ctype_digit((string) $_GET['replaced']) ? (int) $_GET['replaced'] : null;
 
         $pageTitle   = 'System health';
         $currentPage = 'system-health';
         require ROOT_PATH . '/admin/templates/tools/system-health.php';
+    }
+
+    /**
+     * POST /admin/tools/system-health/samples — every sample entry to the
+     * Trash (`Post::trashSamples()`), whichever copy this is. Each can be
+     * restored from its type's Trash, and comes back Private.
+     */
+    public function trashSamples(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        $n = Post::trashSamples();
+        header('Location: ' . ADMIN_URL . '/tools/system-health?trashed=' . $n, true, 303);
+        exit;
+    }
+
+    /**
+     * POST /admin/tools/system-health/addresses — every earlier address of
+     * the site replaced with its own, wherever System health found one
+     * (`Site\OldAddresses::replace()`), each page and entry changed given a
+     * revision first.
+     */
+    public function replaceAddresses(array $vars = []): void
+    {
+        Auth::requireRole('admin');
+        $n = \Cms\Site\OldAddresses::replace((int) (Auth::user()['id'] ?? 0));
+        header('Location: ' . ADMIN_URL . '/tools/system-health?replaced=' . $n, true, 303);
+        exit;
     }
 
     /**

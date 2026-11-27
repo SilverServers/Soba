@@ -83,6 +83,14 @@ $fontUrl = static fn (string $file): string => Url::admin('assets/fonts/' . $fil
           // only an install served from a SUBDIRECTORY breaks, which makes its
           // absence easy to miss. ?>
     <meta name="base-url" content="<?= h(BASE_URL) ?>">
+    <?php // WHAT AN UPLOAD MAY BE, for CMS.upload(): the site's largest file
+          // (`Media::maxFileSize()`) and the size of each piece a larger one is
+          // sent in (`Media\Pieces`), in bytes. ?>
+    <?php // THE THEME'S CLASSES FOR CONTENT, for the editor's Style menu (`Helpers\Theme::contentClasses()`). ?>
+<?php if (($_contentClasses = \Cms\Helpers\Theme::contentClasses()) !== []): ?>
+<meta name="content-classes" content="<?= h((string) json_encode($_contentClasses, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) ?>">
+<?php endif; ?>
+<meta name="upload-limits" content="<?= (int) \Cms\Models\Media::maxFileSize() ?> <?= (int) \Cms\Media\Pieces::size() ?>">
     <?php // The ACTIVE theme's nav colour, not a constant. A <meta> cannot take
           // var(), so pinning this to one hex makes mobile browser chrome clash
           // with every theme but one. Same registry, one source. ?>
@@ -137,4 +145,6 @@ if (($_themeCss = Theme::stylesheet($theme)) !== null): ?>
           // inside $pageContent, which the layout prints ABOVE its own. Anything
           // they call has to already exist. ?>
     <script src="<?= h(Asset::admin('js/admin.js')) ?>"></script>
+    <?php // CMS.upload(), for every screen that puts a file in the library. ?>
+    <script src="<?= h(Asset::admin('js/upload.js')) ?>"></script>
 </head>

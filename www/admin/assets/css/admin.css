@@ -189,6 +189,39 @@
    the rail wider by it — 160 plus Copy (44) and its gap. */
 .entry-list--copy { --row-actions-w: 212px; }
 .entry-list--copy .list__row-actions { grid-template-columns: 28px auto auto auto; }
+/* A LIST ARRANGED BY DRAG (`list-arrange.js`): Up one and Down one before
+   Edit, two more 28px tracks and the rail wider by them, and each row's grip
+   at its left edge, the head and the group headings moved over with the rows
+   so every column keeps its edge. The grip's own rule names the row, over
+   core.css's lift of a `[data-handle]` (0,3,0 over 0,2,0). */
+.entry-list--arrange { --row-actions-w: 284px; }
+.entry-list--arrange .list__row-actions { grid-template-columns: 28px 28px 28px auto auto auto; }
+.entry-list--arrange > .list__row,
+.entry-list--arrange > .list__group-header { padding-left: 36px; }
+.entry-list--arrange .list__row .entry-list__grip {
+  position: absolute;
+  left: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+}
+.entry-list--arrange .list__row .entry-list__grip:hover { color: var(--ink-2); }
+.entry-list--arrange .list__row .entry-list__grip:active { cursor: grabbing; }
+/* ON A PHONE ITS VERBS TAKE A LINE OF THEIR OWN, under the author and date:
+   in the card's last column, beside the status, two more would leave the
+   title a few letters wide. The heading keeps its own areas. */
+@container (max-width: 720px) {
+  .entry-list--select.entry-list--arrange .list__row:not(.entry-list__head) { grid-template-areas: "check main state" ". meta meta" ". acts acts"; }
+  .entry-list--select.entry-list--arrange.entry-list--no-bulk .list__row:not(.entry-list__head) { grid-template-areas: "main state" "meta meta" "acts acts"; }
+  .entry-list--select.entry-list--arrange .list__row > .list__row-actions { justify-self: start; }
+}
 /* THE GLYPH SLOT IS RESERVED WHETHER OR NOT THE ROW HAS ONE. "View on site"
    only exists on published rows, and as a flex child its absence pulled Edit
    and Trash 36px left on every draft — a rail whose verbs did not share a left
@@ -357,13 +390,30 @@
   /* The tick box and room to aim at it. */
   --check-w: 28px;
 }
+/* THE COLUMNS A TYPE ADDS (`ContentType\ListColumns`) take tracks of their own
+   between the title and the status, set on the list as `--entry-cols`; with
+   none it is empty, and the row is the four tracks it always was. */
 .entry-list--select .list__row {
-  grid-template-columns: var(--check-w) minmax(0, 1fr) var(--status-w) var(--meta-w) var(--row-actions-w);
+  grid-template-columns: var(--check-w) minmax(0, 1fr) var(--entry-cols,) var(--status-w) var(--meta-w) var(--row-actions-w);
 }
+.entry-list__col { min-width: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+/* Its heading is the heading row's; on a phone, where the row is a card, the
+   cell names itself (below). */
+.entry-list__col-label { display: none; }
 /* The trash has no status track (its own rule, further down) — so the pair is
    named at 0,3,0 to beat both single-modifier rules whatever their order. */
 .entry-list--select.entry-list--trash .list__row {
   grid-template-columns: var(--check-w) minmax(0, 1fr) var(--meta-w) var(--row-actions-w);
+}
+/* A LIST THAT OFFERS ITS READER NO BULK ACTION (a type's `'list' => ['bulk'
+   => …]`, `ContentType\StaffView`) draws no tick boxes, and so no track for
+   them: the title takes the first. */
+.entry-list--select.entry-list--no-bulk { --check-w: 0px; }
+.entry-list--select.entry-list--no-bulk .list__row {
+  grid-template-columns: minmax(0, 1fr) var(--entry-cols,) var(--status-w) var(--meta-w) var(--row-actions-w);
+}
+.entry-list--select.entry-list--trash.entry-list--no-bulk .list__row {
+  grid-template-columns: minmax(0, 1fr) var(--meta-w) var(--row-actions-w);
 }
 
 /* THE TICK BOX'S TARGET IS ITS WHOLE CELL, the row's full height — not the
@@ -534,6 +584,10 @@ a.entry-list__author:hover { color: var(--ink); text-decoration: underline; }
 .input:is([type="date"], [type="time"], [type="datetime-local"], [type="month"]) { max-width: var(--cap-date, 16rem); }
 .form-main .field > .select,
 .form-aside .field > .select { max-width: var(--cap-select, 20rem); }
+/* A SEARCH BOX OVER A LIST takes the list's measure: a child entry's parent,
+   found as one types over the select of them. */
+.form-main .field > .input[type="search"],
+.form-aside .field > .input[type="search"] { max-width: var(--cap-select, 20rem); }
 .input--short { max-width: 16rem; }
 .form-grid,
 .form-aside { --cap-number: none; --cap-date: none; --cap-select: none; }
@@ -593,6 +647,21 @@ a.entry-list__author:hover { color: var(--ink); text-decoration: underline; }
      width: the list's "Status" label and the actions spacer. Not
      `:nth-child(3)` — in the trash's heading the third cell is "Trashed". */
   .entry-list--select .entry-list__head > div:not([class]) { display: none; }
+  /* A COLUMN'S CELLS go under the row, each on a line of its own under the
+     title, naming itself; their headings have nothing to head. */
+  .entry-list--select .list__row > .entry-list__col { grid-column: 2 / -1; }
+  .entry-list--select .entry-list__head > .entry-list__col { display: none; }
+  .entry-list__col-label { display: inline; color: var(--ink-3); margin-right: var(--sp-1); }
+  .entry-list__col-label::after { content: ":"; }
+  /* With no tick boxes, the title takes the box's place on the first line. */
+  .entry-list--select.entry-list--no-bulk .list__row,
+  .entry-list--select.entry-list--trash.entry-list--no-bulk .list__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main state" "meta acts";
+  }
+  .entry-list--select.entry-list--trash.entry-list--no-bulk .list__row { grid-template-areas: "main main" "meta acts"; }
+  .entry-list--select.entry-list--no-bulk .list__row.entry-list__head { grid-template-areas: "main when"; }
+  .entry-list--select.entry-list--no-bulk .list__row > .entry-list__col { grid-column: 1 / -1; }
   .bulk-edit__grid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -682,6 +751,19 @@ a.entry-list__author:hover { color: var(--ink); text-decoration: underline; }
    stretches the cards to the tallest; this takes up the difference). */
 .theme-card .card__tools { margin-top: auto; }
 .media-picker__actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+/* A FILE FIELD: the kind's glyph where a picture's preview is, and the file's
+   name and size over the buttons. The name keeps one line: a long one ends in
+   an ellipsis rather than pushing the buttons down a line per word. */
+.media-picker__body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.media-picker__name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+.media-picker__size { font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* ── The repeater ─────────────────────────────────────────────────────────
    Rows are the field's substance, so they are sharp boxes on the inset tone —
@@ -699,6 +781,38 @@ a.entry-list__author:hover { color: var(--ink); text-decoration: underline; }
   border-radius: var(--r-none);
 }
 .repeater__fields { min-width: 0; }
+/* ── A REPEATER DRAWN AS A TABLE (`'layout' => 'table'`) ──────────────────
+   One line a row, the boxes filling their cells: a number narrow and to the
+   right, as a column of figures reads; a row's name, when its rows are a
+   Choice's choices, in the first column. A table wider than its column scrolls
+   inside its own wrap, so the field holding it may be narrower than it: a
+   grid cell's minimum is otherwise its widest content, and on a phone the
+   page would scroll sideways. Its body shows the card it sits on rather than
+   painting the card's own white over it, the header keeping its band. A row
+   of boxes is not a link, so it has no hover band (`.table`'s is for rows
+   that open something). */
+.form-grid--12 > .field:has(> .repeater--table),
+.repeater--table { min-width: 0; }
+.repeater--table .table { background: none; }
+.repeater--table .table th,
+.repeater--table .table td { padding: var(--sp-1) var(--sp-2); }
+.repeater--table .table tbody th { font-weight: var(--fw-semi); white-space: nowrap; }
+.repeater--table .table .input,
+.repeater--table .table .select { width: 100%; min-width: 7rem; }
+.repeater--table .table .num .input { width: 7rem; min-width: 0; text-align: right; }
+.repeater--table .table .num .prefixed { justify-content: flex-end; }
+/* A cell keeps its prefix beside its box on a phone too: the table scrolls
+   sideways in its wrap, so the prefix never needs to wrap above the box, as
+   `.prefixed` does elsewhere at that width. */
+.repeater--table .table .prefixed { flex-wrap: nowrap; }
+.repeater--table .table .prefixed .input { flex: 0 0 7rem; }
+.repeater--table .table tbody tr:hover { background: none; }
+.repeater--table .table td:last-child { width: 1%; }
+.repeater--table > .form-actions--bare { margin-top: var(--sp-2); }
+/* THE OPTIONS' SET TOOL IS A SENTENCE, and a sentence wraps: on one line at a
+   phone's width it ran 240px past the screen's edge — measured at 390 — and the
+   whole entry form scrolled sideways under it. */
+.options-bulk { flex-wrap: wrap; }
 /* A key/value list whose values are fields (Business details' week): the key
    sits level with the field beside it, not on the field's top edge. */
 .kv-list--fields .kv-list__row { align-items: center; }
@@ -708,6 +822,12 @@ a.entry-list__author:hover { color: var(--ink); text-decoration: underline; }
    0,3,0 over `.form-main .input`'s 0,2,0. */
 .form-main .repeater__row .input,
 .form-main .repeater__row .select { background-color: var(--surface); }
+/* A PICTURE IN A ROW TOO: its empty frame and its Choose and Remove buttons
+   are the row's `--surface-2` on the card, so in a row they invert, as the
+   aside's do on its panels. The buttons' 0,6,0 is over the secondary-button
+   rule's 0,5,0 in §7a. */
+.form-main .repeater__row .media-picker__preview { background: var(--surface); }
+.form-main .form-card .repeater__row .media-picker__actions .btn:not(.btn--primary) { background: var(--surface); }
 
 /* ── The checkbox / radio list ────────────────────────────────────────────
    Nesting is a NESTED ELEMENT, never `padding-left: {$depth * 20}px` computed
@@ -870,6 +990,10 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
    for a grid you are choosing from. Everything else — the backdrop, the focus
    trap, Esc — is the native <dialog> and is not re-implemented here. */
 .modal--wide { max-width: 720px; }
+/* The picker's search and its pages sit in the dialog's own rhythm (its gap),
+   not with the margins they take on a page. */
+.modal__inner > .filterbar { margin-bottom: 0; }
+.modal__inner > .pager { margin-top: 0; }
 
 .media-grid {
   display: grid;
@@ -895,6 +1019,10 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 .media-grid__item img { width: 100%; height: 100%; object-fit: cover; }
 /* The chosen tile wears the accent as an EDGE on a sharp box. */
 .media-grid__item[aria-pressed="true"] { border: 1px solid var(--accent); }
+/* A PICTURE THE CALLER HAS ALREADY (a gallery's own, `CmsMedia.pickMany()`)
+   is shown chosen and not offered again: dimmed, so it reads as taken beside
+   the ones being chosen now. */
+.media-grid__item:disabled { opacity: 0.5; cursor: default; }
 
 
 /* ═══ 6a. THE MEDIA LIBRARY ═══════════════════════════════════════════════
@@ -987,6 +1115,14 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 .gtile {
   position: relative;
   min-width: 0;
+}
+/* FILES HELD OVER A GALLERY'S TILES say it will take them, on its own edge,
+   as the form builder's canvas does: a fill would wash out the pictures. Tall
+   enough to aim at while the gallery is empty. */
+.cms-gallery.is-dropzone {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  min-height: 60px;
 }
 
 /* ALWAYS THERE, NOT ON HOVER. The two things you do to a tile — move it,
@@ -1366,6 +1502,24 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 .form-main .form-card__section:has(> .field > .textarea) .select,
 .form-main .form-card__section--fill .input,
 .form-main .form-card__section--fill .select { background-color: var(--surface); }
+/* …BUT AMONG A TYPE'S OWN FIELDS THE SECTION STAYS THE SHEET. The
+   twelve-column grid an entry's custom fields and a site's settings pages draw
+   in holds picture frames, buttons and repeater rows, each on the control
+   tone, `--surface-2`, against the card; a well behind them would take that
+   tone from under every one. So the field brings its own contrast instead:
+   a text box there, four rows by default, is a short control and takes the
+   control tone as the inputs beside it do; a rich-text field keeps its white
+   page, framed by the control tone where the body field's page is framed by
+   its well. Its head strip and formatting bar are that frame there, not boxes
+   on it, so they show its tone rather than paint their own; the bars that
+   float over a picture or a table keep theirs. A repeater row's fields are
+   not reached: the row is `--surface-2` itself, and the boxes in it stay
+   `--surface`. 0,5,0 and more, over `.form-main .textarea`'s 0,2,0 and the
+   editor's own 0,1,0 rules. */
+.form-main .form-card__section > .form-grid--12 > .field > .textarea,
+.form-main .form-card__section > .form-grid--12 > .field > .editor { background-color: var(--surface-2); }
+.form-main .form-card__section > .form-grid--12 > .field > .editor > :is(.editor__head, .editor__bar:not(.editor__bar--float)) { background: none; }
+.form-main .form-card__section > .form-grid--12 > .field > .editor > .editor__surface { background-color: var(--surface); }
 
 /* SECONDARY BUTTONS TOO, for the same reason and by the same rule the list
    screens already carry (`.list__row .btn`). `--primary` is exempt: it wears the
@@ -1663,6 +1817,65 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
   .term-list .entry-list__head > div:not([class]) { display: none; }
 }
 
+
+/* ═══ 8a. A PARENT'S CHILDREN, ON ITS OWN EDITOR (`Ui\ChildRows`) ═════════
+
+   A LIST OF ROWS IN THE ENTRY FORM'S SECTION, on the inset tone, the shape a
+   repeater's and a field group's rows have, since they are the same idea: an
+   ordered list of things added and removed in place. Each row is a bar (its
+   grip, its status, its save's state and its actions) over its fields, on the
+   form's own twelve-column grid. Sharp, like everything else in a form. */
+.child-rows { display: flex; flex-direction: column; gap: var(--sp-2); }
+.child-rows:not(:has(> .child-row)) { display: none; }
+.child-row {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-none);
+}
+.child-row__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--border);
+}
+/* THE GRIP IS WHAT A ROW IS DRAGGED BY, as a field row's is; a keyboard
+   moves a row by Up one and Down one, so the grip takes no focus. */
+.child-row__grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+}
+.child-row__grip:hover { color: var(--ink-2); }
+.child-row__grip:active { cursor: grabbing; }
+.child-row__status { flex: none; display: flex; }
+.child-row__state {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+.child-row__actions { display: flex; align-items: center; gap: var(--sp-1); flex: none; }
+.child-row__error { padding: var(--sp-2) var(--sp-3) 0; }
+.child-row__fields { padding: var(--sp-3); }
+/* ITS CONTROLS INVERT, as a repeater row's do: on the row's own tone, a box
+   or a secondary button painted that tone would have no edge. Each after the
+   card's own rule it ties (§7, `.form-main .form-card .btn`). */
+.form-main .child-row .input,
+.form-main .child-row .select,
+.form-main .child-row .textarea { background-color: var(--surface); }
+.form-main .child-row .media-picker__preview { background: var(--surface); }
+.form-main .form-card .child-row .btn:not(.btn--primary) { background: var(--surface); }
 
 /* ═══ 8b. THE FIELD EDITOR ════════════════════════════════════════════════ */
 
@@ -2098,6 +2311,19 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
   padding-top: var(--sp-2);
 }
 
+/* A HEADING OVER ROWS, in a column the site arranges (`Ui\Sidebar::heading()`):
+   the list's divider label, in the column's own inset so its words start where
+   the rows' glyphs do, and on the column's own surface, since a band in the
+   lit row's fill would read as a second selection. Railed, its words go and
+   its rows lose their names, as the lead rows do; each glyph is its row. */
+.sb__sec--rows .list__group-header {
+  background: transparent;
+  border-bottom: 0;
+  padding: var(--sp-3) var(--sp-4) var(--sp-1);
+}
+.sb.is-railed .sb__sec--rows .list__group-header,
+.sb.is-railed .sb__sec--rows .sb__item-name { display: none; }
+
 /* A Content Type group's rows sit under a heading that names the type, so the
    type's OWN glyph is already spent on the heading's meaning — `All News` and
    `Add new` wear generic marks instead, and the child-type rows below them wear
@@ -2158,6 +2384,26 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
    there is no other route to the public site from the admin. */
 @media (max-width: 1080px) { .nav-top__group:has(.nav-top__tool) { display: none; } }
 @media (max-width: 720px)  { .nav-top__tool { display: none; } }
+
+/* FIND ANYTHING BY ITS NAME (`Ui\Find`): a box in the bar, its results the
+   bar's own dropdown under it, each a link with its kind at the far end. It
+   holds its width on a desk; on a phone, where the tools have gone, it takes
+   the room they left and the spacer gives way, so it is never dropped. */
+.nav-top__find { flex: 0 1 240px; min-width: 0; }
+.nav-top__find-input { width: 100%; height: 28px; }   /* the control scale's 28, beside the 28px avatar */
+.nav-top__find-menu { width: max(100%, 320px); max-height: 70vh; overflow-y: auto; }
+.nav-top__find-menu .nav-top__link { align-items: baseline; gap: var(--sp-3); }
+.nav-top__find-menu .nav-top__link.is-active { background: var(--hover); color: var(--ink); }
+.nav-top__find-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-top__find-kind { margin-left: auto; flex: 0 0 auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.nav-top__find-none { margin: 0; padding: 6px var(--sp-3); font-size: var(--fs-sm); color: var(--ink-3); }
+@media (max-width: 720px) {
+  .nav-top__spacer { flex: 0 0 0; }
+  /* The room left once the name is whole, never less than a word's width:
+     the name gives way first only when it alone is too long, as above. */
+  .nav-top__find { flex: 1 1 0; min-width: 80px; }
+  .nav-top__find-menu { width: auto; left: 0; right: 0; position: fixed; top: var(--nav-h); }
+}
 
 
 /* ═══ 11a. THE VERSION AT THE FOOT ════════════════════════════════════════ */
@@ -2927,6 +3173,21 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 /* FIGURES IN A ROW: four fit one at a desktop width, and the seventh of the
    dashboard's does not sit alone under two rows of three. */
 .card-grid--stats { grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+/* A SITE'S OWN DASHBOARD PANELS (`Site\DashboardPanels`): a row of twelve
+   columns, each panel all of it, half or a third; one column from md down. A
+   panel is a section, so the gap spaces them and the section-to-section margin
+   is undone inside the row; the block after the row stands apart as a
+   section does. */
+.dashboard-panels { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--sp-5); align-items: start; }
+.dashboard-panels > .dashboard-panel { grid-column: span 12; margin-top: 0; min-width: 0; }
+.dashboard-panels > .dashboard-panel--half { grid-column: span 6; }
+.dashboard-panels > .dashboard-panel--third { grid-column: span 4; }
+.dashboard-panel__body { overflow-wrap: anywhere; }
+.dashboard-panels + :is(.alert, .panel__section, .card-grid) { margin-top: var(--sp-5); }
+@media (max-width: 720px) {
+  .dashboard-panels > .dashboard-panel--half,
+  .dashboard-panels > .dashboard-panel--third { grid-column: span 12; }
+}
 /* TWO FORMS ON ONE PAGE, one card each, stand apart as two cards do. */
 .page > form + form { display: block; margin-top: var(--sp-5); }
 
@@ -4035,6 +4296,13 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
 .fgrow .textarea,
 .fgrow .btn:not(.btn--primary),
 .fgrow .icon-btn--outline { background-color: var(--surface); }
+/* …AND BACK AGAIN IN A REPEATER'S COLUMN, which is --surface itself (§12's
+   ladder: card, field row, column): there the rule above would paint every
+   box the column's own white, and a column's label, key and settings would
+   have no edge. 0,3,0 over 0,2,0. */
+.fgrow .subfields__row .input,
+.fgrow .subfields__row .select,
+.fgrow .subfields__row .textarea { background-color: var(--surface-2); }
 .fgrow.is-collapsed .fgrow__body { display: none; }
 
 /* A SELECTED ROW IS MARKED ON ITS EDGE, not filled. A coloured edge takes
@@ -4075,6 +4343,12 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
   .form-grid--12 > .field--third,
   .form-grid--12 > .field--quarter { grid-column: auto; }
 }
+
+/* FIELDS IN THE COLUMN BESIDE, a field group whose Position is Side: one to a
+   row, whatever width each has, as on a phone. A half of the aside is not a
+   field. */
+.form-aside .form-grid--12 { grid-template-columns: 1fr; }
+.form-aside .form-grid--12 > .field { grid-column: auto; }
 
 .fgpane[hidden] { display: none; }
 .fgpane > .field,
@@ -5223,6 +5497,15 @@ a.permalink__url:hover .permalink__slug { color: var(--accent); text-decoration-
   flex: 0 0 auto;
   background-position: right var(--sp-1) center;
 }
+/* `--surface`, NOT THE BAR'S OWN `--surface-2`, as the head strip's Add
+   buttons are (below): the column paints a short control `--surface-2`, and
+   the menu had an edge only where a well's inversion reached it, so a
+   rich-text field among a type's own fields drew it on a bar of its own tone.
+   0,3,0 over `.form-main .select`'s 0,2,0. */
+.form-main .editor .editor__block { background-color: var(--surface); }
+/* THE STYLE MENU (a theme's `content_classes`) is as wide as its names, within
+   reason: they are the theme's words, not a list of known length. */
+.editor__style { width: auto; min-width: 96px; max-width: 12rem; }
 
 /* ── THE HEAD STRIP ───────────────────────────────────────────────────────
    Add image on the left, the view switch and the full-screen toggle on the

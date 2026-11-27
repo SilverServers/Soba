@@ -79,6 +79,11 @@ use Cms\Ui\Status;
  * @var int                                   $page, $perPage, $totalPages
  * @var array<string, mixed>                  $filters      what the bar redisplays
  * @var array{orderby: string, order: string} $sort
+ * @var array{orderby: string, order: string} $sorted     the order the rows are in, chosen or not
+ * @var string                               $when       an event type's view: 'upcoming', 'past', 'all'; '' for any other type
+ * @var array{upcoming: int, past: int}|null $whenCounts
+ * @var list<array<string, mixed>>           $listColumns `ContentType\ListColumns::forType()`
+ * @var array<int, array<string, string>>    $columnCells `ContentType\ListColumns::cells()`
  * @var bool                                  $filtering
  * @var \Closure(array<string, mixed>=): string $listUrl    this view's address, with changes
  * @var array<string, string>                 $months       `Y-m` => "September 2026"
@@ -86,7 +91,11 @@ use Cms\Ui\Status;
  * @var array<string, array<string, mixed>>   $cptTaxonomies
  * @var array<string, list<array<string, mixed>>> $termTrees
  * @var array<int, array<string, list<array{id: int, name: string}>>> $rowTerms
- * @var list<array<string, mixed>>|null       $bulkAuthors  null for an author
+ * @var list<array<string, mixed>>|null       $bulkAuthors  null for a role the Author panel is not shown to
+ * @var bool                                  $showAddress  each row's address under its title (`StaffView`)
+ * @var bool                                  $showBulk     tick boxes and bulk actions (`StaffView`)
+ * @var array<string, mixed>|null             $group        what the list is grouped by (`StaffView::groupBy()`), or null
+ * @var array<int, string>                    $groupOf      each row's value in it, '' for none
  * @var array<string, mixed>|null             $bulkReport
  * @var int                                   $trashedCount
  * @var array<string, mixed>                  $user
@@ -95,7 +104,9 @@ use Cms\Ui\Status;
 $label       = (string) $contentType['label'];
 $labelSingle = (string) $contentType['label_single'];
 $adminSlug   = (string) $contentType['admin_slug'];
-$publicSlug  = (string) ($contentType['public_slug'] ?? '');
+// '' when the type's entries have no pages (`Registry::hasPages()`): then a
+// row offers Edit and no View.
+$publicSlug  = (string) \Cms\ContentType\Registry::publicSlug((string) $contentType['key']);
 $canFilterByAuthor = $listAuthors !== [] || $filters['author'] !== null;
 
 $pageTitle   = $label;
@@ -109,11 +120,13 @@ $entries = static fn (int $n): string => $n . ' ' . ($n === 1 ? 'entry' : 'entri
 // A SORTABLE COLUMN HEADING. The arrow on the active column says which way;
 // an inactive one carries the neutral pair, because a heading that sorts must
 // look like one before it is clicked — the pointer arriving on it is too late.
-$sortLink = static function (string $column, string $text) use ($sort, $listUrl): string {
-    $active = $sort['orderby'] === $column;
-    $first  = $column === 'title' ? 'asc' : 'desc';
-    $next   = $active ? ($sort['order'] === 'asc' ? 'desc' : 'asc') : $first;
-    $glyph  = !$active ? 'sort' : ($sort['order'] === 'asc' ? 'sort-up' : 'sort-down');
+// THE ARROW IS ON THE ORDER THE ROWS ARE IN (`$sorted`): one chosen, the
+// type's own, or an event list's by when each starts.
+$sortLink = static function (string $column, string $text) use ($sorted, $listUrl): string {
+    $active = $sorted['orderby'] === $column;
+    $first  = $column === 'date' ? 'desc' : 'asc';
+    $next   = $active ? ($sorted['order'] === 'asc' ? 'desc' : 'asc') : $first;
+    $glyph  = !$active ? 'sort' : ($sorted['order'] === 'asc' ? 'sort-up' : 'sort-down');
 
     return '<a class="entry-list__sort' . ($active ? ' is-active' : '') . '"'
         . ' href="' . h($listUrl(['orderby' => $column, 'order' => $next, 'page' => null])) . '"'
@@ -235,11 +248,25 @@ ob_start();
               // reached again with Back. The sort rides along hidden, so
               // filtering a list sorted by title keeps it sorted by title; the
               // page does not, because page 4 of a new question is a guess. ?>
+        <?php // AN EVENT TYPE'S LIST OPENS ON UPCOMING, soonest first; Past,
+              // newest first; All, in the type's own order. Each counts what
+              // the filters below leave in it. ?>
+        <?php if ($whenCounts !== null): ?>
+            <nav class="tabs" aria-label="Which <?= h(strtolower($label)) ?>" data-when-tabs>
+                <?php foreach (['upcoming' => 'Upcoming', 'past' => 'Past', 'all' => 'All'] as $tab => $tabLabel): ?>
+                    <a class="tabs__tab<?= $when === $tab ? ' is-active' : '' ?>"<?= $when === $tab ? ' aria-current="page"' : '' ?>
+                       href="<?= h($listUrl(['when' => $tab === 'upcoming' ? '' : $tab, 'page' => null])) ?>" data-when="<?= h($tab) ?>"><?= h($tabLabel) ?><?php if ($tab !== 'all'): ?> <span class="card__count"><?= (int) $whenCounts[$tab] ?></span><?php endif; ?></a>
+                <?php endforeach; ?>
+            </nav>
+        <?php endif; ?>
         <form class="filterbar filterbar--apply" method="get" action="<?= h(Url::admin($adminSlug)) ?>"
               data-entry-filter>
             <?php if ($sort['orderby'] !== ''): ?>
                 <input type="hidden" name="orderby" value="<?= h($sort['orderby']) ?>">
                 <input type="hidden" name="order" value="<?= h($sort['order']) ?>">
+            <?php endif; ?>
+            <?php if ($when === 'past' || $when === 'all'): ?>
+                <input type="hidden" name="when" value="<?= h($when) ?>">
             <?php endif; ?>
 
             <div class="filterbar__group">
@@ -342,6 +369,20 @@ ob_start();
                     </label>
                 <?php endforeach; ?>
 
+                <?php // ONE PARENT'S, on a child type's list: named as its
+                      // editor names them, and the order it is arranged in. ?>
+                <?php if ($parentType !== null): ?>
+                    <label class="filterbar__field">
+                        <span class="filterbar__label"><?= h((string) $parentType['label_single']) ?></span>
+                        <select class="select" name="parent">
+                            <option value="">All <?= h(strtolower((string) $parentType['label'])) ?></option>
+                            <?php foreach ($parentOptions as $parentOption): ?>
+                                <option value="<?= (int) $parentOption['id'] ?>"<?= (int) $filters['parent'] === (int) $parentOption['id'] ? ' selected' : '' ?>><?= h((string) ($parentOption['label'] ?? $parentOption['title'])) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                <?php endif; ?>
+
                 <?php // "Number of items per page". A number and not a select
                       // of presets, so the box can hold whatever it was given —
                       // from 1 to 999. ?>
@@ -376,6 +417,9 @@ ob_start();
               // `form="entry-bulk"`: every row already holds a form (Trash),
               // and HTML has no nested forms — the parser discards the inner
               // tag, and its button submits the outer form instead. ?>
+        <?php // NO BULK ACTION FOR A ROLE ITS LIST DOES NOT OFFER ONE TO
+              // (`ContentType\StaffView`): no form, no bar, no tick boxes. ?>
+        <?php if ($showBulk): ?>
         <form id="entry-bulk" method="post" action="<?= h(Url::admin($adminSlug . '/bulk')) ?>"
               data-entry-bulk
               data-label-one="entry" data-label-many="entries"
@@ -429,8 +473,8 @@ ob_start();
 
                         <?php foreach ($cptTaxonomies as $taxKey => $tax): ?>
                             <?php
-                            $one = (int) ($tax['min_terms'] ?? 0) === 1
-                                && isset($tax['max_terms']) && (int) $tax['max_terms'] === 1;
+                            // EXACTLY ONE by the type's rule or the taxonomy's (`Term::countRule()`).
+                            $one = \Cms\Models\Term::countRule((string) $taxKey, (string) $contentType['key']) === [1, 1];
                             ?>
                             <fieldset class="field bulk-edit__tax" data-bulk-tax="<?= h((string) $taxKey) ?>"
                                       data-bulk-mode="<?= $one ? 'one' : 'many' ?>">
@@ -482,14 +526,16 @@ ob_start();
                                 </select>
                             <?php endif; ?>
 
-                            <?php // PUBLISHED OR PRIVATE — the two a selection
-                                  // can share. Password needs a password, and
-                                  // Scheduled is a date, not a status. ?>
+                            <?php // PUBLISHED, PRIVATE OR SAMPLE — the three a
+                                  // selection can share. Password needs a
+                                  // password, and Scheduled is a date, not a
+                                  // status. ?>
                             <label class="label" for="bulk-status">Status</label>
                             <select class="select" id="bulk-status" name="bulk_status">
                                 <option value="">No change</option>
                                 <option value="published">Published</option>
                                 <option value="private">Private</option>
+                                <option value="sample">Sample</option>
                             </select>
                         </div>
 
@@ -529,6 +575,7 @@ ob_start();
                 </div>
             </div>
         </form>
+        <?php endif; ?>
 
         <?php if ($posts === []): ?>
             <?php // THE FILTERED-EMPTY STATE, and it is a DIFFERENT element from
@@ -542,22 +589,37 @@ ob_start();
                 <p class="empty__title">No <?= h(strtolower($label)) ?> match that filter</p>
             </div>
         <?php else: ?>
-        <div class="list entry-list entry-list--select entry-list--copy" id="entry-list">
+        <?php // MORE ROWS THAN A PAGE HOLDS, on a list arranged by drag: the one
+              // step that brings them onto one page to arrange. ?>
+        <?php if ($arrangeAll !== null): ?>
+            <p class="form-help" data-arrange-all><a class="link" href="<?= h($arrangeAll) ?>">Show all <?= (int) $total ?> on one page</a> to arrange them by dragging.</p>
+        <?php elseif ($arrange === null && $parentType !== null && (int) $filters['parent'] === 0
+                      && \Cms\ContentType\ArchetypeDefaults::isHandOrdered($contentType['archetypes'] ?? [])): ?>
+            <p class="form-help" data-arrange-parent>Choose one <?= h(strtolower((string) $parentType['label_single'])) ?> above to arrange its <?= h(strtolower($label)) ?> by dragging.</p>
+        <?php endif; ?>
+        <div class="list entry-list entry-list--select entry-list--copy<?= $showBulk ? '' : ' entry-list--no-bulk' ?><?= $arrange !== null ? ' entry-list--arrange' : '' ?>"<?= $arrange !== null ? ' data-arrange="' . h($arrange['url']) . '"' . ($arrange['parent'] > 0 ? ' data-arrange-parent="' . (int) $arrange['parent'] . '"' : '') : '' ?> id="entry-list"<?= $listColumns !== [] ? ' style="--entry-cols: ' . h(implode(' ', array_map([\Cms\ContentType\ListColumns::class, 'track'], $listColumns))) . '"' : '' ?>>
             <?php // THE HEADING ROW — the redirects list's precedent (`.rd-list__head`):
                   // a `.list__row` itself, so each label sits on the grid of the
                   // cells it names and cannot drift from them. It carries the
                   // select-all and the two sortable columns. ?>
             <div class="list__row entry-list__head">
-                <label class="entry-list__check">
-                    <input type="checkbox" data-bulk-all
-                           aria-label="Select every <?= h(strtolower($labelSingle)) ?> on this page">
-                </label>
-                <div class="entry-list__main"><?= $sortLink('title', 'Title') ?></div>
+                <?php if ($showBulk): ?>
+                    <label class="entry-list__check">
+                        <input type="checkbox" data-bulk-all
+                               aria-label="Select every <?= h(strtolower($labelSingle)) ?> on this page">
+                    </label>
+                <?php endif; ?>
+                <div class="entry-list__main"><?= $sortLink('title', \Cms\ContentType\Registry::ownTitleLabel((string) $contentType['key']) ?? 'Title') ?></div>
+                <?php foreach ($listColumns as $column): ?>
+                    <div class="entry-list__col"><?= $column['kind'] === 'field' ? $sortLink('field:' . $column['key'], $column['heading']) : h($column['heading']) ?></div>
+                <?php endforeach; ?>
                 <div>Status</div>
                 <div class="entry-list__when"><?= $sortLink('date', 'Date') ?></div>
                 <div aria-hidden="true"></div>
             </div>
 
+            <?php $columnTaxonomies = array_flip(array_column(array_filter($listColumns, static fn (array $c): bool => $c['kind'] === 'tax'), 'key')); ?>
+            <?php $lastGroup = null; ?>
             <?php foreach ($posts as $post): ?>
                 <?php
                 $id      = (int) $post['id'];
@@ -599,17 +661,29 @@ ob_start();
                     $filed[$taxKey] = array_map(static fn (array $t): int => $t['id'], $rowTerms[$id][$taxKey] ?? []);
                 }
                 ?>
+                <?php // A HEADING FOR EACH VALUE THE LIST IS GROUPED BY
+                      // (`ContentType\StaffView::groupBy()`), where a row's
+                      // differs from the one above: the list's own divider
+                      // label. Those with none come last, under "No …". ?>
+                <?php if ($group !== null && ($groupOf[$id] ?? '') !== $lastGroup): ?>
+                    <?php $lastGroup = $groupOf[$id] ?? ''; ?>
+                    <div class="list__group-header" data-group="<?= h($lastGroup) ?>">
+                        <?= h($lastGroup === '' ? 'No ' . strtolower((string) $group['label']) : (string) ($group['values'][$lastGroup] ?? $lastGroup)) ?>
+                    </div>
+                <?php endif; ?>
                 <div class="list__row"
-                     data-entry-id="<?= $id ?>"
+                     data-entry-id="<?= $id ?>"<?= $group !== null ? ' data-group="' . h($groupOf[$id] ?? '') . '"' : '' ?>
                      data-status="<?= h(Status::forEntry($post)) ?>"
                      data-bulk-terms="<?= h((string) json_encode($filed)) ?>">
                     <?php // THE TICK BOX'S TARGET IS ITS WHOLE CELL — a label
                           // filling the row's height, not the 13px box. ?>
-                    <label class="entry-list__check">
-                        <input type="checkbox" name="ids[]" value="<?= $id ?>" form="entry-bulk"
-                               data-bulk-row data-title="<?= h((string) $post['title']) ?>"
-                               aria-label="Select &ldquo;<?= h((string) $post['title']) ?>&rdquo;">
-                    </label>
+                    <?php if ($showBulk): ?>
+                        <label class="entry-list__check">
+                            <input type="checkbox" name="ids[]" value="<?= $id ?>" form="entry-bulk"
+                                   data-bulk-row data-title="<?= h((string) $post['title']) ?>"
+                                   aria-label="Select &ldquo;<?= h((string) $post['title']) ?>&rdquo;">
+                        </label>
+                    <?php endif; ?>
 
                     <div class="entry-list__main">
                         <?php // `list__row-link` goes ON THE ANCHOR, not on this
@@ -618,8 +692,16 @@ ob_start();
                               // instead leaves a row that lights up on hover with
                               // no link under most of it — a hover cue over dead
                               // space. ?>
+                        <?php if ($arrange !== null): ?>
+                            <?php // DRAGGED BY ITS GRIP, which a keyboard does not
+                                  // take: Up one and Down one are its way. Lifted
+                                  // over the row's stretched link (`data-handle`). ?>
+                            <span class="entry-list__grip" data-arrange-grip data-handle aria-hidden="true"><?= icon('grip-vertical', 'icon icon--sm') ?></span>
+                        <?php endif; ?>
                         <a class="list__row-link list__row-title" href="<?= h($editUrl) ?>"><?= h((string) $post['title']) ?></a>
-                        <div class="list__row-sub">/<?= h((string) $post['slug']) ?></div>
+                        <?php if ($showAddress): ?>
+                            <div class="list__row-sub">/<?= h((string) $post['slug']) ?></div>
+                        <?php endif; ?>
                         <?php // A TRANSLATION SAYS ITS LANGUAGE (`Content\Translation`). ?>
                         <?php if ((string) ($post['lang'] ?? '') !== ''): ?>
                             <div class="list__row-sub entry-list__lang" data-row-lang="<?= h((string) $post['lang']) ?>">
@@ -651,7 +733,7 @@ ob_start();
                               // The taxonomy names itself, in the singular when
                               // there is one term. ?>
                         <?php foreach ($cptTaxonomies as $taxKey => $tax): ?>
-                            <?php $termsHere = $rowTerms[$id][$taxKey] ?? []; ?>
+                            <?php $termsHere = isset($columnTaxonomies[$taxKey]) ? [] : ($rowTerms[$id][$taxKey] ?? []); ?>
                             <?php if ($termsHere !== []): ?>
                                 <div class="list__row-sub entry-list__terms" data-row-terms="<?= h((string) $taxKey) ?>">
                                     <?= icon('tag', 'icon icon--sm') ?>
@@ -661,6 +743,24 @@ ob_start();
                             <?php endif; ?>
                         <?php endforeach; ?>
                     </div>
+
+                    <?php // EACH COLUMN THE TYPE ADDS: a field as it prints, a
+                          // taxonomy's terms, each the list's filter for it, a
+                          // child type's count. On a phone, where the row is a
+                          // card, each names itself. ?>
+                    <?php foreach ($listColumns as $column): ?>
+                        <div class="entry-list__col" data-col="<?= h($column['spec']) ?>">
+                            <span class="entry-list__col-label"><?= h($column['heading']) ?></span>
+                            <?php if ($column['kind'] === 'tax'): ?>
+                                <?php $colTerms = $rowTerms[$id][$column['key']] ?? []; ?>
+                                <?php if ($colTerms === []): ?><span class="placeholder">—</span><?php endif; ?>
+                                <?php foreach ($colTerms as $i => $term): ?><?= $i > 0 ? ', ' : '' ?><a href="<?= h($listUrl(['tax_' . $column['key'] => $term['id'], 'page' => null])) ?>"><?= h($term['name']) ?></a><?php endforeach; ?>
+                            <?php else: ?>
+                                <?php $cell = (string) ($columnCells[$id][$column['spec']] ?? ''); ?>
+                                <?= $cell !== '' ? $cell : '<span class="placeholder">—</span>' ?>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
 
                     <?= Status::render(Status::forEntry($post)) ?>
 
@@ -706,6 +806,10 @@ ob_start();
                             </a>
                         <?php endif; ?>
                         </span>
+                        <?php if ($arrange !== null): ?>
+                            <button type="button" class="icon-btn" data-arrange-up aria-label="Up one" data-tip="Up one"><?= icon('arrow-up', 'icon icon--sm') ?></button>
+                            <button type="button" class="icon-btn" data-arrange-down aria-label="Down one" data-tip="Down one"><?= icon('arrow-down', 'icon icon--sm') ?></button>
+                        <?php endif; ?>
                         <a class="btn btn--sm" href="<?= h($editUrl) ?>">Edit</a>
                         <?php // AN ENTRY COPIED to start the next one: Private;
                               // a product's with no codes and no stock of its
@@ -780,6 +884,11 @@ ob_start();
       // exists when there are rows, but the cost of the tag is nothing and a
       // conditional script is easy to lose. ?>
 <script src="<?= h(\Cms\Helpers\Asset::admin('js/confirm.js')) ?>"></script>
+<?php if ($arrange !== null): ?>
+    <?php // A LIST ARRANGED BY DRAG: reorder.js, then its own. ?>
+    <script src="<?= h(\Cms\Helpers\Asset::admin('js/reorder.js')) ?>"></script>
+    <script src="<?= h(\Cms\Helpers\Asset::admin('js/list-arrange.js')) ?>"></script>
+<?php endif; ?>
 <?php
 $pageContent = ob_get_clean();
 require ROOT_PATH . '/admin/templates/layout.php';

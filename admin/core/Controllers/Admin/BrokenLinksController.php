@@ -7,6 +7,7 @@ namespace Cms\Controllers\Admin;
 use Cms\Auth\Auth;
 use Cms\ContentType\Registry;
 use Cms\Export\StaticCopy;
+use Cms\Http\Cache;
 use Cms\Models\Page;
 use Cms\Models\Post;
 use RuntimeException;
@@ -58,6 +59,7 @@ final class BrokenLinksController
         Auth::requireRole('admin');
         $check = StaticCopy::openCheck((string) ($vars['id'] ?? ''));
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         if ($check === null) {
             http_response_code(404);
             echo json_encode(['success' => false, 'error' => 'That check is no longer here.']);
@@ -101,7 +103,7 @@ final class BrokenLinksController
         }
         if (count($parts) === 2) {
             foreach (Registry::all() as $key => $type) {
-                if ((string) ($type['public_slug'] ?? '') !== $parts[0]) {
+                if ((string) Registry::publicSlug((string) $key) !== $parts[0]) {
                     continue;
                 }
                 $post = Post::findBySlug($parts[1]);

@@ -71,6 +71,10 @@ $has = $formData !== [];
 $hierarchical = $has
     ? !empty($formData['is_hierarchical'])
     : (!$isNew && (bool) $taxonomy['is_hierarchical']);
+// Who may add a term (migration 140): '' as its shape says, a role, or 'none'.
+$addTerms = $has
+    ? (string) ($formData['add_terms'] ?? '')
+    : (string) (($isNew ? null : ($taxonomy['add_terms'] ?? null)) ?? '');
 // Whether a customer chooses from it when buying (migration 095).
 $isOption = $has
     ? !empty($formData['is_option'])
@@ -254,6 +258,22 @@ $action = $isNew
                                 </span>
                                 <span class="check-list__note">a tick-box tree, like categories</span>
                             </label>
+                        </div>
+                        <?php // WHO MAY ADD A TERM (migration 140, `ContentType\StaffView::
+                              // addsTerms()`): asked alike by the entry editor's
+                              // row, the API and the terms screen. Editing the
+                              // terms there are stays an editor's. ?>
+                        <div class="form-grid form-grid--2">
+                            <div class="field">
+                                <label class="label" for="f-add-terms">Who may add a term</label>
+                                <select class="select" id="f-add-terms" name="add_terms">
+                                    <option value="">As its shape says</option>
+                                    <?php foreach (\Cms\ContentType\StaffView::ROLE_CHOICES as $roleValue => $roleWords): ?>
+                                        <option value="<?= h($roleValue) ?>"<?= $addTerms === $roleValue ? ' selected' : '' ?>><?= h($roleWords) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="form-help">As its shape says: authors on a flat one, editors on a nested one. On an entry's screen, through the API and on its terms screen alike.</p>
+                            </div>
                         </div>
                         <?php if (!$isNew && $termCount > 0): ?>
                             <?php // A FACT ABOUT THE SWITCH, at the moment it can

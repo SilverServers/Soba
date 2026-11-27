@@ -77,6 +77,8 @@ return [
         // submission takes. media-site-files.php puts files the site already
         // has under its web root into the library where they are.
         // admin-theme.php lists the admin's themes and checks a site's own.
+        // health.php prints System health and what going to production
+        // changes, so a launch can rest on one command.
         'admin/bin/migrate.php',
         'admin/bin/update.php',
         'admin/bin/security.php',
@@ -89,6 +91,7 @@ return [
         'admin/bin/form-numbers.php',
         'admin/bin/media-site-files.php',
         'admin/bin/admin-theme.php',
+        'admin/bin/health.php',
         '@admin',
         'www/assets/',
         'www/uploads/.htaccess',
@@ -118,6 +121,8 @@ return [
         // WordPress exports waiting to be imported, and the imports' reports
         // (`Content\WordPressImport`).
         'admin/imports/',
+        // Uploads arriving in pieces, until each is whole (`Media\Pieces`).
+        'admin/pieces/',
         'admin/logs/',
         'www/uploads/',
         // The site's public files. www/site/theme.css loads after the CMS's

@@ -20,6 +20,9 @@ use Cms\ContentType\TaxonomyRegistry;
  *   'content_types' — Content Type keys this taxonomy attaches to (sidebar panels on edit screen)
  *   'hierarchical'  — true: category style (checkbox tree with parent/child nesting)
  *                     false: tag style (chip input with typeahead)
+ *   'add_terms'     — the least role that may add a term ('admin'), or false for no
+ *                     one; as its shape says unless named (authors on a flat one,
+ *                     editors on a nested one)
  */
 
 // -----------------------------------------------------------------------

@@ -6,12 +6,14 @@
    split rationale + add-a-theme steps.
 
    Members (themes_definitions() family = 'signature'):
-     tuxedo (the default — its keyed block + chrome live here; tokens-base.css
-     carries a bare-:root copy of its palette for first paint), midnight,
-     pearl, deep-blue, slate, oled, kawaii, ember (Tuxedo's warm sibling —
-     its keyed block + chrome live at the end of this file). */
+     tuxedo (the bare-:root default paint — its keyed block + chrome live
+     here; tokens-base.css carries a copy of its palette for first paint),
+     carton (paper pages under ink chrome, the CMS's default admin theme —
+     its keyed block + chrome follow Tuxedo's), midnight, pearl, deep-blue,
+     slate, oled, kawaii, ember (Tuxedo's warm sibling — its keyed block +
+     chrome live at the end of this file). */
 
-/* ─── Tuxedo (DEFAULT — LIGHT content + DARK chrome, "mime mode") ──────────────
+/* ─── Tuxedo (LIGHT content + DARK chrome, "mime mode"; the default paint) ─────
    Page main area is light (mirrors Pearl's lightened palette). Sidebar and
    top nav are deep cool black. Achieved without new tokens: the .nav-rail
    and .nav-top scope-override blocks below redefine --bg / --surface / --ink
@@ -98,6 +100,156 @@
   --picker-invert: 0.6;
 
 }
+
+/* ─── Carton (LIGHT paper content + INK chrome; the CMS's default admin theme) ─
+   The admin printed like a retro carton. Ink chrome (the top bar and the
+   sidebar) over paper pages; cards a tone lighter than the page, so they
+   lift off it without a shadow; cream for panels, wells and the row you are
+   on; ink for what acts; a faint teal for what is on or picked; tomato,
+   mustard and teal as spot colours, used sparingly. Colours only: the type,
+   sizes and shapes are the admin's own, exactly as under Tuxedo, Midnight and
+   Pearl. Every rule is scoped to :root[data-theme="carton"], the select
+   chevrons drawn inline as core.css draws the admin's own, only their colour
+   changed. First paint (Ui\Theme::all()): bg #F6F1E8, chrome #1D1B16. */
+
+/* ── The page: paper, ink and the three spot colours ─────────────────────────
+   Paper is the page; a card is paper a tone lighter; cream is the panel, the
+   well and the row you are on. Text is ink or buckwheat, measured on all
+   three. */
+:root[data-theme="carton"] {
+  --bg:        #F6F1E8;   /* paper */
+  --surface:   #FBF8F2;   /* paper, a tone lighter: the card */
+  --surface-2: #EFE6D6;   /* cream */
+
+  --ink:          #1D1B16;   /* ink: 15.3:1 on paper, 16.2:1 on a card, 13.9:1 on cream */
+  --ink-2:        #5B544A;   /* buckwheat: 6.6:1 on paper, 7.0:1 on a card, 6.0:1 on cream */
+  --ink-3:        #5B544A;   /* buckwheat again: secondary text is one colour */
+  --ink-disabled: #A8A095;   /* buckwheat light */
+
+  --border:        #DDD2BF;  /* rule */
+  --border-strong: #A8A095;  /* buckwheat light: the edge of a control */
+
+  /* WHAT ACTS IS INK, as a printed button is: ink, cream words. What is ON
+     or picked (a published state, a chip, the bold button in the editor) is a
+     faint teal under ink words, 13.1:1. */
+  --accent:        #1D1B16;
+  --accent-strong: #1D1B16;
+  --accent-soft:   rgba(79, 133, 118, 0.14);
+
+  --hover:  rgba(29, 27, 22, 0.04);
+  --active: rgba(29, 27, 22, 0.07);
+  --focus:  #4F8576;   /* teal, the focus ring: 3.8:1 on paper, 4.0:1 on a card */
+
+  /* TOMATO IS NEVER AN ALARM. A failure is the admin's own alert surface, in
+     ink; a caution is mustard, in its deep version wherever it is words
+     (5.0:1 on paper, 5.3:1 on a card). */
+  --danger:       #1D1B16;
+  --danger-soft:  rgba(29, 27, 22, 0.06);
+  --warning:      #915C05;
+  --warning-soft: rgba(201, 138, 53, 0.10);
+
+  --shadow: none;   /* flat, as print is */
+
+  --color-scheme:  light;
+  --picker-invert: 0;
+
+  --surface-hero:  #1D1B16;   /* the ink band: a panel's head */
+  --ink-hero:      #EFE6D6;
+  --surface-inset: #F6F1E8;
+  --ink-inset:     #1D1B16;
+
+  /* Words on an ink fill: cream, 13.9:1. */
+  --ink-on-strong: #EFE6D6;
+}
+
+/* ── The chrome: ink ─────────────────────────────────────────────────────────
+   The sidebar, an entry's side column and the drawer on a phone are ink, a
+   panel on them ink raised and the row you are on rule dark. Words are cream,
+   and buckwheat light where secondary (6.7:1). On ink, what acts is cream, as
+   a printed button on ink is: Tuxedo lets its accent through here, and ink on
+   ink would vanish. */
+:root[data-theme="carton"] .nav-rail,
+:root[data-theme="carton"] .sb,
+:root[data-theme="carton"] .entity-rail-col,
+:root[data-theme="carton"] .nav-drawer {
+  --bg:            #1D1B16;   /* ink */
+  --surface:       #26241F;   /* ink raised */
+  --surface-2:     #34322C;   /* rule dark: the row you are on, 10.4:1 under cream */
+  --ink:           #EFE6D6;   /* cream */
+  --ink-2:         #A8A095;   /* buckwheat light */
+  --ink-3:         #A8A095;
+  --ink-disabled:  #5B544A;
+  --border:        #34322C;
+  --border-strong: #5B544A;
+  --hover:         rgba(239, 230, 214, 0.06);
+  --active:        rgba(239, 230, 214, 0.10);
+  --color-scheme:  dark;
+  --picker-invert: 0.6;
+  --accent:        #EFE6D6;
+  --accent-strong: #EFE6D6;
+  --accent-soft:   rgba(239, 230, 214, 0.12);
+  --ink-on-strong: #1D1B16;
+}
+/* The top bar, on ink. */
+:root[data-theme="carton"] .nav-top {
+  --bg:            #1D1B16;
+  --surface:       #1D1B16;   /* the bar itself */
+  --surface-2:     #26241F;   /* ink raised: the avatar's tile */
+  --ink:           #EFE6D6;
+  --ink-2:         #A8A095;
+  --ink-3:         #A8A095;
+  --ink-disabled:  #5B544A;
+  --border:        #34322C;
+  --border-strong: #5B544A;
+  --hover:         rgba(239, 230, 214, 0.06);
+  --active:        rgba(239, 230, 214, 0.10);
+  --color-scheme:  dark;
+  --picker-invert: 0.6;
+  --accent:        #EFE6D6;
+  --accent-strong: #EFE6D6;
+  --accent-soft:   rgba(239, 230, 214, 0.12);
+  --ink-on-strong: #1D1B16;
+}
+
+
+/* ═══ COLOURS THE TOKENS DO NOT REACH ═════════════════════════════════════ */
+
+/* Selection: white on teal over light grounds, ink on mustard over dark ones. */
+:root[data-theme="carton"] ::selection { background: #4F8576; color: #FFFFFF; }
+:root[data-theme="carton"] .nav-top ::selection,
+:root[data-theme="carton"] .sb ::selection,
+:root[data-theme="carton"] .nav-rail ::selection,
+:root[data-theme="carton"] .entity-rail-col ::selection,
+:root[data-theme="carton"] .nav-drawer ::selection { background: #C98A35; color: #1D1B16; }
+
+/* The top bar and the sidebar are one ink: no hairline between them. */
+:root[data-theme="carton"] .nav-top { border-bottom-color: #1D1B16; }
+:root[data-theme="carton"] .sb { border-right-color: #1D1B16; }
+
+/* A select's chevron in buckwheat, and buckwheat light on ink: the admin's own
+   is a cool grey, drawn as an image the tokens cannot recolour. */
+:root[data-theme="carton"] .select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%235B544A' stroke-width='1.5'><path d='M3 5l3 3 3-3'/></svg>"); }
+:root[data-theme="carton"] .sb .select,
+:root[data-theme="carton"] .nav-drawer .select,
+:root[data-theme="carton"] .entity-rail-col .select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23A8A095' stroke-width='1.5'><path d='M3 5l3 3 3-3'/></svg>"); }
+
+/* Success is teal; a failure takes its faint ink ground, as an alert's does;
+   information is the alert's shape on a card, so it is not taken for the
+   mustard of a caution. */
+:root[data-theme="carton"] .flash--success,
+:root[data-theme="carton"] .toast--success { border-top-color: #4F8576; }
+:root[data-theme="carton"] .flash--error { background: var(--danger-soft); }
+:root[data-theme="carton"] .alert--info { background: var(--surface); }
+
+/* An avatar's ring in its own ink: the admin rings each in a hue made from
+   the username, which would bring colours the palette does not have. */
+:root[data-theme="carton"] .avatar { --avatar-color: currentColor !important; }
+
+/* Settings → Branding: the logo for dark grounds, previewed on ink. */
+:root[data-theme="carton"] [data-branding-logo="dark"] .media-picker__preview { background: #1D1B16; border-color: #1D1B16; }
+
+/* The drawer's dimmed page, in ink. */
+:root[data-theme="carton"] .nav-drawer-backdrop { background: rgba(29, 27, 22, 0.6); }
 
 /* ─── Ember (LIGHT WARM content + DARK cool-black chrome) ──────────────────────
    Tuxedo's warm sibling: same deep cool-black sidebar/top-nav trick (identical

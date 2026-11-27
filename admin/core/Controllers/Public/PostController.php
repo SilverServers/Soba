@@ -27,15 +27,18 @@ class PostController
     {
         $post = Post::findBySlug($vars['slug']);
 
-        if ($post === null || $post['post_type'] !== $this->postTypeKey) {
+        // AN ENTRY WHOSE TYPE HAS NO PAGES has no page, at any address and
+        // however it is reached (`Registry::hasPages()`).
+        if ($post === null || $post['post_type'] !== $this->postTypeKey || !Registry::hasPages($this->postTypeKey)) {
             Template::notFound($this->postTypeKey);
             return;
         }
 
         // Private: require login — or the entry's share link while it works
-        // (`Content\Share`), which opens it as signing in would.
+        // (`Content\Share`), which opens it as signing in would. A sample
+        // entry is private where samples are not shown (`Post::siteStatus()`).
         $shared = !Auth::check() && \Cms\Content\Share::grants('post', (int) $post['id']);
-        if ($post['status'] === 'private' && !Auth::check() && !$shared) {
+        if (Post::siteStatus($post) === 'private' && !Auth::check() && !$shared) {
             Template::notFound($this->postTypeKey);
             return;
         }
@@ -52,6 +55,8 @@ class PostController
         // The page exists — so the other ending of its address 301s here now, and
         // not before: a 404 stays a 404 (`Url::settle()`).
         \Cms\Helpers\Url::settle();
+        // Edit this entry, for an account that may change it (`Site\EditBar`).
+        \Cms\Site\EditBar::forEntry($post);
 
         // Password protected: check session or POST
         if ($post['status'] === 'password') {
@@ -70,8 +75,7 @@ class PostController
                 // SAME AS `PageController::show()` — see the long note there.
                 // Without it the gate would render `<title></title>` and invite
                 // indexing of the lock screen of protected content.
-                $slugBase = (string) (Registry::get($this->postTypeKey)['public_slug']
-                    ?? $this->postTypeKey);
+                $slugBase = (string) Registry::publicSlug($this->postTypeKey);
                 \Cms\SEO\Head::set([
                     'title'     => $post['title'],
                     'robots'    => 'noindex, nofollow',
@@ -114,7 +118,7 @@ class PostController
         // Not the body for a missing description: a cut sentence fragment in a
         // search result is worse than letting the engine choose.
         $contentType = Registry::get($this->postTypeKey);
-        $publicSlug  = $contentType['public_slug'] ?? $this->postTypeKey;
+        $publicSlug  = (string) Registry::publicSlug($this->postTypeKey);
         $ctLabel     = isset($contentType['label']) ? \Cms\Site\Words::typeLabel($contentType) : ucfirst($this->postTypeKey);
         $meta        = Meta::getAll((int) $post['id']);
         $seo         = Head::forEntry($post, $meta);

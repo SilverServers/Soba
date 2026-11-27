@@ -12,6 +12,7 @@ use Cms\Forms\Notify;
 use Cms\Helpers\Dates;
 use Cms\Helpers\Places;
 use Cms\Helpers\Slug;
+use Cms\Http\Cache;
 use Cms\Models\Form;
 use Cms\Models\FormSubmission;
 use Cms\Models\Media;
@@ -424,7 +425,7 @@ class FormController
         }
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $out   = fopen('php://output', 'w');
         $safe  = static fn (string $v): string => preg_match('/^[=+\-@\t\r]/', $v) === 1 ? "'" . $v : $v;

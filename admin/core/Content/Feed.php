@@ -38,7 +38,7 @@ final class Feed
         foreach (Registry::all() as $key => $type) {
             $archetypes = array_values(array_diff((array) ($type['archetypes'] ?? []), ['product']));
             $onlySells  = $archetypes === [] && Product::isSellableType((string) $key);
-            if ((string) ($type['public_slug'] ?? '') !== '' && !$onlySells) {
+            if (Registry::hasPages((string) $key) && !$onlySells) {
                 $out[] = (string) $key;
             }
         }
@@ -53,7 +53,7 @@ final class Feed
     /** A type's feed, as a full address. */
     public static function url(string $typeKey): string
     {
-        return Url::feed((string) (Registry::get($typeKey)['public_slug'] ?? ''));
+        return Url::feed((string) Registry::publicSlug($typeKey));
     }
 
     /**
@@ -81,7 +81,7 @@ final class Feed
     public static function rss(string $typeKey): string
     {
         $type   = Registry::get($typeKey) ?? [];
-        $public = (string) ($type['public_slug'] ?? '');
+        $public = (string) Registry::publicSlug($typeKey);
         $x      = static fn (string $s): string => htmlspecialchars($s, ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $date   = static fn (string $utc): string => gmdate('D, d M Y H:i:s', (int) strtotime($utc . ' UTC')) . ' +0000';
         $site   = (string) Head::globalTokens()['site_name'];

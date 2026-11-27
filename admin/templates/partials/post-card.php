@@ -29,7 +29,7 @@ $meta       = $p['meta'] ?? [];
 // A plain-text field as typed — `FieldRenderer::plain()`; each print below
 // escapes it once.
 $plain      = static fn (string $key): string => \Cms\ContentType\FieldRenderer::plain($meta[$key] ?? '');
-$url        = \Cms\Helpers\Url::entry($p, (string) ($cardType['public_slug'] ?? ''));
+$url        = \Cms\Helpers\Url::entry($p, (string) \Cms\ContentType\Registry::publicSlug((string) ($cardType['key'] ?? $p['post_type'] ?? '')));
 ?>
             <li class="post-list__item">
 
@@ -61,7 +61,7 @@ $url        = \Cms\Helpers\Url::entry($p, (string) ($cardType['public_slug'] ?? 
                 <?php endif; ?>
 
                 <h2 class="post-list__title">
-                    <a href="<?= htmlspecialchars($url) ?>"><?= htmlspecialchars($p['title']) ?></a>
+                    <a href="<?= htmlspecialchars($url) ?>"><?= htmlspecialchars($p['title']) ?></a><?= \Cms\Site\EditBar::pencil($p) ?>
                 </h2>
 
                 <?php if ($isListing && !empty($meta['listing_subtitle'])): ?>

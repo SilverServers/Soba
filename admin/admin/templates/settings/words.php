@@ -33,6 +33,7 @@ $marks = [
     'Search'                  => 'words-search',
     'Not found and passwords' => 'words-not-found',
     'Menus and cookies'       => 'words-menus',
+    'Announcements'           => 'words-announcements',
     'Opening hours'           => 'words-hours',
     'Months and days'         => 'words-dates',
 ];
@@ -40,7 +41,7 @@ $marks = [
 $names = [];
 if ($secondTag !== '') {
     foreach (Registry::all() as $key => $type) {
-        if (\Cms\Content\Translation::translates((string) $key) && (string) ($type['public_slug'] ?? '') !== '') {
+        if (\Cms\Content\Translation::translates((string) $key) && Registry::hasPages((string) $key)) {
             $names['type:' . $key] = (string) ($type['label'] ?? $key);
         }
     }
@@ -52,8 +53,11 @@ if ($secondTag !== '') {
 }
 ?>
 <div class="page">
-    <a class="page__back" href="<?= h(Url::admin('settings')) ?>">
-        <?= icon('angle-left', 'icon icon--sm') ?>Settings
+    <?php // BACK TO WHERE THE ACCOUNT CAN GO: Settings is administrators',
+          // and a role granted this screen (`Auth::can()`) goes back to the dashboard. ?>
+    <?php $backToSettings = \Cms\Auth\Auth::hasRole('admin'); ?>
+    <a class="page__back" href="<?= h($backToSettings ? Url::admin('settings') : Url::admin()) ?>">
+        <?= icon('angle-left', 'icon icon--sm') ?><?= $backToSettings ? 'Settings' : 'Dashboard' ?>
     </a>
 
     <div class="page__header">

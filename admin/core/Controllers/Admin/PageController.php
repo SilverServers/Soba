@@ -52,6 +52,7 @@ class PageController
             'title'             => trim($_POST['title']),
             'slug'              => $slug,
             'content'           => $_POST['content'] ?? '',
+            'excerpt'           => is_string($_POST['excerpt'] ?? null) ? $_POST['excerpt'] : null,
             'menu_order'        => (int) ($_POST['menu_order'] ?? 0),
             'status'            => $status,
             'unpublish_at'      => self::unpublishAt(),
@@ -129,7 +130,8 @@ class PageController
             'featured_image_id' => !empty($_POST['featured_image_id']) ? (int) $_POST['featured_image_id'] : null,
             'seo_title'         => Head::ownTitle((string) ($_POST['seo_title'] ?? ''), 'page'),
             'meta_description'  => trim($_POST['meta_description'] ?? ''),
-        ] + (array_key_exists('unpublish_local', $_POST) ? ['unpublish_at' => self::unpublishAt($page)] : []));
+        ] + (array_key_exists('unpublish_local', $_POST) ? ['unpublish_at' => self::unpublishAt($page)] : [])
+          + (is_string($_POST['excerpt'] ?? null) ? ['excerpt' => $_POST['excerpt']] : []));
 
         if (self::state((int) $vars['id']) === $before) {
             if ($revision !== null) {
@@ -182,6 +184,7 @@ class PageController
             'slug'              => Page::copySlug((string) $page['slug'], (string) $page['lang']),
             'lang'              => (string) $page['lang'],
             'content'           => (string) ($page['content'] ?? ''),
+            'excerpt'           => $page['excerpt'] ?? null,
             'menu_order'        => (int) ($page['menu_order'] ?? 0),
             'status'            => 'private',
             'featured_image_id' => !empty($page['featured_image_id']) ? (int) $page['featured_image_id'] : null,
@@ -302,7 +305,11 @@ class PageController
         // page's own language.
         $lang    = (string) ($existing['lang'] ?? '');
         $rawSlug = self::sanitizeSlugInput($postData['slug'] ?? '');
-        if ($rawSlug !== '') {
+        // AN ADDRESS A NEW PAGE MADE FROM ITS TITLE (`slug_auto`, the title
+        // card) is made unique, -2 and on, a reserved one counted as taken
+        // (`Page::generateSlug()`); one typed by hand is refused when taken.
+        $made    = $editId === null && ($postData['slug_auto'] ?? '') === '1';
+        if ($rawSlug !== '' && !$made) {
             if (Page::slugExists($rawSlug, $editId, $lang)) {
                 $errors[] = 'That URL slug is already in use. Please choose a different one.';
             } elseif (in_array($rawSlug, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
@@ -314,7 +321,7 @@ class PageController
             }
             $slug = $rawSlug;
         } else {
-            $slug = Page::generateSlug(trim((string) ($postData['title'] ?? '')), $editId, $lang);
+            $slug = Page::generateSlug($rawSlug !== '' ? $rawSlug : trim((string) ($postData['title'] ?? '')), $editId, $lang);
         }
 
         // The unpublish date: a date and time, after the publish date when

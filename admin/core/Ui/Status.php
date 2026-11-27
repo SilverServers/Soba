@@ -18,6 +18,9 @@ namespace Cms\Ui;
  *   published   ACCENT   it is live; the only actionable state
  *   password    neutral  live, but gated
  *   private     neutral  not public — the address 404s unless you are signed in
+ *   sample      neutral  stands in for content still to come: shown as published
+ *                        on a copy that is not production, never in production
+ *                        (`Post::SAMPLE`)
  *   trash       muted    not live, and on its way out
  *
  * ── THERE WERE FIVE, AND TWO OF THEM WERE THE SAME STATE ────────────────────
@@ -51,6 +54,9 @@ final class Status
             'published' => ['label' => 'Published', 'icon' => 'check',          'class' => 'status--active'],
             'password'  => ['label' => 'Password',  'icon' => 'lock',           'class' => ''],
             'private'   => ['label' => 'Private',   'icon' => 'shield-halved',  'class' => ''],
+            // Neutral, not accent: it is not the real thing, and in production
+            // it is not live. The note is a stand-in, to be replaced.
+            'sample'    => ['label' => 'Sample',    'icon' => 'note-sticky',    'class' => ''],
             'trash'     => ['label' => 'Trash',     'icon' => 'trash-can',      'class' => 'status--archived'],
         ];
     }
@@ -76,9 +82,16 @@ final class Status
         ];
     }
 
-    /** The state an entry's or a page's chip shows: stored, or derived from its dates. */
+    /**
+     * The state an entry's or a page's chip shows: stored, or derived from its
+     * dates. Sample whatever its dates, since it is what the entry is and
+     * what System health asks after.
+     */
     public static function forEntry(array $row): string
     {
+        if ((string) ($row['status'] ?? '') === \Cms\Models\Post::SAMPLE) {
+            return \Cms\Models\Post::SAMPLE;
+        }
         if (\Cms\Models\Post::isScheduled($row)) {
             return 'scheduled';
         }

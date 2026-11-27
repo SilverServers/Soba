@@ -139,7 +139,7 @@ ob_start();
                 </a>
 
                 <label class="btn btn--primary" for="media-upload">
-                    Add files
+                    <span data-media-upload-text>Add files</span>
                     <input type="file" id="media-upload" multiple hidden
                            data-media-upload>
                 </label>
@@ -283,7 +283,7 @@ ob_start();
                 <?php if ($isEditorPlus): ?>
                     <div class="empty__action">
                         <label class="btn btn--primary" for="media-upload-empty">
-                            Add files
+                            <span data-media-upload-text>Add files</span>
                             <input type="file" id="media-upload-empty" multiple hidden
                                    data-media-upload>
                         </label>

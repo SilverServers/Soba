@@ -37,7 +37,14 @@ use Cms\Ui\Status;
  * @var list<array{label:string,label_single:string,admin_slug:string,menu_icon:string,count:int}> $stats
  * @var int                        $pageCount
  * @var int                        $unreadSubmissions
+ * A SITE'S OWN PANELS come first (`Site\DashboardPanels`): what its code
+ * declares in admin/config/dashboard.php, each its title over a card, in a
+ * row of twelve columns shared by width; and, where the site asks, in place
+ * of everything below them.
+ *
  * @var list<array<string, mixed>> $recentPosts
+ * @var list<array<string, mixed>> $sitePanels  the site's panels this account sees
+ * @var bool                       $ownPanels   whether the CMS's own are drawn
  * @var array<string, mixed>       $user
  */
 
@@ -54,6 +61,21 @@ ob_start();
         </div>
     </div>
 
+    <?php if ($sitePanels !== []): ?>
+        <div class="dashboard-panels" data-site-panels>
+            <?php foreach ($sitePanels as $panel): ?>
+                <section class="panel__section dashboard-panel dashboard-panel--<?= h((string) $panel['width']) ?>" data-site-panel="<?= h((string) $panel['key']) ?>">
+                    <div class="panel__heading">
+                        <h3><?= h((string) $panel['title']) ?></h3>
+                    </div>
+                    <?php // THE SITE'S OWN HTML, printed as its code gives it. ?>
+                    <div class="card dashboard-panel__body"><?= \Cms\Site\DashboardPanels::draw($panel, $user) ?></div>
+                </section>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($ownPanels): ?>
     <?php if ($unreadSubmissions > 0): ?>
         <?php // THIS IS THE DASHBOARD'S ONE NOTIFICATION AND IT WEARS AN ALERT
               // COLOUR. Unread post is not a fault, but `--warning` and
@@ -223,6 +245,7 @@ ob_start();
             </div>
         <?php endif; ?>
     </div>
+    <?php endif; ?>
 
 </div>
 <?php

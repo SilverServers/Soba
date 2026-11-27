@@ -42,6 +42,7 @@ if (is_file(PUBLIC_PATH . '/site/theme.css')): ?>
 </head>
 <body>
 <?= \Cms\Site\Google::body() ?>
+<?= \Cms\Site\Announcements::body() ?>
     <main class="site-content">
         <div class="notfound">
             <p class="notfound__code">404</p>

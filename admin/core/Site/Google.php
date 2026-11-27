@@ -406,6 +406,23 @@ final class Google
     // ----------------------------------------------------------------
 
     /**
+     * The tags entered, by name, for System health to say what will send in
+     * production (`Site\GoingLive`): only what is valid, as the page reads it.
+     *
+     * @return array<string, string> name => ID
+     */
+    public static function entered(): array
+    {
+        $ids = self::ids();
+
+        return array_filter([
+            'GA4'                         => $ids['google_ga4_id'],
+            'Tag Manager'                 => $ids['google_gtm_id'],
+            'Search Console verification' => $ids['google_site_verification'],
+        ], 'strlen');
+    }
+
+    /**
      * Only what is typed and still valid: a value put in the database by hand
      * is read by the same rules the screen saves by.
      *
@@ -492,8 +509,8 @@ final class Google
         return \Cms\Forms\Guard::mac('conversion|' . $body);
     }
 
-    /** The request's path below the site's own, with no query and no trailing slash. */
-    private static function path(): string
+    /** The request's path below the site's own, with no query and no trailing slash: `/` for the front page. */
+    public static function path(): string
     {
         $path = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
         $base = defined('BASE_PATH') ? rtrim((string) BASE_PATH, '/') : '';
@@ -503,8 +520,11 @@ final class Google
         return '/' . trim($path, '/');
     }
 
-    /** A public page: not the admin, nothing under its address, not the sign-in page. */
-    private static function isPublic(): bool
+    /**
+     * A public page: not the admin, nothing under its address, not the
+     * sign-in page. `Site\Announcements` asks it too.
+     */
+    public static function isPublic(): bool
     {
         $path  = self::path();
         $admin = '/' . trim(defined('ADMIN_URL_SLUG') ? (string) ADMIN_URL_SLUG : 'admin', '/');

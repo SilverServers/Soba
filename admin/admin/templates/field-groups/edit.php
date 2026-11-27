@@ -146,10 +146,14 @@ $fieldTypes = [
     'textarea'     => 'Text area',
     'rich_text'    => 'Long text',
     'number'       => 'Number',
+    'phone'        => 'Phone',
+    'email'        => 'Email',
     'date'         => 'Date',
     'datetime'     => 'Date and time',
     'select'       => 'Choice',
     'image'        => 'Image',
+    'file'         => 'File',
+    'gallery'      => 'Gallery',
     'relationship' => 'Link to an entry',
     'taxonomy'     => 'Taxonomy terms',
     'repeater'     => 'Repeating rows',
@@ -165,27 +169,36 @@ $typeIcons = [
     'textarea'     => 'align-left',
     'rich_text'    => 'align-justify',
     'number'       => 'hashtag',
+    'phone'        => 'phone',
+    'email'        => 'envelope',
     'date'         => 'calendar',
     'datetime'     => 'clock',
     'select'       => 'caret-down',
     'image'        => 'image',
+    'file'         => 'file',
+    'gallery'      => 'images',
     'relationship' => 'link',
     'taxonomy'     => 'tags',
     'repeater'     => 'table-list',
 ];
 
 // Sub-fields are a deliberately SMALLER vocabulary. A repeater inside a repeater
-// has no renderer and no name shape that round-trips, and `image`/`relationship`
-// /`taxonomy` inside one are unbuilt rather than forbidden — offering them here
-// would be offering a control that posts nowhere.
+// has no renderer and no name shape that round-trips, and `relationship` /
+// `taxonomy` inside one post a list a row cannot keep — offering them here would
+// be offering a control that posts nowhere. A picture posts one id, which a row
+// keeps, and the product archetype's More photos column is one; a file does too.
 $subFieldTypes = [
     'text'      => 'Text',
     'textarea'  => 'Text area',
     'rich_text' => 'Long text',
     'number'    => 'Number',
+    'phone'     => 'Phone',
+    'email'     => 'Email',
     'date'      => 'Date',
     'datetime'  => 'Date and time',
     'select'    => 'Choice',
+    'image'     => 'Image',
+    'file'      => 'File',
 ];
 
 $action = $isNew
@@ -429,6 +442,50 @@ $renderRow = static function (
                     </div>
                 </div>
 
+                <div class="fields__settings" data-for="file"
+                     <?= $type === 'file' ? '' : 'hidden' ?>>
+                    <div class="field">
+                        <label class="label">File types</label>
+                        <input class="input" type="text" name="<?= h($s) ?>[accept]"
+                               value="<?= h((string) ($settings['accept'] ?? '')) ?>" placeholder="pdf, docx">
+                        <p class="form-help">
+                            The kinds it takes, such as pdf, docx. Left empty, it takes every kind the library holds:
+                            pictures, PDF, Word, Excel, PowerPoint, CSV, text and ZIP.
+                        </p>
+                    </div>
+                </div>
+
+                <?php // ITS OWN NAMES: a repeater's Layout posts `layout` too,
+                      // and a panel the script has not hidden still posts. ?>
+                <div class="fields__settings" data-for="gallery"
+                     <?= $type === 'gallery' ? '' : 'hidden' ?>>
+                    <div class="form-grid form-grid--2">
+                        <div class="field">
+                            <label class="label">Layout</label>
+                            <select class="select" name="<?= h($s) ?>[gallery_layout]">
+                                <?php foreach (['grid' => 'Grid', 'masonry' => 'Masonry'] as $value => $words): ?>
+                                    <option value="<?= h($value) ?>"<?= ($settings['layout'] ?? 'grid') === $value ? ' selected' : '' ?>><?= h($words) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="label">Columns</label>
+                            <select class="select" name="<?= h($s) ?>[gallery_columns]">
+                                <?php // NOT `$n`: that is this row's name, and every
+                                      // control after this loop would post under it. ?>
+                                <?php foreach ([2, 3, 4, 5, 6] as $columns): ?>
+                                    <option value="<?= $columns ?>"<?= (int) ($settings['columns'] ?? 3) === $columns ? ' selected' : '' ?>><?= $columns ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <label class="check-list__row">
+                        <input type="checkbox" name="<?= h($s) ?>[gallery_lightbox]" value="1"<?= !empty($settings['lightbox']) ? ' checked' : '' ?>>
+                        <span>Open pictures full size on click</span>
+                    </label>
+                    <p class="form-help">As a gallery on the Galleries screen is drawn. Staff add pictures many at once, drag them into order and give each a caption.</p>
+                </div>
+
                 <div class="fields__settings" data-for="relationship"
                      <?= $type === 'relationship' ? '' : 'hidden' ?>>
                     <div class="field">
@@ -497,6 +554,14 @@ $renderRow = static function (
 
                 <div class="fields__settings" data-for="repeater"
                      <?= $type === 'repeater' ? '' : 'hidden' ?>>
+                    <div class="field field--narrow">
+                        <label class="label" for="<?= h('f-layout-' . $i) ?>">Layout</label>
+                        <select class="select" id="<?= h('f-layout-' . $i) ?>" name="<?= h($s) ?>[layout]" data-repeater-layout>
+                            <option value="">Stacked</option>
+                            <option value="table"<?= ($settings['layout'] ?? '') === 'table' ? ' selected' : '' ?>>Table</option>
+                        </select>
+                        <p class="form-help">A table draws each row on one line, its columns side by side, for rows of short values such as prices.</p>
+                    </div>
                     <label class="label">Rows contain</label>
                     <?php // EDITABLE, not displayed. FieldGroup::update() deletes
                           // every field row and re-inserts from the POST, so a
@@ -504,7 +569,7 @@ $renderRow = static function (
                           // next save destroys. ?>
                     <div class="subfields" data-subfields>
                         <?php foreach ((array) ($settings['sub_fields'] ?? []) as $j => $sub): ?>
-                            <?= $renderSubRow($i, (string) $j, (array) $sub, $subFieldTypes, $optionsText) ?>
+                            <?= $renderSubRow($i, (string) $j, (array) $sub, $subFieldTypes, $optionsText, (string) ($settings['preset_rows']['field'] ?? '')) ?>
                         <?php endforeach; ?>
                     </div>
                     <div class="form-actions form-actions--bare">
@@ -629,7 +694,8 @@ $renderSubRow = static function (
     string $j,
     array $sub,
     array $subFieldTypes,
-    callable $optionsText
+    callable $optionsText,
+    string $presetKey = ''
 ): string {
     ob_start();
     $n = 'fields[' . $i . '][settings][sub_fields][' . $j . ']';
@@ -653,7 +719,10 @@ $renderSubRow = static function (
             <div class="field fields__cell fields__cell--type">
                 <label class="label">Type</label>
                 <select class="select" name="<?= h($n) ?>[type]" data-field-type>
-                    <?php foreach ($subFieldTypes as $value => $label): ?>
+                    <?php // A COLUMN OF A TYPE THIS LIST DOES NOT OFFER, written in
+                          // code, keeps it: shown as itself, so a save never turns
+                          // it into the first type here. ?>
+                    <?php foreach ($subFieldTypes + (isset($subFieldTypes[$type]) ? [] : [$type => ucfirst(str_replace('_', ' ', $type))]) as $value => $label): ?>
                         <option value="<?= h($value) ?>"<?= $type === $value ? ' selected' : '' ?>>
                             <?= h($label) ?>
                         </option>
@@ -692,6 +761,16 @@ $renderSubRow = static function (
                     <input class="input" type="number" name="<?= h($s) ?>[max]"
                            value="<?= h((string) ($sub['settings']['max'] ?? '')) ?>">
                 </div>
+                <div class="field">
+                    <label class="label">Decimal places</label>
+                    <input class="input" type="number" min="0" max="6" step="1" name="<?= h($s) ?>[decimals]"
+                           value="<?= h((string) ($sub['settings']['decimals'] ?? '')) ?>" placeholder="0">
+                </div>
+                <div class="field">
+                    <label class="label">Shown before it</label>
+                    <input class="input" type="text" maxlength="8" name="<?= h($s) ?>[prefix]"
+                           value="<?= h((string) ($sub['settings']['prefix'] ?? '')) ?>" placeholder="$" autocomplete="off">
+                </div>
             </div>
         </div>
 
@@ -700,6 +779,19 @@ $renderSubRow = static function (
                 <label class="label">Choices</label>
                 <textarea class="textarea input--mono" rows="3"
                           name="<?= h($s) ?>[options_text]"><?= h($optionsText((array) ($sub['settings'] ?? []))) ?></textarea>
+            </div>
+            <label class="check-list__row">
+                <input type="checkbox" name="<?= h($n) ?>[rows_from_choices]" value="1"
+                       <?= $presetKey !== '' && $presetKey === (string) ($sub['key'] ?? '') ? 'checked' : '' ?>>
+                <span>Its choices are the rows, one each, in a table</span>
+            </label>
+        </div>
+
+        <div class="fields__settings" data-for="file" <?= $type === 'file' ? '' : 'hidden' ?>>
+            <div class="field">
+                <label class="label">File types</label>
+                <input class="input" type="text" name="<?= h($s) ?>[accept]"
+                       value="<?= h((string) ($sub['settings']['accept'] ?? '')) ?>" placeholder="pdf, docx">
             </div>
         </div>
     </div>
@@ -910,6 +1002,44 @@ $renderSubRow = static function (
                                 These fields appear on every entry of the types ticked here.
                             </p>
                         <?php endif; ?>
+                        <?php // A SITE'S OWN SETTINGS PAGES are places too (`Site\SettingsPages`):
+                              // the group's fields follow the page's own there. ?>
+                        <?php if (\Cms\Site\SettingsPages::all() !== []): ?>
+                            <div class="check-list" data-settings-locations>
+                                <?php foreach (\Cms\Site\SettingsPages::all() as $settingsPage): ?>
+                                    <?php $settingsAt = \Cms\Site\SettingsPages::location((string) $settingsPage['key']); ?>
+                                    <label class="check-list__row">
+                                        <input type="checkbox" name="content_types[]"
+                                               value="<?= h($settingsAt) ?>"
+                                               <?= in_array($settingsAt, $targets, true) ? 'checked' : '' ?>>
+                                        <?= icon(Sidebar::iconFor((string) ($settingsPage['icon'] !== '' ? $settingsPage['icon'] : 'settings')), 'icon icon--sm') ?>
+                                        <span><?= h((string) $settingsPage['label']) ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                            <p class="form-help">
+                                And on each of the site's settings pages ticked here, after its own fields.
+                            </p>
+                        <?php endif; ?>
+                        <?php // A TAXONOMY'S TERMS are places too (`ContentType\TermFields`): the
+                              // group's fields are on each term's own screen and printed on its page. ?>
+                        <?php if (\Cms\ContentType\TaxonomyRegistry::all() !== []): ?>
+                            <div class="check-list" data-taxonomy-locations>
+                                <?php foreach (\Cms\ContentType\TaxonomyRegistry::all() as $taxonomyPlace): ?>
+                                    <?php $termsAt = \Cms\ContentType\TermFields::location((string) $taxonomyPlace['key']); ?>
+                                    <label class="check-list__row">
+                                        <input type="checkbox" name="content_types[]"
+                                               value="<?= h($termsAt) ?>"
+                                               <?= in_array($termsAt, $targets, true) ? 'checked' : '' ?>>
+                                        <?= icon(Sidebar::iconFor('taxonomies'), 'icon icon--sm') ?>
+                                        <span><?= h((string) $taxonomyPlace['label']) ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                            <p class="form-help">
+                                And on each term of the taxonomies ticked here, on its own screen, and printed on its page.
+                            </p>
+                        <?php endif; ?>
                     </div>
 
                     <?php // BOTH PANES ARE SECTIONS OF THE SAME CARD. A second
@@ -925,6 +1055,20 @@ $renderSubRow = static function (
                                 <input type="checkbox" name="is_active" value="1" <?= $isActive ? 'checked' : '' ?>>
                                 <span>In use</span>
                             </label>
+                        </div>
+                        <?php // WHERE ITS FIELDS GO on the entry editor (migration
+                              // 149): above the text, after it, or in the column
+                              // beside; or where its content type puts its own. ?>
+                        <?php $_position = array_key_exists('position', $formData) ? (string) $formData['position'] : (string) ($group['position'] ?? ''); ?>
+                        <div class="field">
+                            <label class="label" for="f-group-position">Position</label>
+                            <select class="select" id="f-group-position" name="position">
+                                <option value="">As its content type says</option>
+                                <?php foreach (['high' => 'High, after the title', 'normal' => 'Normal, after the text', 'side' => 'Side, in the column beside'] as $_at => $_words): ?>
+                                    <option value="<?= h($_at) ?>"<?= $_position === $_at ? ' selected' : '' ?>><?= h($_words) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="form-help">Where these fields are drawn on an entry's screen, on a phone as on a desk. A term's screen and a settings page put them after their own.</p>
                         </div>
                         <?php // The consequence, not the mechanism. Switching a
                               // group off is reversible and destroys nothing, and
@@ -989,6 +1133,14 @@ $renderSubRow = static function (
     <template data-field-template>
         <?= $renderRow('__I__', ['label' => '', 'key' => '', 'type' => 'text', 'required' => false, 'settings' => []],
                        $fieldTypes, $typeIcons, $subFieldTypes, $optionsText, $allContentTypes, null) ?>
+    </template>
+
+    <?php // EACH TYPE'S GLYPH, once, for a row's bar to show the type chosen
+          // before it is saved (`paintBar()` in field-group-form.js). ?>
+    <template data-type-glyphs>
+        <?php foreach ($typeIcons as $glyphType => $glyph): ?>
+            <span data-glyph="<?= h($glyphType) ?>"><?= icon($glyph, 'icon icon--sm') ?></span>
+        <?php endforeach; ?>
     </template>
 
     <template data-subfield-template>

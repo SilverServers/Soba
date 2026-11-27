@@ -11,6 +11,7 @@ use Cms\Commerce\OrderMail;
 use Cms\Commerce\Refund;
 use Cms\ContentType\Registry;
 use Cms\Helpers\Url;
+use Cms\Http\Cache;
 use Cms\Models\Order;
 use Cms\Models\Post;
 use Cms\Security\Csrf;
@@ -129,7 +130,7 @@ class OrderController
               . (isset(Order::STATUSES[$status]) ? '-' . $status : '') . '.csv';
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $name . '"');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         // THE BYTE-ORDER MARK FIRST: without it a spreadsheet opens UTF-8 as
         // the computer's own codepage, and "Hélène Côté" reaches the
         // bookkeeper as "HÃ©lÃ¨ne CÃ´tÃ©".
@@ -406,7 +407,7 @@ class OrderController
         Auth::requireRole('shop_manager');
 
         header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
 
         $order = Order::find((int) ($vars['id'] ?? 0));
         if ($order === null) {

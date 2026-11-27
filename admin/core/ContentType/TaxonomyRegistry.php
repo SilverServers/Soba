@@ -21,6 +21,9 @@ namespace Cms\ContentType;
  *   'hierarchical'  => true,               // true = category style (checkboxes + parent/child)
  *                                          // false = tag style (chip input + typeahead)
  *   'source'        => 'code',             // 'code' | 'database'
+ *   'fields'        => [                   // each term's own fields, as an entry's are
+ *       ['key' => 'phone', 'label' => 'Phone', 'type' => 'text'],   // (`TermFields`, `Term::meta()`)
+ *   ],
  * ]
  */
 class TaxonomyRegistry
@@ -58,8 +61,17 @@ class TaxonomyRegistry
             // MIGRATION 095. A taxonomy a customer chooses from when buying —
             // Size, Colour — whose terms make a product's options.
             'is_option'     => false,
+            // MIGRATION 140. The least role that may add a term (`StaffView::
+            // addsTerms()`); null is as it was, an author on a tag-style
+            // taxonomy and an editor on a nested one.
+            'add_terms'     => null,
             'source'        => 'code',
         ], $definition, ['key' => $key]); // key always matches $key
+
+        // A TERM FIELD'S OPTION THE CMS DOES NOT KNOW, said in the log (`FieldOptions`).
+        if (is_array($definition['fields'] ?? null) && $definition['fields'] !== []) {
+            FieldOptions::note('the taxonomy "' . $key . '"', $definition['fields']);
+        }
     }
 
     /**

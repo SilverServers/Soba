@@ -32,7 +32,8 @@ class ContentTypeController
     {
         $contentType = Registry::get($this->contentTypeKey);
 
-        if ($contentType === null) {
+        // NO ARCHIVE for a type whose entries have no pages (`Registry::hasPages()`).
+        if ($contentType === null || !Registry::hasPages($this->contentTypeKey)) {
             Template::notFound($this->contentTypeKey);
             return;
         }
@@ -185,7 +186,7 @@ class ContentTypeController
 
         // SEO
         $ctLabel    = \Cms\Site\Words::typeLabel($contentType);
-        $publicSlug = $contentType['public_slug'] ?? $this->contentTypeKey;
+        $publicSlug = (string) Registry::publicSlug($this->contentTypeKey);
 
         $tokens = Head::globalTokens();
         $tokens['content_type_label'] = $ctLabel;
@@ -219,6 +220,9 @@ class ContentTypeController
 
         $graph   = Schema::siteWide();
         $graph[] = Schema::breadcrumbList($breadcrumbItems);
+
+        // Edit {the type's entries}, its list in the admin (`Site\EditBar`).
+        \Cms\Site\EditBar::forList((string) $this->contentTypeKey);
 
         Head::set([
             'title'       => $title,

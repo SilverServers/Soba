@@ -105,8 +105,11 @@ $socialRow = static function (int|string $i, ?array $row): string {
 ?>
 <div class="page">
 
-    <a class="page__back" href="<?= h(Url::admin('settings')) ?>">
-        <?= icon('angle-left', 'icon icon--sm') ?>Settings
+    <?php // BACK TO WHERE THE ACCOUNT CAN GO: Settings is administrators',
+          // and a role granted this screen (`Auth::can()`) goes back to the dashboard. ?>
+    <?php $backToSettings = \Cms\Auth\Auth::hasRole('admin'); ?>
+    <a class="page__back" href="<?= h($backToSettings ? Url::admin('settings') : Url::admin()) ?>">
+        <?= icon('angle-left', 'icon icon--sm') ?><?= $backToSettings ? 'Settings' : 'Dashboard' ?>
     </a>
 
     <div class="page__header">

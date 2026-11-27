@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cms\Security;
 
+use Cms\Http\Cache;
+
 /**
  * THE ADMIN'S DOOR — the headers every admin response carries, and who may
  * reach it at all. One place, because two front doors use it: the front
@@ -42,15 +44,15 @@ final class Door
      *                                       another site in a Referer header
      *   Cache-Control: no-store             a signed-out Back button shows nothing
      *
-     * A site's tool that wants its assets cached says so itself: its own
-     * `Cache-Control` comes after these and replaces the last.
+     * A site's tool that wants its assets cached says so itself, after these:
+     * `Http\Cache::publicFor()` replaces this `Cache-Control` and its `Expires`.
      */
     public static function adminHeaders(): void
     {
         header("Content-Security-Policy: frame-ancestors 'none'");
         header('X-Frame-Options: DENY');
         header('Referrer-Policy: same-origin');
-        header('Cache-Control: no-store');
+        Cache::noStore();
     }
 
     /**

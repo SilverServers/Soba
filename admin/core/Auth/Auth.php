@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cms\Auth;
 
 use Cms\Database\Database;
+use Cms\Http\Cache;
 use Cms\Security\Accounts;
 use Cms\Security\Csrf;
 use Cms\Security\LoginUrl;
@@ -451,7 +452,7 @@ class Auth
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         echo json_encode(['success' => false, 'error' => $error]);
         exit;
     }
@@ -538,6 +539,119 @@ class Auth
         'editor'       => 'Editor',
         'author'       => 'Author',
     ];
+
+    /**
+     * THE SCREENS A SITE MAY GRANT BELOW ITS ADMINISTRATORS, by the name
+     * config.php's `grants` gives each: `'grants' => ['editor' => ['business',
+     * 'words']]` lets editors keep the business's details and the site's words
+     * without Settings, Security or Users.
+     */
+    public const GRANTABLE = [
+        'business'  => 'Settings → Business details',
+        'menus'     => 'Appearance → Menus',
+        'redirects' => 'Tools → Redirects',
+        'words'     => 'Settings → Words',
+    ];
+
+    /** @var array<string, list<string>>|null each role's granted screens, read once a request */
+    private static ?array $grants = null;
+
+    /**
+     * The screens config.php grants each role below administrator. A role or
+     * a screen that is not one is left out and said in the log, at most once
+     * an hour, since every admin page reads this.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function grants(): array
+    {
+        if (self::$grants !== null) {
+            return self::$grants;
+        }
+        $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
+        $listed = is_array($config) && is_array($config['grants'] ?? null) ? $config['grants'] : [];
+
+        $grants  = [];
+        $refused = [];
+        foreach ($listed as $role => $screens) {
+            if (!is_string($role) || !isset(self::ROLE_LEVELS[$role]) || $role === 'admin') {
+                $refused[] = '"' . $role . '" is not a role that can be granted a screen';
+                continue;
+            }
+            foreach (is_array($screens) ? $screens : [$screens] as $screen) {
+                if (!is_string($screen) || !isset(self::GRANTABLE[$screen])) {
+                    $refused[] = '"' . (is_scalar($screen) ? (string) $screen : gettype($screen)) . '" is not a screen that can be granted';
+                    continue;
+                }
+                $grants[$role][] = $screen;
+            }
+        }
+        if ($refused !== []) {
+            self::noteRefused($refused);
+        }
+
+        return self::$grants = $grants;
+    }
+
+    /** Each grant that is not one, in the log: once, then again an hour later if it is still there. */
+    private static function noteRefused(array $refused): void
+    {
+        $said  = 'Grants in config.php left out: ' . implode('; ', $refused) . '.';
+        $noted = (string) \Cms\Models\Option::get('grants_noted', '');
+        [$hash, $at] = array_pad(explode('|', $noted, 2), 2, '0');
+        if ($hash === md5($said) && time() - (int) $at < 3600) {
+            return;
+        }
+        error_log($said);
+        \Cms\Models\Option::set('grants_noted', md5($said) . '|' . time());
+    }
+
+    /**
+     * May the signed-in account open this screen? An administrator may open
+     * every one; anyone else, a screen config.php grants their role or a role
+     * below theirs, since a role's level reaches everything below it.
+     */
+    public static function can(string $screen): bool
+    {
+        return self::roleCan(self::role(), $screen);
+    }
+
+    /** May an account of role `$role` open this screen (`can()`)? */
+    public static function roleCan(?string $role, string $screen): bool
+    {
+        if (self::roleAllows($role, 'admin')) {
+            return true;
+        }
+        foreach (self::grants() as $granted => $screens) {
+            if (in_array($screen, $screens, true) && self::roleAllows($role, $granted)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Forget the grants read this request: after a test writes config.php. */
+    public static function resetGrants(): void
+    {
+        self::$grants = null;
+    }
+
+    /**
+     * Require a screen the account may open (`can()`), as `requireRole()`
+     * requires a role: the dashboard for one that may not, a 403 to the API.
+     */
+    public static function requireCan(string $screen): void
+    {
+        self::requireAuth();
+        if (!self::can($screen)) {
+            if (self::isApiRequest()) {
+                self::denyApi(403, 'Your role does not allow this.');
+            }
+            header('Location: ' . ADMIN_URL);
+            exit;
+        }
+    }
 
     /**
      * Check whether the current user has at least the given role level.

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Cms\ContentType\FieldRenderer;
+use Cms\ContentType\TermFields;
 use Cms\Helpers\Asset;
 use Cms\Helpers\Url;
 use Cms\Models\Term;
@@ -72,6 +74,11 @@ if (!$isNew) {
 }
 
 $usage = $isNew ? [] : Term::usageCounts((string) $taxonomy['key']);
+
+// ITS OWN FIELDS (`TermFields`): the taxonomy's, then each field group placed
+// on it, each value as kept (`Term::meta()`), or as typed on a failed save.
+$termSections = TermFields::sections((string) $taxonomy['key']);
+$termMeta     = $isNew ? [] : Term::meta($id);
 $used  = (int) ($usage[$id] ?? 0);
 
 $action = $isNew
@@ -122,7 +129,7 @@ $action = $isNew
         </div>
     <?php endif; ?>
 
-    <form method="post" action="<?= h($action) ?>">
+    <form method="post" action="<?= h($action) ?>" data-term-form>
         <?= Csrf::field() ?>
 
         <div class="panel__grid">
@@ -172,6 +179,23 @@ $action = $isNew
                             </p>
                         </div>
                     </div>
+
+                    <?php foreach ($termSections as $termSection): ?>
+                        <?php // Drawn by the one renderer that sanitizes and
+                              // validates them, as an entry's fields are. ?>
+                        <div class="form-card__section" data-term-fields>
+                            <h2 class="form-card__title">
+                                <?= icon(\Cms\Ui\Sections::glyphs()['fields'], 'icon icon--sm') ?><?= h($termSection['label']) ?>
+                            </h2>
+                            <div class="form-grid form-grid--12">
+                                <?php foreach ($termSection['fields'] as $field): ?>
+                                    <?php $postKey = 'field_' . $field['key']; ?>
+                                    <?= FieldRenderer::renderField($field, array_key_exists($postKey, $formData)
+                                        ? $formData[$postKey] : ($termMeta[(string) $field['key']] ?? null)) ?>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
 
                     <div class="form-card__section form-actions">
                         <a class="link link--xs" href="<?= h(Url::admin($base)) ?>">Cancel</a>
@@ -302,3 +326,19 @@ $action = $isNew
 </div>
 
 <script src="<?= h(Asset::admin('js/confirm.js')) ?>"></script>
+<?php if ($termSections !== []): ?>
+    <?php // The field widgets, as on an entry: pictures, files, repeaters, logic. ?>
+    <script src="<?= h(Asset::admin('js/logic.js')) ?>"></script>
+    <script src="<?= h(Asset::admin('js/entry-form.js')) ?>"></script>
+    <script src="<?= h(Asset::admin('js/reorder.js')) ?>"></script>
+    <?php if (FieldRenderer::drewGallery()): ?>
+        <link rel="stylesheet" href="<?= h(Asset::site('assets/css/gallery.css')) ?>">
+        <script src="<?= h(Asset::admin('js/gallery-images.js')) ?>"></script>
+    <?php endif; ?>
+    <script>
+    (function () {
+        var form = document.querySelector('[data-term-form]');
+        if (form && window.Logic) { Logic.bind(form, {prefix: 'field_'}); }
+    }());
+    </script>
+<?php endif; ?>

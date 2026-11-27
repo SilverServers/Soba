@@ -6,6 +6,7 @@ namespace Cms\Controllers\Admin;
 
 use Cms\Auth\Auth;
 use Cms\Export\StaticCopy;
+use Cms\Http\Cache;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -64,6 +65,7 @@ final class StaticCopyController
         Auth::requireRole('admin');
         $copy = StaticCopy::open((string) ($vars['id'] ?? ''));
         header('Content-Type: application/json; charset=utf-8');
+        Cache::noStore();
         if ($copy === null) {
             http_response_code(404);
             echo json_encode(['success' => false, 'error' => 'That copy is no longer here.']);
@@ -109,7 +111,7 @@ final class StaticCopyController
         header('Content-Type: ' . (str_ends_with($name, '.zip') ? 'application/zip' : 'application/gzip'));
         header('Content-Disposition: attachment; filename="' . $name . '"');
         header('Content-Length: ' . (string) filesize($archive));
-        header('Cache-Control: no-store');
+        Cache::noStore();
         readfile($archive);
     }
 

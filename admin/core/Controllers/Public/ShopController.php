@@ -13,6 +13,7 @@ use Cms\Commerce\PaymentMethods;
 use Cms\Commerce\Product;
 use Cms\Commerce\Totals;
 use Cms\Helpers\Template;
+use Cms\Http\Cache;
 use Cms\Models\Option;
 use Cms\Models\Order;
 use Cms\Security\Csrf;
@@ -80,7 +81,7 @@ class ShopController
         // a publish date still to come or has had its unpublish date answers
         // 404 at its address, and a post made by hand reaches no further.
         $row = $product !== null ? \Cms\Models\Post::find($postId) : null;
-        if ($row !== null && (!in_array((string) $row['status'], ['published', 'password'], true)
+        if ($row !== null && (!in_array(\Cms\Models\Post::siteStatus($row), ['published', 'password'], true)
                 || \Cms\Models\Post::isScheduled($row) || \Cms\Models\Post::hasEnded($row))) {
             $product = null;
         }
@@ -359,7 +360,7 @@ class ShopController
         $totals = Totals::forCart(Checkout::deliveryPlace($form), Checkout::method($form));
 
         header('Content-Type: text/html; charset=UTF-8');
-        header('Cache-Control: no-store');
+        Cache::noStore();
         header('X-Robots-Tag: noindex');
         require Template::locate('shop/totals.php');
     }

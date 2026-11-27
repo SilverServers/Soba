@@ -70,6 +70,7 @@ class Media
      * @param string|null $visibility 'public' | 'private' | null (all)
      * @param string|null $search     Search original_name
      * @param string      $sort       a key of `SORTS`
+     * @param list<string>|null $mimes only these types (a file field's kinds, `kindsFor()`); null for any
      * @return array{ items: array<int, array<string, mixed>>, total: int }
      */
     public static function all(
@@ -79,7 +80,8 @@ class Media
         ?int $folderId = null,
         ?string $visibility = null,
         ?string $search = null,
-        string $sort = self::DEFAULT_SORT
+        string $sort = self::DEFAULT_SORT,
+        ?array $mimes = null
     ): array {
         $pdo    = Database::getInstance();
         $offset = ($page - 1) * $perPage;
@@ -92,6 +94,14 @@ class Media
             $where[] = "mime_type LIKE 'image/%'";
         } elseif ($type === 'document') {
             $where[] = "mime_type NOT LIKE 'image/%'";
+        }
+        if ($mimes !== null && $mimes !== []) {
+            $marks = [];
+            foreach (array_values($mimes) as $i => $mime) {
+                $marks[]            = ':mime' . $i;
+                $params[':mime' . $i] = (string) $mime;
+            }
+            $where[] = 'mime_type IN (' . implode(', ', $marks) . ')';
         }
 
         // Folder filter
@@ -194,8 +204,74 @@ class Media
         'application/zip',
     ];
 
-    /** Ten megabytes — for every door. */
+    /** Ten megabytes, for every door, unless config.php's `upload_max_mb` says otherwise (`maxFileSize()`). */
     public const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+    /** The most `upload_max_mb` may name: two gigabytes. */
+    private const MOST_MB = 2048;
+
+    /**
+     * THE LARGEST FILE THE LIBRARY TAKES: config.php's `upload_max_mb`, in
+     * megabytes, or ten. A file larger than PHP takes in one request arrives in
+     * pieces (`Media\Pieces`), so this is the site's own choice, not the host's.
+     */
+    public static function maxFileSize(): int
+    {
+        $config = defined('ROOT_PATH') ? \Cms\Site\ConfigFile::read(ROOT_PATH . '/config/config.php') : null;
+        $mb     = is_array($config) ? (int) ($config['upload_max_mb'] ?? 0) : 0;
+
+        return $mb >= 1 ? min($mb, self::MOST_MB) * 1024 * 1024 : self::MAX_FILE_SIZE;
+    }
+
+    /**
+     * Each kind the library takes, by the name a file field's File types box
+     * may give it: jpg, png, pdf, docx and the rest (`kindsFor()`).
+     *
+     * @var array<string, string> mime => extension
+     */
+    public const KINDS = [
+        'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/svg+xml' => 'svg',
+        'application/pdf' => 'pdf', 'application/msword' => 'doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        'application/vnd.ms-excel' => 'xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+        'application/vnd.ms-powerpoint' => 'ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+        'text/csv' => 'csv', 'text/plain' => 'txt', 'application/zip' => 'zip',
+    ];
+
+    /**
+     * The kinds a File types box names, of those the library takes, as
+     * `KINDS` has them: "PDF, .docx; heic" is pdf and docx. Empty when it
+     * names none, which is every kind.
+     *
+     * @return array<string, string> mime => extension
+     */
+    public static function kindsFor(string $typed): array
+    {
+        preg_match_all('/[a-z0-9]+/', strtolower($typed), $words);
+        $named = [];
+        foreach ($words[0] as $word) {
+            $named[$word === 'jpeg' ? 'jpg' : $word] = true;
+        }
+
+        return array_filter(self::KINDS, static fn (string $ext): bool => isset($named[$ext]));
+    }
+
+    /** A size as people read it: "820 KB", "1.4 GB". */
+    public static function sizeInWords(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes . ' B';
+        }
+        $units = ['KB', 'MB', 'GB', 'TB'];
+        $i     = -1;
+        $n     = (float) $bytes;
+        do {
+            $n /= 1024;
+            $i++;
+        } while ($n >= 1024 && $i < count($units) - 1);
+
+        return round($n, $n < 10 ? 1 : 0) . ' ' . $units[$i];
+    }
 
     /**
      * WHETHER A FILE MAY ENTER THE LIBRARY, and what it is — the uploader's,
@@ -213,8 +289,8 @@ class Media
             throw new MediaRejected('That file could not be read.');
         }
         $size = (int) filesize($path);
-        if ($size > self::MAX_FILE_SIZE) {
-            throw new MediaRejected('File exceeds the 10 MB limit.');
+        if ($size > self::maxFileSize()) {
+            throw new MediaRejected(\Cms\Media\Pieces::tooLarge());
         }
 
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -693,6 +769,10 @@ class Media
             }
         }
 
+        // The picture places that showed it are left empty (`PicturePlace`), as
+        // every gallery is by the cascade.
+        PicturePlace::forget($id);
+
         // Delete DB record (version records cascade via FK)
         $pdo  = Database::getInstance();
         $stmt = $pdo->prepare('DELETE FROM attachments WHERE id = :id');
@@ -843,6 +923,54 @@ class Media
             'alt'      => (string) ($row['alt_text'] ?? ''),
             'variants' => $variants,
         ];
+    }
+
+    /**
+     * FOR ANY FILE IN THE LIBRARY, what a theme prints of it: its address,
+     * the name it was given, its size in bytes and in words, its type and its
+     * extension. A file field keeps the id, so a file renamed in the library
+     * (`Media\Rename`) is followed. Null for no such file.
+     *
+     * @return array{url: string, name: string, size: int, size_words: string, mime: string, extension: string}|null
+     */
+    public static function file(int|string|null $id): ?array
+    {
+        $row = empty($id) ? null : self::find((int) $id);
+        if ($row === null) {
+            return null;
+        }
+        $root = rtrim(defined('BASE_PATH') ? (string) BASE_PATH : '', '/');
+        $name = trim((string) ($row['original_name'] ?? '')) !== '' ? (string) $row['original_name'] : (string) $row['filename'];
+
+        return [
+            'url'        => $root . self::address($row),
+            'name'       => $name,
+            'size'       => (int) $row['file_size'],
+            'size_words' => self::sizeInWords((int) $row['file_size']),
+            'mime'       => (string) $row['mime_type'],
+            'extension'  => strtolower(pathinfo((string) $row['filename'], PATHINFO_EXTENSION)),
+        ];
+    }
+
+    /**
+     * A GALLERY FIELD'S PICTURES, for a theme that draws its own: each what
+     * `image()` gives, with its `id` and its `caption`, in order. Its value as
+     * kept (`[{"id": 12, "caption": "…"}]`); a picture no longer in the
+     * library is left out.
+     *
+     * @return list<array{id: int, url: string, width: ?int, height: ?int, alt: string, variants: array<int, string>, caption: string}>
+     */
+    public static function gallery(mixed $value): array
+    {
+        $out = [];
+        foreach (\Cms\ContentType\FieldRenderer::galleryItems(is_string($value) ? $value : '') as $item) {
+            $image = self::image((int) $item['attachment_id']);
+            if ($image !== null) {
+                $out[] = ['id' => (int) $item['attachment_id']] + $image + ['caption' => (string) $item['caption']];
+            }
+        }
+
+        return $out;
     }
 
     /**

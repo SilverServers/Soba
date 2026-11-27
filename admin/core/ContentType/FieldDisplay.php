@@ -42,6 +42,8 @@ final class FieldDisplay
             'rich_text'    => Sanitizer::clean((string) $stored),
             'textarea'     => nl2br(self::text((string) $stored), false),
             'number'       => self::text((string) $stored),
+            'phone'        => self::phone((string) $stored),
+            'email'        => self::email((string) $stored),
             'date'         => self::when((string) $stored, false),
             'datetime'     => self::when((string) $stored, true),
             'select'       => self::text((string) (($field['options'] ?? [])[$stored] ?? $stored)),
@@ -49,11 +51,82 @@ final class FieldDisplay
             // the owner never made; an unticked box is the field not applying.
             'checkbox'     => $stored === '1' ? 'Yes' : '',
             'image'        => self::image((int) $stored),
+            'file'         => self::file((int) $stored),
+            'gallery'      => self::gallery($field, (string) $stored),
             'repeater'     => self::repeater($field, (string) $stored),
             'relationship' => self::entries((string) $stored),
             'taxonomy'     => self::terms((string) $stored),
             default        => self::textOrLink((string) $stored),
         };
+    }
+
+    /**
+     * A PHONE FIELD'S NUMBER AS A PHONE DIALS IT, '+12505550142', by the rule
+     * Business details use (`Site\Business::dialable()`), from the business's
+     * own country; '' when it cannot be dialled as written. A template that
+     * draws its own link asks this, as `html()` does.
+     */
+    public static function dialable(string $typed): string
+    {
+        return \Cms\Site\Business::dialable(FieldRenderer::plain($typed), self::dialCountry());
+    }
+
+    /** The country a phone field's number is dialled from: Business details', else the shop's. */
+    public static function dialCountry(): string
+    {
+        return (string) (\Cms\Site\Business::get()['place']['country'] ?? '');
+    }
+
+    /** A number as typed, as a link to call it; as text when it cannot be dialled as written. */
+    private static function phone(string $stored): string
+    {
+        $tel = self::dialable($stored);
+
+        return $tel !== '' ? '<a href="tel:' . htmlspecialchars($tel, ENT_QUOTES, 'UTF-8') . '">' . self::text($stored) . '</a>' : self::text($stored);
+    }
+
+    /** An address as a link to write to; as text when it is not one. */
+    private static function email(string $stored): string
+    {
+        $plain = trim(FieldRenderer::plain($stored));
+        if (filter_var($plain, FILTER_VALIDATE_EMAIL) === false) {
+            return self::text($stored);
+        }
+        $e = htmlspecialchars($plain, ENT_QUOTES, 'UTF-8');
+
+        return '<a href="mailto:' . $e . '">' . $e . '</a>';
+    }
+
+    /** A library file, as a link with its name, and its size beside it; nothing for none (`Media::file()`). */
+    private static function file(int $id): string
+    {
+        $file = \Cms\Models\Media::file($id);
+        if ($file === null) {
+            return '';
+        }
+
+        return '<a href="' . htmlspecialchars($file['url'], ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($file['name'], ENT_QUOTES, 'UTF-8') . '</a>'
+            . ' (' . htmlspecialchars($file['size_words'], ENT_QUOTES, 'UTF-8') . ')';
+    }
+
+    /**
+     * A gallery field's pictures, drawn as a gallery is (`Shortcode::galleryHtml()`),
+     * each with its caption, in its definition's layout and columns; nothing for none.
+     *
+     * @param array<string, mixed> $field
+     */
+    private static function gallery(array $field, string $stored): string
+    {
+        $items = FieldRenderer::galleryItems($stored);
+        if ($items === []) {
+            return '';
+        }
+
+        return \Cms\Helpers\Shortcode::galleryHtml($items, [
+            'layout'   => ($field['layout'] ?? '') === 'masonry' ? 'masonry' : 'grid',
+            'columns'  => max(2, min(6, (int) ($field['columns'] ?? 3) ?: 3)),
+            'lightbox' => !empty($field['lightbox']),
+        ], 'field-' . (string) ($field['key'] ?? ''));
     }
 
     /** The value as typed, escaped for the page once. */
@@ -151,11 +224,10 @@ final class FieldDisplay
         $links = [];
         foreach ((array) json_decode($stored, true) as $id) {
             $post = Post::find((int) $id);
-            if ($post === null || $post['status'] !== 'published' || Post::isScheduled($post) || Post::hasEnded($post)) {
+            if ($post === null || !Post::onSite($post)) {
                 continue;
             }
-            $type = Registry::get((string) $post['post_type']);
-            $tp   = (string) ($type['public_slug'] ?? '');
+            $tp   = (string) Registry::publicSlug((string) $post['post_type']);
             $t    = htmlspecialchars((string) $post['title'], ENT_QUOTES, 'UTF-8');
             $links[] = $tp !== ''
                 ? '<a href="' . htmlspecialchars(Url::entry($post, $tp), ENT_QUOTES, 'UTF-8') . '">' . $t . '</a>'

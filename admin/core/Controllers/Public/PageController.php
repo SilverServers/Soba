@@ -35,6 +35,8 @@ class PageController
         // The page exists — so the other ending of its address 301s here now, and
         // not before: a 404 stays a 404 (`Url::settle()`).
         \Cms\Helpers\Url::settle();
+        // Edit this page, for a signed-in editor (`Site\EditBar`).
+        \Cms\Site\EditBar::forPage($page);
 
         // Password protected: check session or POST
         if ($page['status'] === 'password') {
@@ -93,6 +95,11 @@ class PageController
         // empty title is one left on the pattern (`Head::ownTitle()`).
         $seoTitle = trim((string) ($page['seo_title'] ?? ''));
         $seoDesc  = Head::buildTitle(trim((string) ($page['meta_description'] ?? '')), $tokens);
+        // AN EMPTY DESCRIPTION IS THE PAGE'S SUMMARY, as an entry's is its
+        // excerpt (`Head::forEntry()`): prose, so its braces stay as written.
+        if ($seoDesc === '') {
+            $seoDesc = trim((string) ($page['excerpt'] ?? ''));
+        }
 
         // THE FEATURED IMAGE IS THE SOCIAL PREVIEW, exactly as it is for an
         // entry (PostController::show). It was collected by the Pages form,

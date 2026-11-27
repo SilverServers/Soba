@@ -46,7 +46,7 @@ final class Forms
     public const CARRIED = [
         'Forms/Answers.php', 'Forms/Captcha.php', 'Forms/Embed.php', 'Forms/FieldTypes.php', 'Forms/Guard.php',
         'Forms/Logic.php', 'Forms/Notify.php', 'Forms/Preview.php', 'Forms/Upload.php',
-        'Helpers/Dates.php', 'Media/Optimizer.php', 'Security/ClientIp.php',
+        'Helpers/Dates.php', 'Http/Cache.php', 'Media/Optimizer.php', 'Security/ClientIp.php',
         // How Guard and ClientIp read the copy's own config/config.php.
         'Site/ConfigFile.php',
         'Export/Receiver/Handler.php', 'Export/Receiver/Store.php',

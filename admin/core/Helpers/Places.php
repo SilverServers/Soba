@@ -6,22 +6,26 @@ namespace Cms\Helpers;
 
 /**
  * THE SITE'S PLACES: spots on the
- * site's own pages that show a gallery, or a form, the admin chooses, in the
- * site's own design. The site lists them in `places.php` — in the active
- * theme, or in `admin/site/templates/` (`Theme::file()`):
+ * site's own pages that show a gallery, a form or a picture the admin
+ * chooses, in the site's own design. The site lists them in `places.php` — in
+ * the active theme, or in `admin/site/templates/` (`Theme::file()`):
  *
  *     return [
- *         'portfolio' => ['name' => 'The portfolio page', 'url' => '/portfolio/'],
- *         'contact'   => ['name' => 'The contact page', 'url' => '/contact/', 'kind' => 'form'],
+ *         'portfolio'    => ['name' => 'The portfolio page', 'url' => '/portfolio/'],
+ *         'contact'      => ['name' => 'The contact page', 'url' => '/contact/', 'kind' => 'form'],
+ *         'about-top'    => ['name' => 'The about page, at the top', 'url' => '/about/', 'kind' => 'picture'],
  *     ];
  *
- * A place's kind says what it holds: 'gallery' (the default) or 'form'. Each
- * screen offers its own kind only — a form's "Shown on" lists the form
- * places. A place shows one form at most (`forms.place_key`, unique), and the
- * site's template for that page asks which: `Places::keyForUrl($path, 'form')`,
- * then `Form::byPlace($key)`. Without a places.php there is nowhere to place
- * anything, and the admin shows no field. A places.php that fails is logged,
- * and `error()` says why.
+ * A place's kind says what it holds: 'gallery' (the default), 'form' or
+ * 'picture'. Each screen offers its own kind only — a form's "Shown on" lists
+ * the form places. A place shows one form at most (`forms.place_key`,
+ * unique), and the site's template for that page asks which:
+ * `Places::keyForUrl($path, 'form')`, then `Form::byPlace($key)`. A picture
+ * place shows the one picture chosen for it on Files and media → Picture
+ * places (`Models\PicturePlace`); its template asks `Places::picture($key)`,
+ * gets what `Media::image()` gives, and draws its own file on null. Without a
+ * places.php there is nowhere to place anything, and the admin shows no
+ * field. A places.php that fails is logged, and `error()` says why.
  *
  * A page that depends on one record names it in a column the admin shows and
  * can change — never in a title or an id written into a template, which an
@@ -41,7 +45,7 @@ final class Places
     }
 
     /**
-     * Every place, or those of one kind ('gallery', 'form').
+     * Every place, or those of one kind ('gallery', 'form', 'picture').
      *
      * @return array<string, array{name: string, url?: string, kind: string}>
      */
@@ -66,6 +70,22 @@ final class Places
     public static function find(?string $key): ?array
     {
         return $key !== null && $key !== '' ? (self::all()[$key] ?? null) : null;
+    }
+
+    /**
+     * THE PICTURE A PICTURE PLACE SHOWS, as `Media::image()` gives it, or null
+     * when none is chosen, the picture has left the library, or the key names
+     * no picture place: then the site draws its own file there.
+     *
+     * @return array{url: string, width: ?int, height: ?int, alt: string, variants: array<int, string>}|null
+     */
+    public static function picture(string $key): ?array
+    {
+        if ((self::find($key)['kind'] ?? null) !== 'picture') {
+            return null;
+        }
+
+        return \Cms\Models\Media::image(\Cms\Models\PicturePlace::chosen($key));
     }
 
     /** Why the list could not be read, or null. */
@@ -115,7 +135,7 @@ final class Places
             $places[$key] = array_filter([
                 'name' => trim((string) $p['name']),
                 'url'  => isset($p['url']) ? (string) $p['url'] : null,
-                'kind' => ($p['kind'] ?? 'gallery') === 'form' ? 'form' : 'gallery',
+                'kind' => in_array($p['kind'] ?? 'gallery', ['form', 'picture'], true) ? (string) $p['kind'] : 'gallery',
             ], static fn ($v): bool => $v !== null && $v !== '');
         }
         return self::$places = $places;

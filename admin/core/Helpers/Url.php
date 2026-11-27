@@ -95,7 +95,9 @@ final class Url
     /**
      * An entry's address: its type's public prefix, then its slug, in the
      * entry's own language. `$publicSlug` when the caller has its type's
-     * prefix to hand; else read from the type (`ContentType\Registry`).
+     * prefix to hand; else read from the type (`ContentType\Registry`). An
+     * entry whose type has no pages (`Registry::hasPages()`) has no address:
+     * a caller asks that first.
      *
      * @param array<string, mixed> $post a row of `posts`
      */
@@ -107,7 +109,7 @@ final class Url
     /** @param array<string, mixed> $post */
     public static function entryPath(array $post, ?string $publicSlug = null): string
     {
-        $prefix = $publicSlug ?? (string) ((\Cms\ContentType\Registry::get((string) ($post['post_type'] ?? '')) ?? [])['public_slug'] ?? '');
+        $prefix = $publicSlug ?? (string) \Cms\ContentType\Registry::publicSlug((string) ($post['post_type'] ?? ''));
         return self::inLanguage(trim($prefix, '/') . '/' . (string) ($post['slug'] ?? ''), (string) ($post['lang'] ?? ''));
     }
 

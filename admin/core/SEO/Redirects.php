@@ -314,8 +314,8 @@ class Redirects
             return;
         }
         if (!str_contains(ltrim($own, '/'), '/')) {
-            foreach (\Cms\ContentType\Registry::all() as $type) {
-                if ((string) ($type['public_slug'] ?? '') === $first) {
+            foreach (\Cms\ContentType\Registry::all() as $typeKey => $type) {
+                if ((string) \Cms\ContentType\Registry::publicSlug((string) $typeKey) === $first) {
                     return;
                 }
             }

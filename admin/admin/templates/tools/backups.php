@@ -15,14 +15,19 @@ use Cms\Site\Backups;
  * Download and Delete, and Back up now in the card's heading; the bar while
  * one is being made. Under them the timetable: how often, and how many are
  * kept. How to put one back is said once, under the list, because it is the
- * command line's.
+ * command line's. Where config.php names somewhere off the server
+ * (`Site\BackupCopy`), each backup says how its copy went, and the list says
+ * where copies go and how many are kept there.
  *
- * @var list<array{id: string, why: string, finished: int, bytes: int, file: string, count: int}> $backups
+ * @var list<array{id: string, why: string, finished: int, bytes: int, file: string, count: int, copy: ?array<string, mixed>}> $backups
  * @var array<string, mixed>|null $running
  * @var string                    $every
  * @var string                    $keep
  * @var list<string>              $errors
  * @var bool                      $saved
+ * @var string                    $copyTo       where copies go, '' when nowhere
+ * @var string|null               $copyProblem  what config.php's backup_copy lacks
+ * @var int                       $copyKeep     how many are kept there
  */
 
 $total = array_sum(array_map(static fn (array $b): int => $b['bytes'], $backups));
@@ -120,6 +125,16 @@ ob_start();
                                     <div class="list__row-sub">
                                         <?= h(ucfirst($backup['why'])) ?> · the database and <?= (int) $backup['count'] ?> file<?= $backup['count'] === 1 ? '' : 's' ?> ·
                                         <code><?= h($backup['id']) ?></code>
+                                        <?php $copy = $backup['copy']; ?>
+                                        <?php if ($copy !== null): ?>
+                                            <?php // HOW ITS COPY WENT, in words: copied, going, or why not. ?>
+                                            <span data-backup-copy="<?= h((string) ($copy['state'] ?? '')) ?>"> ·
+                                                <?= h(match ((string) ($copy['state'] ?? '')) {
+                                                    'copied'  => 'copied to ' . (string) ($copy['to'] ?? ''),
+                                                    'failed'  => 'not copied: ' . (string) ($copy['error'] ?? ''),
+                                                    default   => 'being copied to ' . (string) ($copy['to'] ?? ''),
+                                                }) ?></span>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                                 <div class="backup-list__size"><?= h(Backups::size($backup['bytes'])) ?></div>
@@ -142,6 +157,23 @@ ob_start();
                     <p class="form-help backup-list__restore">
                         <?= h(Backups::size($total)) ?> on the server, in <code>admin/backups/</code>. To put one back, run
                         <code>php admin/bin/backup.php restore</code> and its name on the server; it backs up the site as it is first.
+                    </p>
+                <?php endif; ?>
+                <?php // WHERE A COPY OF EACH GOES (`Site\BackupCopy`), or that
+                      // none does: a backup kept only here does not survive
+                      // the server. ?>
+                <?php if ($copyTo !== ''): ?>
+                    <p class="form-help" data-backup-copies>
+                        A copy of each goes to <?= h($copyTo) ?>, where the newest <?= (int) $copyKeep ?> are kept.
+                    </p>
+                <?php elseif ($copyProblem !== null): ?>
+                    <p class="form-help" data-backup-copies>
+                        Kept only on this server: <?= h($copyProblem) ?>.
+                    </p>
+                <?php else: ?>
+                    <p class="form-help" data-backup-copies>
+                        Kept only on this server. config.php's <code>backup_copy</code> sends a copy of each to S3-compatible storage,
+                        such as Amazon S3, Backblaze B2 or Wasabi.
                     </p>
                 <?php endif; ?>
             </div>
@@ -170,7 +202,7 @@ ob_start();
                     <p class="form-help">
                         Each backup is the database and every uploaded file, made on a visit once it is due
                         and kept on the server outside the web site. <code>config.php</code> is left out: it
-                        holds the site's passwords.
+                        holds the site's passwords. Keep a copy of it apart from the backups, somewhere only you can reach.
                     </p>
                     <div class="form-actions form-actions--bare">
                         <button type="submit" class="btn btn--primary">Save</button>

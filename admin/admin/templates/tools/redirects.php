@@ -74,8 +74,11 @@ ob_start();
 ?>
 <div class="page">
 
-    <a class="page__back" href="<?= h(Url::admin('tools')) ?>">
-        <?= icon('angle-left', 'icon icon--sm') ?>Tools
+    <?php // BACK TO WHERE THE ACCOUNT CAN GO: Tools is administrators', and
+          // a role granted Redirects (`Auth::can()`) goes back to the dashboard. ?>
+    <?php $backToTools = \Cms\Auth\Auth::hasRole('admin'); ?>
+    <a class="page__back" href="<?= h($backToTools ? Url::admin('tools') : Url::admin()) ?>">
+        <?= icon('angle-left', 'icon icon--sm') ?><?= $backToTools ? 'Tools' : 'Dashboard' ?>
     </a>
 
     <div class="page__header">

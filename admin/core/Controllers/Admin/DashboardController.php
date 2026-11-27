@@ -71,6 +71,12 @@ class DashboardController
              LIMIT 8"
         )->fetchAll(PDO::FETCH_ASSOC);
 
+        // A SITE'S OWN PANELS (`Site\DashboardPanels`), drawn first; and
+        // whether the CMS's own are drawn after them or the site's are in
+        // their place.
+        $sitePanels = \Cms\Site\DashboardPanels::forUser($user);
+        $ownPanels  = \Cms\Site\DashboardPanels::ownShown($user);
+
         require ROOT_PATH . '/admin/templates/dashboard.php';
     }
 

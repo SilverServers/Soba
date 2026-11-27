@@ -34,7 +34,8 @@ final class ManualOrder
         }
         $marks = implode(',', array_fill(0, count($types), '?'));
         $stmt  = Database::getInstance()->prepare(
-            "SELECT * FROM posts WHERE post_type IN ($marks) AND status = 'published' ORDER BY title, id"
+            // Published as this copy treats it: a sample product too, where samples are shown.
+            "SELECT * FROM posts WHERE post_type IN ($marks) AND " . \Cms\Models\Post::publishedSql() . " ORDER BY title, id"
         );
         $stmt->execute($types);
 

@@ -195,6 +195,12 @@ class ContentTypeDefinitionController
 
         $newId = ContentTypeDefinition::create($data);
         ContentTypeDefinition::setPaging($newId, $data['per_page'], $data['first_page_extra']);
+        ContentTypeDefinition::setDefaultStatus($newId, $data['default_status']);
+        ContentTypeDefinition::setCopyRules($newId, $data['copy']);
+        ContentTypeDefinition::setTitleLabel($newId, $data['title_label']);
+        $this->saveStaffView($newId, (string) $data['type_key'], $_POST);
+        ContentTypeDefinition::setTermRules($newId, $data['term_rules']);
+        ContentTypeDefinition::setFieldsPosition($newId, $data['fields_position']);
 
         $chosen = $this->seedSelection($_POST);
         foreach ($data['archetypes'] ?? ['post'] as $archetype) {
@@ -289,6 +295,16 @@ class ContentTypeDefinitionController
 
         ContentTypeDefinition::update((int) $vars['id'], $data);
         ContentTypeDefinition::setPaging((int) $vars['id'], $data['per_page'], $data['first_page_extra']);
+        ContentTypeDefinition::setDefaultStatus((int) $vars['id'], $data['default_status']);
+        ContentTypeDefinition::setCopyRules((int) $vars['id'], $data['copy']);
+        ContentTypeDefinition::setTitleLabel((int) $vars['id'], $data['title_label']);
+        ContentTypeDefinition::setTermRules((int) $vars['id'], $data['term_rules']);
+        ContentTypeDefinition::setFieldsPosition((int) $vars['id'], $data['fields_position']);
+        $this->saveListView((int) $vars['id'], (string) $data['type_key'], $_POST);
+        $this->saveChildren((int) $vars['id'], (string) $data['type_key'], $_POST);
+        $this->saveStaffView((int) $vars['id'], (string) $data['type_key'], $_POST);
+        ContentTypeDefinition::setPatterns((int) $vars['id'], $data['title_pattern'], $data['slug_pattern']);
+        ContentTypeDefinition::setParentLabel((int) $vars['id'], $data['parent_label']);
 
         // A ticked archetype brings its chosen fields; an unticked one TAKES ITS
         // GROUP AWAY AGAIN — see forgetArchetype() for why that is a delete and
@@ -374,7 +390,7 @@ class ContentTypeDefinitionController
         }
 
         // Collect archetypes checkboxes
-        $validArchetypes = ['post', 'event', 'listing', 'product'];
+        $validArchetypes = ArchetypeDefaults::KEYS;
         $archetypes = [];
         $rawArchetypes = $post['archetypes'] ?? [];
         if (is_array($rawArchetypes)) {
@@ -387,6 +403,13 @@ class ContentTypeDefinitionController
         }
         if (empty($archetypes)) {
             $archetypes = ['post']; // default to post archetype
+        }
+        // AN ANNOUNCEMENT IS ONLY THAT (`ArchetypeDefaults::ALONE`): it has no
+        // page and is in no list, so a type cannot be one and a post or an
+        // event as well. Refused by name rather than one of them dropped.
+        $alone = array_values(array_intersect($archetypes, ArchetypeDefaults::ALONE));
+        if ($alone !== [] && count($archetypes) > 1) {
+            $errors['archetypes'] = ucfirst($alone[0]) . ' is a kind of its own: untick it or the others.';
         }
 
         if ($pluralLabel === '') {
@@ -453,9 +476,10 @@ class ContentTypeDefinitionController
                 $adminSlug = str_replace('_', '-', $typeKey);
             }
         }
-        if ($publicSlug === '') {
-            $publicSlug = $adminSlug;
-        }
+        // A BLANK PUBLIC URL IS NO PAGES: the type's entries have no page of
+        // their own (`Registry::hasPages()`), and none of the checks below
+        // apply. A new type's box is filled from the plural name as it is
+        // typed (type-form.js), so a type has pages unless the box is cleared.
 
         // ── AN ADDRESS THE ROUTER ALREADY OWNS ──────────────────────────────
         // A type's archive is the route `/{public slug}` and its entries are
@@ -466,8 +490,17 @@ class ContentTypeDefinitionController
         // site down, this screen included. Cleaned like every other slug, then
         // refused by name. (`Router::dispatch()` survives such a row if it
         // arrives some other way; this is where the owner is told.)
+        // AN ANNOUNCEMENT HAS NO PAGE: it shows over the pages it names, so
+        // its type has no address of its own whatever was typed (the form
+        // draws none for it).
+        if (array_intersect($archetypes, ArchetypeDefaults::ALONE) !== []) {
+            $publicSlug = '';
+        }
+        $typedSlug  = $publicSlug;
         $publicSlug = \Cms\Helpers\Slug::clean($publicSlug);
-        if ($publicSlug === '') {
+        if ($typedSlug === '') {
+            // No pages: nothing to check.
+        } elseif ($publicSlug === '') {
             $errors['public_slug'] = 'The public URL needs at least one letter or digit.';
         } elseif (in_array($publicSlug, \Cms\Helpers\Slug::reservedFirstSegments(), true)) {
             $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug)
@@ -479,7 +512,7 @@ class ContentTypeDefinitionController
                 . ' is one of the site\'s own pages, so a type there could never be reached. Choose another.';
         } else {
             foreach (Registry::all() as $otherKey => $other) {
-                if ((string) $otherKey !== $typeKey && (string) ($other['public_slug'] ?? '') === $publicSlug) {
+                if ((string) $otherKey !== $typeKey && (string) Registry::publicSlug((string) $otherKey) === $publicSlug) {
                     $errors['public_slug'] = 'The address /' . htmlspecialchars($publicSlug) . ' already belongs to '
                         . htmlspecialchars((string) ($other['label'] ?? $otherKey)) . '.';
                     break;
@@ -554,6 +587,92 @@ class ContentTypeDefinitionController
             $extra = (int) $extraRaw;
         }
 
+        // ITS OWN WORD FOR THE TITLE (migration 150), such as Name: as typed,
+        // its ends trimmed, and refused by name past the column's hundred.
+        $titleLabel = is_scalar($post['title_label'] ?? null) ? trim((string) $post['title_label']) : '';
+        if (mb_strlen($titleLabel) > 100) {
+            $errors['title_label'] = 'The title label can be at most 100 characters.';
+        }
+
+        // HOW MANY TERMS OF EACH TAXONOMY ITS ENTRIES TAKE (migration 151), for
+        // each taxonomy on the type, in the four answers the taxonomy's own
+        // screen gives, or blank for the taxonomy's own rule. "No more than"
+        // without a number from 1 to 99 is refused by the taxonomy's name.
+        $termRules = [];
+        foreach (\Cms\ContentType\TaxonomyRegistry::getForContentType((string) ($lockedKey ?? $typeKey)) as $taxKey => $tax) {
+            $given = is_array($post['term_rules'][$taxKey] ?? null) ? $post['term_rules'][$taxKey] : [];
+            $rule  = is_string($given['rule'] ?? null) ? $given['rule'] : '';
+            $most  = is_scalar($given['max'] ?? null) ? trim((string) $given['max']) : '';
+            if ($rule === 'any') {
+                $termRules[(string) $taxKey] = ['min' => 0, 'max' => null];
+            } elseif ($rule === 'one_or_more') {
+                $termRules[(string) $taxKey] = ['min' => 1, 'max' => null];
+            } elseif ($rule === 'exactly_one') {
+                $termRules[(string) $taxKey] = ['min' => 1, 'max' => 1];
+            } elseif ($rule === 'at_most') {
+                if (!ctype_digit($most) || (int) $most < 1 || (int) $most > 99) {
+                    $errors['term_rules_' . $taxKey] = 'Say how many ' . strtolower((string) $tax['label'])
+                        . ' an entry can take at most — a number from 1 to 99.';
+                } else {
+                    $termRules[(string) $taxKey] = ['min' => 0, 'max' => (int) $most];
+                }
+            }
+        }
+
+        // ── HOW ITS EDITOR NAMES EACH PARENT (migration 148) ───────────────
+        // Over the parent type's fields, so a token naming nothing the parent
+        // has is refused by name; with no parent, none is kept.
+        $parentLabel = is_scalar($post['parent_label'] ?? null) ? trim((string) $post['parent_label']) : '';
+        if ($parentType === '') {
+            $parentLabel = '';
+        } elseif (mb_strlen($parentLabel) > 255) {
+            $errors['parent_label'] = 'How each is named can be at most 255 characters.';
+        } elseif ($parentLabel !== '' && Registry::get($parentType) !== null) {
+            $problem = \Cms\ContentType\Patterns::problem($parentLabel, $parentType, 'name of each');
+            if ($problem !== null) {
+                $errors['parent_label'] = str_replace("this type's fields or taxonomies", 'the fields or taxonomies of what it belongs to', $problem);
+            }
+        }
+
+        // ── WHAT COPY MAKES OF ITS ENTRIES (migration 147) ──────────────────
+        // The words after a copy's title, none allowed; its status; and the
+        // fields it never takes, each a key or a key's start and `*`, a name
+        // that is neither refused by name. The CMS's own is kept as none.
+        $copySuffix = is_scalar($post['copy_suffix'] ?? null) ? trim((string) $post['copy_suffix']) : \Cms\ContentType\CopyRules::SUFFIX;
+        if (mb_strlen($copySuffix) > 100) {
+            $errors['copy_suffix'] = 'The words after a copy\'s title can be at most 100 characters.';
+        }
+        $copySkip = is_scalar($post['copy_skip'] ?? null) ? (string) $post['copy_skip'] : '';
+        foreach (preg_split('/[\s,]+/', $copySkip) ?: [] as $copyName) {
+            if (trim($copyName) !== '' && preg_match('/^[a-z0-9_]+\*?$/', trim($copyName)) !== 1) {
+                $errors['copy_skip'] = 'Never copied: "' . trim($copyName) . '" is not a field\'s key. Write each as its key, such as legacy_id, or legacy_* for every key that begins so.';
+                break;
+            }
+        }
+        $copy = ['suffix' => $copySuffix, 'status' => ($post['copy_status'] ?? '') === 'same' ? 'same' : 'private',
+                 'skip' => \Cms\ContentType\CopyRules::names($copySkip)];
+        if ($copy === ['suffix' => \Cms\ContentType\CopyRules::SUFFIX, 'status' => 'private', 'skip' => []]) {
+            $copy = null;
+        }
+
+        // ── ITS TITLES AND ADDRESSES MADE FROM ITS FIELDS (migration 146) ───
+        // On a type that exists, whose fields and taxonomies a pattern names:
+        // a token that names nothing it has is refused by name, as is a
+        // pattern longer than its column.
+        $patterns = [];
+        foreach (['title_pattern' => 'title pattern', 'slug_pattern' => 'address pattern'] as $box => $what) {
+            $typed           = is_scalar($post[$box] ?? null) ? trim((string) $post[$box]) : '';
+            $patterns[$box]  = $typed;
+            if (mb_strlen($typed) > 255) {
+                $errors[$box] = 'The ' . $what . ' can be at most 255 characters.';
+            } elseif ($typed !== '' && $lockedKey !== null && Registry::get($lockedKey) !== null) {
+                $problem = \Cms\ContentType\Patterns::problem($typed, $lockedKey, $what);
+                if ($problem !== null) {
+                    $errors[$box] = $problem;
+                }
+            }
+        }
+
         $data = [
             'type_key'       => $typeKey,
             // RAW, NOT ESCAPED — every reader escapes at output (h() in the
@@ -573,9 +692,115 @@ class ContentTypeDefinitionController
             'is_active'      => $isActive,
             'per_page'         => $perPage,
             'first_page_extra' => $extra,
+            // THE STATUS A NEW ENTRY STARTS AT (migration 131): Published when
+            // chosen; anything else, a hand-made value included, Private.
+            'default_status'   => ($post['default_status'] ?? '') === 'published' ? 'published' : 'private',
+            'title_label'      => $titleLabel,
+            'term_rules'       => $termRules,
+            'copy'             => $copy,
+            'parent_label'     => $parentLabel,
+            'title_pattern'    => $patterns['title_pattern'],
+            'slug_pattern'     => $patterns['slug_pattern'],
+            // WHERE ITS FIELDS GO (migration 149): above its text, or after it.
+            'fields_position'  => ($post['fields_position'] ?? '') === 'high' ? 'high' : '',
         ];
 
         return [$errors, $data];
+    }
+
+    /**
+     * WHAT ITS ENTRY LIST SHOWS AND HOW IT IS ORDERED (migration 130), when the
+     * form drew its List panel: the columns ticked that the type can show, in
+     * the order offered, and a sort the type can make. Anything else posted is
+     * left out, as the panel never offers it.
+     *
+     * @param array<string, mixed> $post
+     */
+    private function saveListView(int $id, string $typeKey, array $post): void
+    {
+        if (!isset($post['list_view']) || \Cms\ContentType\Registry::get($typeKey) === null) {
+            return;
+        }
+        $ticked  = array_map('strval', array_filter((array) ($post['list_columns'] ?? []), 'is_scalar'));
+        $columns = array_values(array_filter(
+            array_column(\Cms\ContentType\ListColumns::available($typeKey), 'spec'),
+            static fn (string $spec): bool => in_array($spec, $ticked, true)
+        ));
+        $sort = null;
+        if (is_string($post['list_sort'] ?? null) && preg_match('/^(.+):(asc|desc)$/', $post['list_sort'], $m) === 1) {
+            $field = $m[1];
+            if ($field === 'date' || $field === 'title'
+                || in_array((string) (\Cms\ContentType\ListColumns::sortable($typeKey, $field)['type'] ?? ''), ['date', 'datetime', 'number', 'text', 'select'], true)) {
+                $sort = ['field' => $field, 'order' => $m[2]];
+            }
+        }
+        ContentTypeDefinition::setListView($id, $columns, $sort);
+    }
+
+    /**
+     * ITS CHILDREN ON EACH ENTRY'S EDITOR (migration 145), when the form drew
+     * its panel: for each type that belongs to this one, the columns ticked
+     * that its rows can show, in the order offered. A type with none ticked is
+     * not shown; anything else posted is left out, as the panel never offers it.
+     *
+     * @param array<string, mixed> $post
+     */
+    private function saveChildren(int $id, string $typeKey, array $post): void
+    {
+        if (!isset($post['children_view']) || Registry::get($typeKey) === null) {
+            return;
+        }
+        $posted   = is_array($post['children'] ?? null) ? $post['children'] : [];
+        $children = [];
+        foreach (\Cms\ContentType\Children::available($typeKey) as $child) {
+            $ticked  = is_array($posted[$child['key']]['columns'] ?? null)
+                ? array_map('strval', array_filter($posted[$child['key']]['columns'], 'is_scalar')) : [];
+            $columns = array_values(array_filter(
+                array_column($child['columns'], 'spec'),
+                static fn (string $spec): bool => in_array($spec, $ticked, true)
+            ));
+            if ($columns !== []) {
+                $children[$child['key']] = ['columns' => $columns];
+            }
+        }
+        ContentTypeDefinition::setChildren($id, $children);
+    }
+
+    /**
+     * WHAT STAFF SEE ON ITS SCREENS (migration 140, `ContentType\StaffView`),
+     * when the form drew it: each panel's least role, and with its List panel
+     * each list part's and what the list is grouped by, a Choice field or a
+     * taxonomy the type has. A part left at its default is not kept, and a
+     * list the form did not draw keeps what it was.
+     *
+     * @param array<string, mixed> $post
+     */
+    private function saveStaffView(int $id, string $typeKey, array $post): void
+    {
+        if (!isset($post['staff_view'])) {
+            return;
+        }
+        $pick = static function (mixed $posted, array $defaults): array {
+            $out = [];
+            foreach ($defaults as $part => $default) {
+                $role = \Cms\ContentType\StaffView::posted(is_array($posted) ? ($posted[$part] ?? null) : null, $default);
+                if ($role !== null) {
+                    $out[$part] = $role;
+                }
+            }
+
+            return $out;
+        };
+        $panels = $pick($post['panels'] ?? null, \Cms\ContentType\StaffView::PANELS);
+        $list   = (array) (Registry::get($typeKey)['list'] ?? []);
+        if (isset($post['list_view']) && Registry::get($typeKey) !== null) {
+            $list  = $pick($post['list_parts'] ?? null, \Cms\ContentType\StaffView::LIST);
+            $group = is_string($post['group_by'] ?? null) ? $post['group_by'] : '';
+            if ($group !== '' && isset(\Cms\ContentType\StaffView::groupOptions($typeKey)[$group])) {
+                $list['group_by'] = $group;
+            }
+        }
+        ContentTypeDefinition::setStaffView($id, $panels, $list);
     }
 
     /**

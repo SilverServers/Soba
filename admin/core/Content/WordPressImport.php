@@ -871,7 +871,7 @@ final class WordPressImport
             }
         }
 
-        $publicSlug = (string) (Registry::get((string) $row['to'])['public_slug'] ?? '');
+        $publicSlug = (string) Registry::publicSlug((string) $row['to']);
         $job['made'][] = ['kind' => 'entry', 'id' => $id, 'wp' => (int) $item['id'], 'parent' => 0, 'thumb' => $thumb, 'title' => $title];
         if ($publicSlug !== '') {
             $job['links'][self::linkKey((string) $item['link'])] = Url::entry($row, $publicSlug);
@@ -1211,11 +1211,11 @@ final class WordPressImport
                     break;
                 }
                 $bytes += strlen($chunk);
-                if ($bytes > Media::MAX_FILE_SIZE) {
+                if ($bytes > Media::maxFileSize()) {
                     fclose($in);
                     fclose($out);
                     @unlink($to);
-                    return 'it is larger than the library\'s 10 MB';
+                    return 'it is larger than the library\'s ' . Media::sizeInWords(Media::maxFileSize());
                 }
                 fwrite($out, $chunk);
             }

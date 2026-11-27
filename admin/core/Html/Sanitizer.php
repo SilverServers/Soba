@@ -213,6 +213,9 @@ final class Sanitizer
     /** What config.php's `icon_classes` names, as one pattern; '' for none. Read once. */
     private static ?string $icons = null;
 
+    /** The theme's classes for content, tag => classes (`themeClasses()`). Read once. */
+    private static ?array $themed = null;
+
     /**
      * Deprecated spellings that MEAN one of the allowed tags.
      *
@@ -454,6 +457,34 @@ final class Sanitizer
         }
 
         return array_values($keep);
+    }
+
+    /**
+     * The classes the active theme's stylesheet gives content, by tag
+     * (`Helpers\Theme::contentClasses()`): kept on that tag beside this
+     * file's own, and nowhere else. Where the site cannot be read, as in a
+     * check run with no database, none.
+     *
+     * @return array<string, list<string>>
+     */
+    private static function themeClasses(): array
+    {
+        if (self::$themed !== null) {
+            return self::$themed;
+        }
+        try {
+            $classes = array_map(static fn (array $c): array => array_map('strval', array_keys($c)), \Cms\Helpers\Theme::contentClasses());
+        } catch (\Throwable) {
+            $classes = [];
+        }
+
+        return self::$themed = $classes;
+    }
+
+    /** Forget the theme's classes read this request: after a test changes the theme. */
+    public static function resetThemed(): void
+    {
+        self::$themed = null;
     }
 
     /** config.php's `icon_classes` as one pattern, or '' for none (`ICON_CLASS`). */
@@ -726,6 +757,11 @@ final class Sanitizer
         // Attributes first, then descend — so an element that is about to lose
         // its `href` is still walked for its children.
         $allowed = self::TAGS[$tag];
+        // A THEME'S CLASS FOR THIS TAG (`themeClasses()`) lets it keep `class`.
+        $themed = self::themeClasses()[$tag] ?? [];
+        if ($themed !== [] && !in_array('class', $allowed, true)) {
+            $allowed[] = 'class';
+        }
         // A SITE'S ICON (`ICON_CLASS`): its classes and aria-hidden="true".
         $icons = $tag === 'i' || $tag === 'span' ? self::iconClasses($el) : [];
         foreach (iterator_to_array($el->attributes ?? []) as $attr) {
@@ -777,9 +813,10 @@ final class Sanitizer
                 // every other element that may carry a class takes the
                 // text-alignment one. Sharing a single list would let
                 // `<p class="align-right">` through, which the theme floats.
-                $vocabulary = in_array($tag, ['img', 'figure'], true)
-                    ? self::CLASSES
-                    : self::TEXT_CLASSES;
+                $vocabulary = !in_array('class', self::TAGS[$tag], true) ? []
+                    : (in_array($tag, ['img', 'figure'], true) ? self::CLASSES : self::TEXT_CLASSES);
+                // AND THE THEME'S OWN FOR THIS TAG, and this tag only.
+                $vocabulary = array_merge($vocabulary, $themed);
                 $keep = array_values(array_unique(array_intersect(
                     array_map(
                         static fn (string $c): string => self::CLASS_ALIASES[$c] ?? $c,

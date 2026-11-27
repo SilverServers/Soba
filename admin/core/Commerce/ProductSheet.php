@@ -228,9 +228,9 @@ final class ProductSheet
                 foreach (['categories' => $cats, 'tags' => $tags] as $column => $tax) {
                     if ($tax !== null && $p['terms'][$column] !== null) {
                         $ids     = array_map(static fn (string $name): int => self::termFor($tax, $name), $p['terms'][$column]);
-                        $refused = Term::countViolation($tax, $ids);
+                        $refused = Term::countViolation($tax, $ids, $typeKey);
                         if ($refused === null) {
-                            Term::setPostTerms($id, $tax, $ids);
+                            Term::setPostTerms($id, $tax, $ids, $typeKey);
                         } else {
                             $out['log'][] = 'kept the ' . $column . ' of ' . $p['what'] . ' as they were — ' . $refused;
                         }
@@ -813,7 +813,7 @@ final class ProductSheet
         $stmt = Database::getInstance()->prepare(
             "SELECT p.id, p.slug, p.title, p.status FROM posts p
                JOIN post_meta m ON m.post_id = p.id AND m.meta_key = :k
-              WHERE p.post_type = :t AND m.meta_value = :sku
+              WHERE p.post_type = :t AND m.meta_value = :sku AND p.lang = ''
            ORDER BY p.status = 'trash', p.id LIMIT 1"
         );
         $stmt->execute([':k' => Product::SKU, ':t' => $typeKey, ':sku' => $sku]);
@@ -841,7 +841,7 @@ final class ProductSheet
     {
         $stmt = Database::getInstance()->prepare(
             "SELECT id, title, slug, content, excerpt, status, featured_image_id FROM posts
-              WHERE post_type = :t AND status != 'trash' ORDER BY created_at DESC, id DESC"
+              WHERE post_type = :t AND status != 'trash' AND lang = '' ORDER BY created_at DESC, id DESC"
         );
         $stmt->execute([':t' => $typeKey]);
 

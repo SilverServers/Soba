@@ -39,13 +39,14 @@ define('BASE_URL', (string) $config['address']);
 define('BASE_PATH', (string) $config['base_path']);
 unset($config);
 
+require __DIR__ . '/lib/stand-ins.php';
+require __DIR__ . '/lib/autoload.php';
+
 if (!is_dir(__DIR__ . '/data') || !is_writable(__DIR__ . '/data')) {
     http_response_code(500);
     header('Content-Type: application/json; charset=utf-8');
+    \Cms\Http\Cache::noStore();
     exit(json_encode(['success' => false, 'message' => 'This form cannot be sent yet: this host does not let it write to its folder forms/data/.']));
 }
-
-require __DIR__ . '/lib/stand-ins.php';
-require __DIR__ . '/lib/autoload.php';
 
 \Cms\Export\Receiver\Handler::run(__DIR__);

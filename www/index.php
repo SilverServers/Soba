@@ -154,7 +154,7 @@ try {
     error_log('CMS: ' . $e->getMessage());
     http_response_code(503);
     header('Retry-After: 30');
-    header('Cache-Control: no-store');
+    \Cms\Http\Cache::noStore();
     header('Content-Type: text/plain; charset=utf-8');
     exit("This site is being updated. Please try again in a minute.\n");
 }
@@ -197,6 +197,9 @@ $sessionPath = $sessionPath === '/' ? '/' : rtrim($sessionPath, '/');
     $sessionPath === '/' . ADMIN_URL_SLUG || str_starts_with($sessionPath, '/' . ADMIN_URL_SLUG . '/')
     || (\Cms\Security\LoginUrl::enabled() && $sessionPath === \Cms\Security\LoginUrl::path())
 );
+// A PUBLIC PAGE ANSWERED TO A SIGNED-IN ACCOUNT may carry its way into the
+// admin (`Site\EditBar`), so no browser or proxy keeps it for anyone else.
+\Cms\Site\EditBar::begin();
 
 // h() / icon() / partial() for the admin templates. Functions, not classes, so
 // the autoloader cannot reach them — see the file's own header. After the site
@@ -316,6 +319,9 @@ $router->addRoute('GET',  '/order/{key:[a-f0-9]+}',   [ShopController::class, 'o
 // -----------------------------------------------------------------------
 $router->addRoute('GET',  '/admin',        [DashboardController::class, 'index']);
 $router->addRoute('POST', '/admin/welcome/hide', [DashboardController::class, 'hideWelcome']);
+// FIND ANYTHING BY ITS NAME (`Ui\Find`): the top bar's box, sent without a
+// script or before its list has come, opens the first thing found.
+$router->addRoute('GET', '/admin/find', [\Cms\Controllers\Admin\FindController::class, 'open']);
 $router->addRoute('GET',  '/admin/login',  [AuthController::class,      'legacyLogin']);
 $router->addRoute('POST', '/admin/login',  [AuthController::class,      'legacyLogin']);
 if (\Cms\Security\LoginUrl::enabled()) {
@@ -378,6 +384,12 @@ $router->addRoute('POST', '/admin/media/folders/{id:\d+}/delete', [AdminMediaCon
 // Admin — Components: Galleries
 // -----------------------------------------------------------------------
 $router->addRoute('GET',  '/admin/galleries',                  [GalleryController::class, 'index']);
+// A site's own settings pages (`Site\SettingsPages`), for the roles each names.
+$router->addRoute('GET',  '/admin/site-settings/{key:[a-z0-9][a-z0-9-]*}', [\Cms\Controllers\Admin\SettingsPageController::class, 'show']);
+$router->addRoute('POST', '/admin/site-settings/{key:[a-z0-9][a-z0-9-]*}', [\Cms\Controllers\Admin\SettingsPageController::class, 'handle']);
+// Files and media → Picture places (`Models\PicturePlace`).
+$router->addRoute('GET',  '/admin/picture-places',             [\Cms\Controllers\Admin\PicturePlaceController::class, 'show']);
+$router->addRoute('POST', '/admin/picture-places',             [\Cms\Controllers\Admin\PicturePlaceController::class, 'handle']);
 // ── ONE WORD FOR ONE ACT: `/new` ────────────────────────────────────────
 // Content Types, pages, taxonomies, field groups and coupons create at `/new`,
 // while galleries, forms, menus and users used `/create`. One act, two words,
@@ -547,6 +559,10 @@ $router->addRoute('POST', '/admin/tools/import/wordpress',                      
 $router->addRoute('GET',  '/admin/tools/import/wordpress/{token:[a-f0-9]{24}}',      [ImportController::class, 'report']);
 $router->addRoute('POST', '/admin/tools/import/wordpress/{token:[a-f0-9]{24}}/step', [ImportController::class, 'step']);
 $router->addRoute('GET', '/admin/tools/system-health', [ToolsController::class, 'systemHealth']);
+// Every sample entry to the Trash, from the list System health shows (`Models\Post::SAMPLE`).
+$router->addRoute('POST', '/admin/tools/system-health/samples', [ToolsController::class, 'trashSamples']);
+// Every earlier address of the site replaced with its own (`Site\OldAddresses`).
+$router->addRoute('POST', '/admin/tools/system-health/addresses', [ToolsController::class, 'replaceAddresses']);
 
 // Redirects — a tool of its own, not a tab on Settings → SEO;
 // `RedirectsController`'s header has the reasoning. The old address,
@@ -558,6 +574,15 @@ $router->addRoute('POST', '/admin/tools/redirects/{id:\d+}/delete',    [Redirect
 // The addresses visitors did not find (`SEO\NotFound`), listed on the same screen.
 $router->addRoute('POST', '/admin/tools/redirects/not-found/{id:\d+}/dismiss', [RedirectsController::class, 'dismissNotFound']);
 $router->addRoute('POST', '/admin/tools/redirects/not-found/clear',           [RedirectsController::class, 'clearNotFound']);
+
+// A SITE'S OWN TOOL DRAWN IN THE ADMIN'S FRAME (`Site\Tools`, `'frame' => true`):
+// every address under it, answered once the admin has loaded. A tool without
+// the frame was handed over near the top of this file and never reaches here.
+foreach (array_keys(\Cms\Site\Tools::framed()) as $toolPath) {
+    foreach (['GET', 'POST'] as $toolMethod) {
+        $router->addRoute($toolMethod, '/admin/tools/' . $toolPath . '[/{rest:.+}]', [\Cms\Controllers\Admin\SiteToolController::class, 'handle', $toolPath]);
+    }
+}
 
 // A STATIC COPY OF THE SITE (`Export\StaticCopy`): the screen, the start, one
 // polled step of the job, and its archive. The id's exact shape is checked by
@@ -648,6 +673,8 @@ $router->addRoute('POST', '/api/v1/session/leave',                  [\Cms\Contro
 // -----------------------------------------------------------------------
 $router->addRoute('GET',  '/api/v1/media',                          [ApiMediaController::class, 'list']);
 $router->addRoute('POST', '/api/v1/media/upload',                   [ApiMediaController::class, 'upload']);
+// A file larger than one request, a piece at a time (`Media\Pieces`).
+$router->addRoute('POST', '/api/v1/media/upload/piece',             [ApiMediaController::class, 'uploadPiece']);
 $router->addRoute('POST', '/api/v1/media/{id:\d+}/update',          [ApiMediaController::class, 'update']);
 $router->addRoute('POST', '/api/v1/media/{id:\d+}/replace',         [ApiMediaController::class, 'replace']);
 $router->addRoute('GET',  '/api/v1/media/{id:\d+}/versions',        [ApiMediaController::class, 'versions']);
@@ -677,6 +704,8 @@ $router->addRoute('POST', '/api/v1/stock',                    [\Cms\Controllers\
 // -----------------------------------------------------------------------
 $router->addRoute('GET',  '/api/v1/menus/{id:\d+}/items',     [ApiMenuController::class, 'items']);
 $router->addRoute('POST', '/api/v1/menus/{id:\d+}/items',     [ApiMenuController::class, 'saveItems']);
+// What the top bar's box offers as one types (`Ui\Find`).
+$router->addRoute('GET',  '/api/v1/find',                       [\Cms\Controllers\Api\FindController::class, 'results']);
 $router->addRoute('GET',  '/api/v1/menu-sources/pages',       [ApiMenuController::class, 'sourcePages']);
 $router->addRoute('GET',  '/api/v1/menu-sources/content-types', [ApiMenuController::class, 'sourceContentTypes']);
 $router->addRoute('GET',  '/api/v1/menu-sources/terms',         [ApiMenuController::class, 'sourceTerms']);
@@ -762,9 +791,11 @@ foreach (TaxonomyRegistry::all() as $taxKey => $tax) {
 // -----------------------------------------------------------------------
 foreach (Registry::all() as $contentTypeKey => $contentType) {
     $s = $contentType['admin_slug'];  // admin URL segment, e.g. 'news'
-    $p = $contentType['public_slug']; // public URL segment, e.g. 'news' — null = no public routes
+    // Its public URL segment, e.g. 'news', or null when its entries have no
+    // page of their own (`Registry::hasPages()`): then no public route at all.
+    $p = Registry::publicSlug((string) $contentTypeKey);
 
-    if ($p !== null && $p !== '') {
+    if ($p !== null) {
         // Public archive (listing) page
         $router->addRoute('GET', "/{$p}",        [PublicContentTypeController::class,  'archive', $contentTypeKey]);
 
@@ -812,6 +843,12 @@ foreach (Registry::all() as $contentTypeKey => $contentType) {
     $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/delete", [ContentTypeController::class, 'handleDelete',  $contentTypeKey]);
     // One action on the entries ticked in the list or the trash.
     $router->addRoute('POST', "/admin/{$s}/bulk",             [ContentTypeController::class, 'handleBulk',    $contentTypeKey]);
+    // ITS ROWS ON ITS PARENT'S EDITOR (`ContentType\Children`): one added, one
+    // saved, one to the trash, and their order within one parent.
+    $router->addRoute('POST', "/admin/{$s}/rows",             [ContentTypeController::class, 'handleRowCreate', $contentTypeKey]);
+    $router->addRoute('POST', "/admin/{$s}/order",            [ContentTypeController::class, 'handleOrder',     $contentTypeKey]);
+    $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/row",    [ContentTypeController::class, 'handleRowSave',   $contentTypeKey]);
+    $router->addRoute('POST', "/admin/{$s}/{id:\\d+}/row/trash", [ContentTypeController::class, 'handleRowTrash', $contentTypeKey]);
 }
 
 // -----------------------------------------------------------------------
@@ -849,7 +886,7 @@ if ($second !== '') {
     $router->addRoute('GET', "{$l}",        [HomeController::class,         'index', null, $second]);
     $router->addRoute('GET', "{$l}/search", [PublicSearchController::class, 'index', null, $second]);
     foreach (Registry::all() as $contentTypeKey => $contentType) {
-        $p = (string) ($contentType['public_slug'] ?? '');
+        $p = (string) Registry::publicSlug((string) $contentTypeKey);
         if ($p === '' || !\Cms\Content\Translation::translates((string) $contentTypeKey)) {
             continue;
         }
@@ -1006,6 +1043,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
         }
     }
+    // A SITE TOOL'S ROW THAT SAYS ANOTHER SERVICE POSTS TO IT, `'csrf' => false`,
+    // such as a webhook (`Site\Tools`): a framed one's POST reaches here.
+    if ($needsCsrf && str_starts_with($requestPath, '/' . ADMIN_URL_SLUG . '/tools/') && \Cms\Site\Tools::csrfExempt($requestPath)) {
+        $needsCsrf = false;
+    }
 
     if ($needsCsrf && !\Cms\Security\Csrf::validate()) {
         // A signed-out POST has no token by definition, and "Invalid CSRF
@@ -1025,6 +1067,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(403);
         if (str_starts_with($requestPath, '/api/')) {
             header('Content-Type: application/json');
+            \Cms\Http\Cache::noStore();
             echo json_encode(['success' => false, 'error' => 'Invalid or missing CSRF token.']);
         } else {
             echo 'Invalid or missing CSRF token. Please go back and try again.';
@@ -1045,6 +1088,11 @@ if (!$exporting) {
     \Cms\Commerce\Lapse::onVisit();
     // And a backup on its timetable, the same way (`Site\Backups`).
     \Cms\Site\Backups::onVisit();
+    // And the site's own scheduled tasks (`Site\Tasks`, admin/config/tasks.php).
+    \Cms\Site\Tasks::onVisit();
+    // A visit through a proxy config.php does not name, noted for System
+    // health (`ClientIp::noteUnnamed()`): free unless one comes.
+    \Cms\Security\ClientIp::noteUnnamed($_SERVER);
 }
 
 $result = $router->dispatch($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI']);

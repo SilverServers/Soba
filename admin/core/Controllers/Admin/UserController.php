@@ -250,6 +250,21 @@ class UserController
             }
         }
 
+        // ITS CORNERS, beside the theme and set by the same people: Square,
+        // the default, kept as NULL, or Rounded (`Ui\Theme::CORNERS`).
+        if (isset($_POST['radius_pref'])) {
+            $radius = (string) $_POST['radius_pref'];
+            if (!isset(\Cms\Ui\Theme::CORNERS[$radius])) {
+                $errors[] = 'Choose Square or Rounded corners.';
+            } else {
+                $stored = $radius === \Cms\Ui\Theme::DEFAULT_RADIUS ? null : $radius;
+                User::update($targetId, ['radius_pref' => $stored]);
+                if ($isSelf) {
+                    Auth::refreshSessionField('radius_pref', $stored);
+                }
+            }
+        }
+
         // Email (editable by self or admin)
         $email = trim((string) ($_POST['email'] ?? ''));
         if ($email !== '' && $email !== $profile['email']) {

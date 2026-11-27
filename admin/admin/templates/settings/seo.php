@@ -293,8 +293,11 @@ $tabUrl = static fn (string $key): string
 
                         <div class="field">
                             <label class="label" for="f-org-url">Website</label>
+                            <?php // Empty, this site's own address stands in, and follows it when it moves (`SEO\Schema`). ?>
                             <input class="input" type="text" id="f-org-url" name="seo_org_url"
-                                   value="<?= h($opt('seo_org_url')) ?>" spellcheck="false">
+                                   value="<?= h(\Cms\SEO\Schema::isOwnAddress($opt('seo_org_url')) ? '' : $opt('seo_org_url')) ?>" spellcheck="false"
+                                   placeholder="<?= h(defined('BASE_URL') ? BASE_URL : '') ?>">
+                            <p class="form-help">Left blank, this site's own address.</p>
                         </div>
 
                         <?php $orgLogo = $siteImage('seo_org_logo'); ?>

@@ -53,7 +53,7 @@ const USAGE = "Usage:\n"
     . "  php admin/bin/admin-theme.php list           every theme, and which the site offers\n"
     . "  php admin/bin/admin-theme.php check <file>   whether a site's own theme is ready\n";
 
-/** Every token Tuxedo's `:root[data-theme]` block defines: a theme without one inherits the default's. */
+/** Every token Tuxedo's `:root[data-theme]` block defines: a theme without one takes Tuxedo's, from the bare `:root`. */
 const TOKENS = [
     '--bg', '--surface', '--surface-2', '--ink', '--ink-2', '--ink-3', '--ink-disabled', '--border', '--border-strong',
     '--accent', '--accent-strong', '--accent-soft', '--hover', '--active', '--focus', '--danger', '--danger-soft',
@@ -116,7 +116,7 @@ function problems(string $key, string $css): array
     if (preg_match('/^[a-z0-9][a-z0-9-]{0,40}$/', $key) !== 1) {
         $out[] = 'Its file name must be its key: lower-case letters, digits and dashes, ending .css.';
     }
-    if (in_array($key, ['tuxedo', 'midnight', 'pearl'], true)) {
+    if (in_array($key, Theme::SHIPPED, true)) {
         $out[] = "\"{$key}\" is a theme the CMS ships; give the site's own theme a name of its own.";
     }
     if (Theme::read($key, $css) === null) {
@@ -252,6 +252,7 @@ if ($args === ['--self-test']) {
         'a sidebar block that leaves out the drawer'  => ['selftest', swap($good, ",\n:root[data-theme=\"selftest\"] .nav-drawer {", ' {'), true],
         'a pale selected row in the dark sidebar'     => ['selftest', swap($good, '--surface-2: #1d2530;', '--surface-2: #e1e6eb;'), true],
         'a key the CMS ships'                         => ['tuxedo', sample('tuxedo'), true],
+        'the default\'s key, which the CMS ships'      => ['carton', sample('carton'), true],
         'a file name that is not a plain key'         => ['Self_Test', sample('Self_Test'), true],
         'a file name that is not its key'             => ['other', $good, true],
         'a colour that cannot be measured'            => ['selftest', swap($good, '--ink: #0c1219;', '--ink: var(--x);'), true],
@@ -265,12 +266,12 @@ if ($args === ['--self-test']) {
         }
     }
 
-    // THE SITE'S LIST, config.php's 'admin_themes', tried on the three
+    // THE SITE'S LIST, config.php's 'admin_themes', tried on the four
     // themes the CMS ships.
     $offered = static fn (): string => implode(',', array_column(Theme::offered(), 'key'));
     $lists = [
-        'without the key, every theme is offered, Tuxedo the default' => [[],
-            static fn (): bool => array_slice(array_column(Theme::offered(), 'key'), 0, 3) === ['tuxedo', 'midnight', 'pearl'] && Theme::defaultKey() === 'tuxedo'],
+        'without the key, every theme is offered, Carton the default' => [[],
+            static fn (): bool => array_slice(array_column(Theme::offered(), 'key'), 0, 4) === ['carton', 'tuxedo', 'midnight', 'pearl'] && Theme::defaultKey() === 'carton'],
         'a list offers its themes alone, in its order, the first the default' => [['pearl', 'tuxedo'],
             static fn (): bool => $offered() === 'pearl,tuxedo' && Theme::defaultKey() === 'pearl'],
         'a choice the list leaves out is not offered, and wears the default' => [['pearl', 'tuxedo'],
@@ -280,7 +281,7 @@ if ($args === ['--self-test']) {
         'a key that names no theme is passed over' => [['nosuch', 'midnight'],
             static fn (): bool => $offered() === 'midnight' && Theme::defaultKey() === 'midnight'],
         'a list that names no theme offers every theme' => [['nosuch'],
-            static fn (): bool => Theme::defaultKey() === 'tuxedo' && count(Theme::offered()) === count(Theme::all())],
+            static fn (): bool => Theme::defaultKey() === 'carton' && count(Theme::offered()) === count(Theme::all())],
         'a theme named twice is offered once' => [['pearl', 'pearl', 'tuxedo'],
             static fn (): bool => $offered() === 'pearl,tuxedo'],
     ];

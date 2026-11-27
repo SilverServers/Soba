@@ -82,7 +82,7 @@ final class ProductFeed
     {
         $out = [];
         foreach (Registry::all() as $key => $type) {
-            if (!Product::isSellableType((string) $key) || (string) ($type['public_slug'] ?? '') === '') {
+            if (!Product::isSellableType((string) $key) || !Registry::hasPages((string) $key)) {
                 continue;
             }
             $stmt = Database::getInstance()->prepare(
@@ -94,7 +94,7 @@ final class ProductFeed
                 if ($product === null) {
                     continue;
                 }
-                foreach (self::itemsOf($product, (string) $type['public_slug'], $brand) as $item) {
+                foreach (self::itemsOf($product, (string) Registry::publicSlug((string) $key), $brand) as $item) {
                     $out[] = $item;
                 }
             }

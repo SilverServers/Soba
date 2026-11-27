@@ -62,8 +62,7 @@ final class Sources
         // entry's translation is not one of them.
         $out = [];
         foreach (Post::all($type) as $row) {
-            if (($row['status'] ?? '') !== 'published' || Post::isScheduled($row) || Post::hasEnded($row)
-                || (string) ($row['lang'] ?? '') !== '') {
+            if (!Post::onSite($row) || (string) ($row['lang'] ?? '') !== '') {
                 continue;
             }
             $title = trim((string) ($row['title'] ?? ''));
